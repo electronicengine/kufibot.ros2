@@ -53,19 +53,44 @@ Aşağıdaki şema çalışma zamanı veri akışını gösterir. Topic adları 
 isim alanı kullanılmayan başlatmaya aittir.
 
 ```mermaid
-flowchart TD
-    Camera["USB kamera node"] -->|/camera/image_raw| MP["MediaPipe node"]
-    Camera -->|/camera/image_raw: anlık görüntü| Voice["Voice agent node"]
-    Sensors["INA219 / HMC5883L / TF-Luna"] -->|/battery_state, /compass/heading_deg, /lidar/range| Voice
-    MP -->|/perception/faces, /perception/hands, /perception/tracking_target| Voice
-    MP -->|/servo/tracking_targets: JointCommand| Arbiter["Servo arbiter"]
-    Voice <-->|"ses, metin, araç çağrıları, görüntü"| Cloud["Verasist SDK / servis"]
-    Voice --- Expressions["Yerel ifade motoru + embedding worker"]
-    Voice -->|/servo/agent_targets: JointCommand| Arbiter
-    Arbiter -->|/servo/joint_targets: JointState| Servo["Servo node / PCA9685"]
+flowchart LR
+    subgraph Input["Veri kaynakları"]
+        direction TB
+        Camera["USB kamera node"]
+        Sensors["Sensör node'ları<br/>INA219 · HMC5883L · TF-Luna"]
+    end
+
+    subgraph Perception["Algılama"]
+        MP["MediaPipe node"]
+    end
+
+    subgraph Interaction["Etkileşim"]
+        direction TB
+        Voice["Voice agent node"]
+        Expressions["Yerel ifade motoru<br/>+ embedding worker"]
+    end
+
+    subgraph Motion["Servo kontrolü"]
+        direction TB
+        Arbiter["Servo arbiter"]
+        Servo["Servo node / PCA9685"]
+    end
+
+    Cloud["Verasist SDK / servis"]
+
+    Camera -->|/camera/image_raw| MP
+    Camera -->|anlık görüntü| Voice
+    Sensors -->|batarya · pusula · mesafe| Voice
+    MP -->|yüz · el · takip hedefi| Voice
+    MP -->|/servo/tracking_targets| Arbiter
+    Voice --- Expressions
+    Voice <-->|ses · metin · araç çağrısı · görüntü| Cloud
+    Voice -->|/servo/agent_targets| Arbiter
+    Arbiter -->|/servo/joint_targets| Servo
     Servo -->|/servo/joint_states| Arbiter
-    Servo -->|/servo/joint_states| Voice
-    Operator["Harici sürüş komutu"] -.->|/cmd_vel: Twist| Motor["DC motor node: ayrı başlatılır"]
+    Servo -.->|eklem durumu| Voice
+
+    Operator["Harici sürüş komutu"] -.->|/cmd_vel: Twist| Motor["DC motor node<br/>(ayrı başlatılır)"]
 ```
 
 Arbiter, süreli ajan komutlarına takip komutları karşısında öncelik verir ve
