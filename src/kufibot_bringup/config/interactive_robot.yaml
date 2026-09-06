@@ -57,3 +57,9 @@ servo_node:
     step_deg: 1.0
     arm_step_deg: 0.3
     step_delay_ms: 15.0
+
+remote_controller:
+  ros__parameters:
+    port: 8080
+    discovery_port: 8888
+    robot_name: Kufibot

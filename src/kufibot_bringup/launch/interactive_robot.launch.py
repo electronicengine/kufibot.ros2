@@ -6,6 +6,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -16,6 +17,14 @@ def generate_launch_description():
     config = LaunchConfiguration('config')
     return LaunchDescription([
         DeclareLaunchArgument('config', default_value=default_config),
+        DeclareLaunchArgument('remote', default_value='false'),
+        DeclareLaunchArgument('motors', default_value='false'),
+        Node(package='kufibot_remote', executable='remote_controller',
+             name='remote_controller', parameters=[config], output='screen',
+             condition=IfCondition(LaunchConfiguration('remote'))),
+        Node(package='kufibot_actuators', executable='dc_motor_node',
+             name='dc_motor_node', parameters=[config], output='screen',
+             condition=IfCondition(LaunchConfiguration('motors'))),
         Node(package='kufibot_sensors', executable='ina219_node',
              name='ina219_node', output='screen'),
         Node(package='kufibot_sensors', executable='hmc5883l_node',

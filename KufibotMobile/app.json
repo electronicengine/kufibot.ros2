@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "Kufibot", "slug": "kufibot-controller", "version": "1.0.0",
+    "orientation": "landscape", "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.kufibot.controller", "permissions": ["INTERNET", "ACCESS_NETWORK_STATE", "ACCESS_WIFI_STATE", "CHANGE_WIFI_MULTICAST_STATE"]
+    },
+    "plugins": [["expo-build-properties", {"android": {"usesCleartextTraffic": true}}]]
+  }
+}

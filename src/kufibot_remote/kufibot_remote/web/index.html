@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071015">
+  <title>Kufibot · Robot Kumandası</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/style.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <main class="controller" aria-label="Kufibot robot kumandası">
+    <div class="camera-stage">
+      <img id="camera" alt="Robot kamerasından canlı görüntü" draggable="false" hidden>
+      <div id="camera-placeholder" class="camera-placeholder">
+        <div class="reticle" aria-hidden="true"><span></span></div>
+        <h1>KUFIBOT</h1>
+        <p id="camera-message">Robota bağlanılıyor…</p>
+      </div>
+    </div>
+
+    <header class="top-bar">
+      <section class="sensor-group" aria-label="Güç sensörleri">
+        <button id="menu-open" class="brand" aria-label="Bağlantı ve yardım menüsü">☰ <span>KUFIBOT</span><small>CONTROL</small></button>
+        <div class="sensor"><span>AKIM</span><strong id="current">— A</strong></div>
+        <div class="sensor"><span>GERİLİM</span><strong id="voltage">— V</strong></div>
+      </section>
+      <section class="top-center" aria-label="Kontrol modu ve bağlantı">
+        <div class="mode-switch">
+          <button id="mode-remote" aria-pressed="false" disabled>KUMANDA</button>
+          <button id="mode-ai" aria-pressed="false" disabled>YZ MODU</button>
+        </div>
+        <div class="connection"><i id="connection-dot"></i><span id="connection" role="status">Bağlanıyor…</span></div>
+        <div id="mode-notice" class="notice" hidden>Servo kontrolü bekleniyor</div>
+        <button id="claim" class="claim" hidden>Kumandayı devral</button>
+      </section>
+      <section class="sensor-group" aria-label="Çevre sensörleri">
+        <div class="live-heading"><i id="live-dot"></i> CANLI GÖRÜNTÜ</div>
+        <div class="sensor"><span>PUSULA</span><strong id="heading">— °</strong></div>
+        <div class="sensor"><span>MESAFE</span><strong id="distance">— m</strong></div>
+      </section>
+    </header>
+
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <section class="bottom-bar" aria-label="Hareket ve eklem kontrolleri">
+      <div class="control-column">
+        <label class="eye-control"><span>SOL GÖZ</span><input id="eyeLeft" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
+        <div class="joystick-label" id="drive-label">HAREKET</div>
+        <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Hareket joysticki, WASD tuşları" aria-disabled="true">
+          <span class="axis axis-x"></span><span class="axis axis-y"></span>
+          <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
+          <span class="knob"></span>
+        </div>
+        <label class="arm-control" for="leftArm"><span>SOL KOL</span><output id="leftArm-value">— °</output></label>
+        <input id="leftArm" type="range" min="109" max="180" step="1" value="170" disabled>
+      </div>
+
+      <div class="bottom-center">
+        <div class="camera-tag" id="camera-tag">KAMERA BEKLENİYOR</div>
+        <button id="stop" class="stop" disabled title="Kumanda joysticklerini durdur (Boşluk)">DUR <span>■</span></button>
+        <p id="control-hint">Kontrol bağlantısı bekleniyor</p>
+        <div class="keyboard-hint"><span><kbd>W A S D</kbd> hareket</span><span><kbd>↑ ← ↓ →</kbd> kafa</span></div>
+        <button id="fullscreen" class="fullscreen">⛶ Tam ekran</button>
+      </div>
+
+      <div class="control-column">
+        <label class="eye-control"><span>SAĞ GÖZ</span><input id="eyeRight" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
+        <div class="joystick-label">KAFA</div>
+        <div id="head-stick" class="joystick" role="group" tabindex="0" aria-label="Kafa joysticki, yön tuşları" aria-disabled="true">
+          <span class="axis axis-x"></span><span class="axis axis-y"></span>
+          <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
+          <span class="knob"></span>
+        </div>
+        <label class="arm-control" for="rightArm"><span>SAĞ KOL</span><output id="rightArm-value">— °</output></label>
+        <input id="rightArm" type="range" min="10" max="72" step="1" value="15" disabled>
+      </div>
+    </section>
+    <footer><span id="endpoint"></span><span>YEREL AĞ KUMANDASI</span></footer>
+  </main>
+
+  <dialog id="menu" aria-labelledby="menu-title">
+    <div class="dialog-header"><h2 id="menu-title">Robot bağlantısı</h2><button id="menu-close" aria-label="Menüyü kapat">✕</button></div>
+    <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>
+    <div class="address" id="menu-address"></div>
+    <button id="reconnect" class="secondary">Bağlantıyı yenile</button>
+    <h3>Kontroller</h3>
+    <p>Joystickleri fareyle veya dokunarak sürükle. İki joystick aynı anda kullanılabilir. Bıraktığında hareket durur; kafa son hedefinde kalır.</p>
+    <dl><dt>W A S D</dt><dd>İleri, sol, geri, sağ</dd><dt>Yön tuşları</dt><dd>Kafayı çevir</dd><dt>Boşluk / DUR</dt><dd>Kumanda joysticklerini sıfırla</dd></dl>
+    <p>Kumanda modunda YZ hareketleri engellenir. YZ modunda mevcut takip ve sesli asistan hareketleri açılır. DUR, YZ hareketlerini iptal eden bir acil durdurma değildir.</p>
+    <p>Sekme arka plana geçtiğinde bağlantı ve kontrol sahipliği bırakılır. Başka bir telefon veya tarayıcı kontrol ediyorsa izleyici olarak bağlanırsın.</p>
+  </dialog>
+  <noscript>Robot kumandasını kullanmak için tarayıcınızda JavaScript etkin olmalıdır.</noscript>
+</body>
+</html>

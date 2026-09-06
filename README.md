@@ -1,7 +1,7 @@
 # Kufibot ROS 2
 
 ROS 2 Jazzy packages for Kufibot sensors, actuators, USB-camera perception,
-MediaPipe tracking, and a Verasist live voice agent.
+MediaPipe tracking, a Verasist live voice agent, and Android/web remote control.
 
 Kufibot, Verasist.ai SDK'sı ile çalışan sesli yapay zekâ destekli bir ev
 asistanı robotudur. Verasist üzerinden sosyal medya, CRM, yazılım ve çeşitli
@@ -9,10 +9,16 @@ servislerle entegrasyon kurulabilir; böylece robot farklı asistan görevlerini
 yerine getirebilir ve platformlar arasında çalışabilir. Ayrıca Verasist'te
 oluşturulan iş akışları, robotun belirli görevler için özelleştirilmesini sağlar.
 
+Robot, React Native/Expo Android uygulaması veya tarayıcı üzerinden aynı yerel
+ağda kontrol edilebilir. İki arayüz de canlı kamera, sensör göstergeleri,
+hareket/kafa joystickleri, kol/göz kontrolleri ve Kumanda/YZ modu geçişini sunar.
+Android uygulaması robotu UDP ile keşfeder; web kumandası doğrudan
+`http://ROBOT_IP:8080/` adresinden açılır. İkisi de aynı ROS köprüsünü kullanır.
+
 ## Proje yapısı ve mimari
 
-Sistem altı ROS 2 paketinden oluşur. `kufibot_bringup` paketleri bir araya
-getirir; çalışma zamanı paketleri bringup paketine bağımlı değildir.
+Sistem yedi ROS 2 paketinden ve iki kullanıcı arayüzünden oluşur.
+`kufibot_bringup` paketleri bir araya getirir; çalışma zamanı paketleri bringup paketine bağımlı değildir.
 
 | Paket | Sorumluluk |
 | --- | --- |
@@ -21,13 +27,18 @@ getirir; çalışma zamanı paketleri bringup paketine bağımlı değildir.
 | `kufibot_sensors` | INA219 batarya, HMC5883L pusula ve TF-Luna mesafe sürücüleri |
 | `kufibot_perception` | USB kamera, MediaPipe algılama ve baş/boyun takip hedefleri |
 | `kufibot_interaction` | Verasist oturumu, ses, yerel ifade seçimi ve servo komut önceliklendirmesi |
-| `kufibot_actuators` | PCA9685 servo çıkışı ve ayrı çalıştırılan DC motor sürücüsü |
+| `kufibot_actuators` | PCA9685 servo çıkışı ve isteğe bağlı DC motor sürücüsü |
+| `kufibot_remote` | Web arayüzünü sunma, UDP keşfi, WebSocket kamera/sensör aktarımı ve uzaktan kontrol köprüsü |
 
 ```text
 ros2_kufibot/
 ├── README.md
 ├── requirements.txt             # ROS dışı Python bağımlılıkları
 ├── pytest.ini                   # Kaynak testleri; donanım denemeleri hariç
+├── KufibotMobile/                # React Native / Expo Android uygulaması
+│   ├── App.tsx, src/             # Kamera, sensörler, joystickler ve bağlantı
+│   └── modules/kufibot-discovery/ # Android için yerel UDP keşif modülü
+├── KufibotController/            # Arayüze referans olan önceki Java uygulaması
 ├── tools/ros2_launch.sh          # ROS + venv ortamını hazırlayan giriş noktası
 ├── src/
 │   ├── kufibot_bringup/
@@ -37,9 +48,13 @@ ros2_kufibot/
 │   ├── kufibot_sensors/
 │   ├── kufibot_actuators/
 │   ├── kufibot_perception/
-│   └── kufibot_interaction/
-│       ├── kufibot_interaction/ # Python modülleri
-│       └── test/                # Otomatik testler
+│   ├── kufibot_interaction/
+│   │   ├── kufibot_interaction/ # Python modülleri
+│   │   └── test/                # Otomatik testler
+│   └── kufibot_remote/
+│       ├── kufibot_remote/     # ROS adaptörü, kontrol mantığı ve ağ sunucusu
+│       │   └── web/            # HTML/CSS/JS web kumandası; ROS paketiyle kurulur
+│       └── test/               # Köprü, HTTP/WebSocket ve Chromium testleri
 └── build/, install/, log/       # Colcon üretir; kaynak değildir
 ```
 
@@ -54,65 +69,89 @@ isim alanı kullanılmayan başlatmaya aittir.
 
 ```mermaid
 flowchart LR
-    subgraph Input["Veri kaynakları"]
+    subgraph Clients["Kullanıcı arayüzleri · aynı yerel ağ"]
         direction TB
-        Camera["USB kamera node"]
+        Mobile["KufibotMobile<br/>Expo Android"]
+        Browser["Web tarayıcısı<br/>http://ROBOT_IP:8080/"]
+    end
+
+    subgraph Input["Robot üzerindeki veri kaynakları"]
+        Camera["usb_camera_node"]
         Sensors["Sensör node'ları<br/>INA219 · HMC5883L · TF-Luna"]
     end
 
-    subgraph Perception["Algılama"]
-        MP["MediaPipe node"]
-    end
-
+    MP["mediapipe_node"]
     subgraph Interaction["Etkileşim"]
-        direction TB
-        Voice["Voice agent node"]
+        Voice["voice_agent_node"]
         Expressions["Yerel ifade motoru<br/>+ embedding worker"]
     end
-
-    subgraph Motion["Servo kontrolü"]
-        direction TB
-        Arbiter["Servo arbiter"]
-        Servo["Servo node / PCA9685"]
-    end
-
+    Remote["remote_controller · kufibot_remote<br/>remote:=true ile başlar<br/>HTTP + WebSocket + UDP"]
     Cloud["Verasist SDK / servis"]
 
+    subgraph Motion["Hareket kontrolü"]
+        Arbiter["servo_arbiter<br/>Kumanda / YZ önceliği"]
+        Servo["servo_node / PCA9685"]
+        Motor["dc_motor_node<br/>motors:=true ile başlar"]
+    end
+
+    Mobile <-->|UDP 8888 · keşif| Remote
+    Mobile <-->|WS /control · komut ve durum| Remote
+    Browser <-->|HTTP / · WS /control| Remote
+    Remote -->|WS /video · JPEG| Mobile
+    Remote -->|WS /video · JPEG| Browser
     Camera -->|/camera/image_raw| MP
-    Camera -->|anlık görüntü| Voice
+    Camera -->|/camera/image_raw| Voice
+    Camera -->|/camera/image_raw| Remote
     Sensors -->|batarya · pusula · mesafe| Voice
+    Sensors -->|batarya · pusula · mesafe| Remote
     MP -->|yüz · el · takip hedefi| Voice
     MP -->|/servo/tracking_targets| Arbiter
     Voice --- Expressions
     Voice <-->|ses · metin · araç çağrısı · görüntü| Cloud
     Voice -->|/servo/agent_targets| Arbiter
-    Arbiter -->|/servo/joint_targets| Servo
+    Remote -->|/remote/command · String içinde JSON| Arbiter
+    Arbiter -->|/remote/applied_mode · String| Remote
+    Arbiter -->|/servo/joint_targets · JointState| Servo
     Servo -->|/servo/joint_states| Arbiter
+    Servo -->|/servo/joint_states| Remote
     Servo -.->|eklem durumu| Voice
-
-    Operator["Harici sürüş komutu"] -.->|/cmd_vel: Twist| Motor["DC motor node<br/>(ayrı başlatılır)"]
+    Remote -->|/cmd_vel · Twist| Motor
 ```
 
-Arbiter, süreli ajan komutlarına takip komutları karşısında öncelik verir ve
-eklem sınırlarını uygular. Takip yalnızca `neck` ve `headLeftRight` eklemlerini
-hedefler. Servo sürücüsü ayrıca elle deneme için `/servo/<joint>/angle_deg`
-girişlerini kabul eder; bu yol arbiter dışındadır. DC motor node, iki bringup
-launch dosyasında da başlatılmaz ve ses ajanı `/cmd_vel` üretmez.
+Kamera ve sensör verileri hem ses ajanına hem uzaktan kontrol köprüsüne gider;
+köprü mevcut ROS kamera görüntüsünü JPEG'e dönüştürür, kamera aygıtını ikinci kez
+açmaz. Web arayüzü köprünün içinden sunulur; robot üzerinde ayrı Node.js sunucusu
+gerekmez. HTTP, `/control` ve `/video` varsayılan TCP `8080` portunu paylaşır;
+UDP `8888` yalnızca Android keşfi içindir.
+
+Köprü olmadan başlatılan arbiter varsayılan olarak YZ davranışıyla çalışır.
+Köprü başlatıldığında
+Kumanda modu seçilidir: ajan ve takip servo komutları engellenir, uzaktan gelen
+eklem hedefleri uygulanır. YZ modunda süreli ajan komutları takip komutlarına
+önceliklidir. Takip yalnızca `neck` ve `headLeftRight` eklemlerini hedefler;
+arbiter eklem sınırlarını uygular. Servo sürücüsünün elle deneme için kabul ettiği
+`/servo/<joint>/angle_deg` girişleri arbiter dışındadır.
+
+`interactive_robot.launch.py`, `remote:=true` ile köprüyü, `motors:=true` ile DC
+motor node'unu başlatır; ikisi de varsayılan olarak kapalıdır. Ses ajanı
+`/cmd_vel` üretmez. `tracking_test.launch.py` bu iki node'u başlatmaz.
 
 ## Robotun çalışma akışı
 
 `interactive_robot.launch.py` çalıştığında sensör, kamera, MediaPipe, servo,
-arbiter ve ses ajanı node'ları birlikte başlar. Ses ajanındaki `auto_start`
-parametresi açıksa Verasist oturumunu da açar; kapalıysa oturum aşağıdaki
+arbiter ve ses ajanı node'ları birlikte başlar. İsteğe bağlı uzaktan kontrol ve
+motor node'ları yukarıdaki launch argümanlarıyla eklenir. Ses ajanındaki
+`auto_start` parametresi açıksa Verasist oturumunu da açar; kapalıysa oturum aşağıdaki
 servisle başlatılır:
 
 ```bash
 ros2 service call /voice_session/start std_srvs/srv/Trigger '{}'
 ```
 
-Node'ların çalışma sırası ve birbirleriyle haberleşmesi aşağıdadır. Okların
-üzerindeki adlar ROS topic veya servistir; parantez içi ifadeler mesaj türünü
-gösterir.
+YZ tarafındaki başlatma ve veri akışı aşağıdadır; launch node'ları başlatır,
+ok sırası aralarında bir hazır olma garantisi ifade etmez. Okların üzerindeki
+adlar ROS topic veya servistir; parantez içi ifadeler mesaj türünü gösterir.
+Uzaktan kumanda akışı sonraki şemada ayrıca gösterilir.
 
 ```mermaid
 sequenceDiagram
@@ -139,6 +178,7 @@ sequenceDiagram
     V->>G: mikrofon sesi, metin ve gerektiğinde kamera görüntüsü
     G-->>V: sesli/metinsel yanıt ve araç çağrıları
     V-->>A: servo/agent_targets (JointCommand)
+    Note over A,S: YZ modunda ajan/takip hedefleri uygulanır<br/>Kumanda modunda engellenir
     A-->>S: servo/joint_targets (JointState)
     S-->>A: servo/joint_states (JointState)
     S-->>V: servo/joint_states (JointState)
@@ -148,8 +188,9 @@ Konuşma turunda ses ajanı, sensör ve algılama verilerini kısa süreli önbe
 tutar. Kullanıcı konuşmaya başladığında güncel kamera görüntüsünü oturuma
 bağlamaya çalışır. Servisten gelen araç çağrısı eklem hareketi istiyorsa ajan
 `/servo/agent_targets` yayınlar. Aynı anda MediaPipe takip hedefi yayınlasa
-bile arbiter ajan komutunu yalnızca belirlenen bekleme süresi boyunca öncelikli
-tutar; süre dolunca takip kontrolü devam eder.
+bile arbiter, YZ modunda ajan komutunu yalnızca belirlenen bekleme süresi boyunca
+öncelikli tutar; süre dolunca takip kontrolü devam eder. Kumanda modunda sesli
+asistan oturumu sürer ancak bu ajan/takip servo komutları uygulanmaz.
 
 Ses ajanının dışarıya yayımladığı durum ve metin topic'leri, bir arayüz veya
 kayıt node'u eklemek için kullanılabilir:
@@ -171,9 +212,130 @@ Yeni davranışları bu ayrımı koruyarak ekleyin; paketler arası veri alışv
 ROS mesajları üzerinden yapılmalıdır. Ortak mesajlar `kufibot_interfaces`
 içinde, sisteme özgü başlatma tercihleri `kufibot_bringup` içinde tutulur.
 
+## Mobil ve web uzaktan kumanda
+
+Her iki arayüz önceki Java `KufibotController` uygulamasının kamera üstüne
+bindirilmiş kumanda düzenini temel alır. Üst köşelerde akım, gerilim, pusula ve
+mesafe; solda hareket, sağda kafa joysticki; altta kol sürgüleri ve göz anahtarları
+bulunur. Üst ortadan **KUMANDA / YZ MODU** seçilir.
+
+| Arayüz | Kaynak | Bağlantı ve kullanım |
+| --- | --- | --- |
+| Expo Android | `KufibotMobile/` | Aynı ağda UDP keşfi; robot seçimi veya elle IP girişi; development build / APK |
+| Web | `src/kufibot_remote/kufibot_remote/web/` | `http://ROBOT_IP:8080/`; fare ve dokunmatik joystickler, WASD ile hareket, yön tuşlarıyla kafa |
+
+### Başlatma ve erişim
+
+Ana kurulum adımlarından sonra, proje kökünde:
+
+```bash
+./tools/ros2_launch.sh kufibot_bringup interactive_robot.launch.py \
+  remote:=true motors:=true
+```
+
+Yalnızca kamera, sensörler ve servo kontrolü için `motors:=false` kullanın.
+Robot yığını zaten çalışıyorsa ikinci kez başlatmayın; mevcut köprü güncellemeden
+sonra yeniden başlatılmalıdır. Yığına yalnızca köprü ekleme adımları
+[web kumandası rehberinde](src/kufibot_remote/README.md) bulunur.
+
+Web için tarayıcıda `http://ROBOT_IP:8080/` açılır; robot IP'si robot üzerinde
+`hostname -I` ile görülebilir. Sayfa kamera ve kontrol soketlerini kendi IP/port
+adresinden açar; tarayıcıda UDP keşfi gerekmez. Robot üzerinde npm, Expo veya
+ayrı bir web sunucusu çalıştırılmaz.
+
+Android uygulamasını Node.js ve Android SDK bulunan geliştirme bilgisayarında
+kurmak için:
+
+```bash
+cd KufibotMobile
+npm ci
+npm run android
+```
+
+Yerel UDP keşif modülü nedeniyle Expo Go yerine development build kullanılır.
+APK derleme, bağlantı ve telefon kurulumu ayrıntıları
+[mobil kumanda rehberindedir](KufibotMobile/README.md).
+
+`src/kufibot_bringup/config/interactive_robot.yaml` içindeki `remote_controller`
+parametreleri `robot_name`, `port` (varsayılan `8080`) ve `discovery_port`
+(varsayılan `8888`) değerlerini belirler. Keşif portu Android modülündeki portla
+aynı kalmalıdır. İstemci ve robot güvenilen aynı yerel ağda olmalıdır; bu sürüm
+internet erişimi, TLS veya parola/eşleştirme sağlamaz.
+
+### Keşif, görüntü ve kontrol akışı
+
+```mermaid
+sequenceDiagram
+    participant U as Expo Android / Web
+    participant R as remote_controller
+    participant N as Kamera, sensör ve servo node'ları
+    participant A as servo_arbiter
+    participant D as dc_motor_node (isteğe bağlı)
+
+    alt Expo Android
+        U->>R: UDP 8888 · KUFIBOT_DISCOVER_V1
+        R-->>U: Robot adı, protokol sürümü ve TCP portu
+    else Web tarayıcısı
+        U->>R: HTTP GET / · IP ve port ile erişim
+        R-->>U: Web arayüzü ve yerel dosyalar
+    end
+    U->>R: WS /control · claim
+    R-->>U: Kontrol sahipliği ve durum
+    Note over U,R: İlk istemci kontrol sahibidir<br/>diğerleri izleyicidir
+    U->>R: WS /video bağlantısı
+    N-->>R: camera/image_raw, battery_state, compass/heading_deg, lidar/range
+    N-->>R: servo/joint_states (JointState)
+    R-->>U: /video üzerinden JPEG<br/>/control üzerinden sensör ve eklem durumu
+
+    alt Kumanda modu
+        U->>R: mode=remote, joystick veya eklem hedefi
+        R->>A: remote/command (String içinde JSON)
+        A-->>R: remote/applied_mode (String)
+        A->>N: servo/joint_targets (JointState)
+        opt Motor node'u ve güncel arbiter onayı var
+            R->>D: cmd_vel (Twist)
+        end
+    else YZ modu
+        U->>R: mode=ai
+        R->>A: remote/command (String içinde JSON)
+        A-->>R: remote/applied_mode (String)
+        Note over N,A: Ajan ve MediaPipe servo hedefleri tekrar uygulanır
+    end
+    R-->>U: Uygulanan mod ve kontrol durumu
+    opt Bağlantı kopar veya 500 ms hareket girdisi gelmez
+        R->>D: cmd_vel = 0
+        Note over R,A: Kumanda modundan kendiliğinden YZ'ye geçilmez
+    end
+```
+
+| Topic / uç | Tür | Yön ve amaç |
+| --- | --- | --- |
+| `/remote/command` | `std_msgs/String` içinde JSON | Köprü → arbiter; mod ve derece cinsinden eklem hedefleri |
+| `/remote/applied_mode` | `std_msgs/String` | Arbiter → köprü; uygulanan mod veya `unavailable` |
+| `/cmd_vel` | `geometry_msgs/Twist` | Köprü → DC motor; sürüş ve durma komutları |
+| `/control` | WebSocket JSON | İstemci ↔ köprü; sahiplik, heartbeat, mod, girişler ve sensör/eklem durumu |
+| `/video` | WebSocket base64 JPEG | Köprü → istemci; yaklaşık 10 FPS, en çok 640 piksel genişliğinde görüntü |
+
+Bir telefon veya tarayıcı kontrol sahibiyken diğer istemciler izleyici olur.
+Kontrol sahibi ayrılınca **Kumandayı devral** ile kontrol alınabilir. Uygulama veya
+sekme arka plana geçtiğinde kontrol bağlantısı bırakılır; tekrar bağlanırken
+önceki joystick/tuş girdileri yürütülmez. Hareket komutunun 500 ms kesilmesi
+joystick girdilerini sıfırlar; iki saniye heartbeat kesintisi sahipliği bırakır.
+Köprü çökerse motor node'unun bağımsız watchdog'u durdurur; arbiter Kumanda
+modunda son servo hedefini tutar.
+
+Arbiter mod onayı yoksa joystickler etkinleşmez. Motor abonesi yoksa hareket
+joysticki pasiftir. Üç saniyeden eski sensörler `—`, iki saniyedir yenilenmeyen
+kamera bekleme ekranı olarak gösterilir. **DUR / Boşluk** kumanda joysticklerini
+sıfırlar; YZ servo hareketlerini iptal eden fiziksel acil durdurma değildir.
+Telefon mikrofonundan ses aktarımı ve otonom navigasyon bu arayüzlerin parçası
+değildir; sesli asistan robotun mikrofonunda çalışır.
+
 ## Mimik donanım testi
 
-Arbiter ve servo node çalışırken, tüm tanımlı mimikleri sırayla denemek için:
+Arbiter ve servo node çalışırken, tüm tanımlı mimikleri sırayla denemek için
+arbiter YZ modunda olmalıdır. Köprü kullanılıyorsa arayüzden YZ modunu seçin;
+Kumanda modu bu ajan komutlarını engeller. Köprüyü kapatmak YZ moduna geçirmez:
 
 ```bash
 ros2 run kufibot_interaction expression_test_node
@@ -209,11 +371,18 @@ başlar; yalnızca servisle başlatmak için bunu `false` yapın.
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 source .venv/bin/activate
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest src/kufibot_interaction/test src/kufibot_perception/test -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 ```
 
-Bu komut donanım gerektirmeyen davranış testlerini çalıştırır. Eklenti otomatik
-yüklemesi, ortamda kurulu ROS `launch_testing` eklentisinin pytest sürümüyle
+Bu komut etkileşim, algılama ve uzaktan kontrolün donanım gerektirmeyen testlerini
+çalıştırır. HTTP/WebSocket testleri localhost soketi açar. Playwright ve sistem
+Chromium kuruluysa web arayüzünün kamera, fare/klavye/çift dokunma, sahiplik ve
+bağlantı testleri de çalışır; bunlar yoksa tarayıcı testi atlanır. Tarayıcı testi
+gerçek robot yerine test görüntüsü ve sensör değerleri kullanır.
+
+Mobil uygulamanın TypeScript kontrolü, `KufibotMobile/` dizininde
+`npm run typecheck` ile yapılır. Pytest eklentilerinin otomatik yüklemesi,
+ortamda kurulu ROS `launch_testing` eklentisinin pytest sürümüyle
 uyumsuz olabilmesi nedeniyle kapatılır. Paketlerin lint kontrolleri ayrıca
 `colcon test` ile çalıştırılabilir. `test/manual/` betikleri ROS ortamı ve
 ilgili sürücü node'ları hazırken elle çalıştırılır; aktüatör denemeleri fiziksel
@@ -243,8 +412,9 @@ source install/setup.bash
 
 Python dependency ownership:
 
-- All third-party Python packages used by sensors, actuators, perception, and
-  voice interaction are installed from the single root `requirements.txt`.
+- All third-party Python packages used by sensors, actuators, perception,
+  voice interaction, and the remote-control bridge are installed from the single
+  root `requirements.txt`.
 - ROS Python modules such as `rclpy` and generated message modules
   remain apt/rosdep dependencies and become visible in the virtual environment
   through `--system-site-packages`.
@@ -358,6 +528,9 @@ Override the camera or enable annotated images when needed:
 ```
 
 ## Background expressions
+
+Expression commands reach the servos only in AI mode. Remote-control mode blocks
+these commands at the arbiter while the voice session continues.
 
 Facial expressions are selected locally, without an LLM tool call. Assistant
 speech is detected from the received audio stream: when playback starts, the

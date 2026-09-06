@@ -15,6 +15,9 @@ mediapipe>=0.10,<0.11
 # Local background expression embeddings (llama.cpp Python binding)
 llama-cpp-python==0.3.35
 
+# Mobile LAN WebSocket bridge
+aiohttp>=3.9,<4
+
 # Verasist live voice transport
 # aiortc 1.11+ requires PyAV 14+, whose aarch64 source build needs FFmpeg 7.
 # Debian Bookworm/ROS image already provides PyAV 12.3; aiortc 1.9 supports it.

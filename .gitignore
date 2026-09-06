@@ -11,3 +11,10 @@ __pycache__/
 .env.*
 !.env.example
 vendor/
+
+# Expo / Android generated files
+node_modules/
+.expo/
+KufibotMobile/android/
+KufibotMobile/ios/
+KufibotMobile/dist/

@@ -2,12 +2,15 @@
 """Arbitrate agent and visual-tracking commands before servo hardware."""
 
 import math
+import json
+import time
 import threading
 
 import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from std_msgs.msg import String
 
 from kufibot_interfaces.msg import JointCommand
 from .joint_limits import JOINT_LIMITS
@@ -40,7 +43,38 @@ class ServoArbiter(Node):
         self.create_subscription(
             JointState, 'servo/joint_states', self._state_callback, 10)
         self._current = {}
+        self._mode = 'ai'
+        self._remote = {}
+        self._remote_seen = 0.0
+        self.create_subscription(String, 'remote/command', self._remote_callback, 10)
+        self.mode_pub = self.create_publisher(String, 'remote/applied_mode', 10)
         self.create_timer(1.0 / rate, self._publish)
+
+    def _remote_callback(self, msg):
+        try:
+            data = json.loads(msg.data)
+            mode, targets = data['mode'], data['targets']
+            if mode not in ('ai', 'remote') or not isinstance(targets, dict):
+                return
+            command = JointCommand()
+            command.names = list(targets)
+            command.angles_deg = [float(v) for v in targets.values()]
+            valid = self._validated(command)
+            if valid is None:
+                return
+        except (ValueError, TypeError, KeyError, AssertionError, OverflowError):
+            return
+        with self._lock:
+            if mode != self._mode:
+                self._agent.clear()
+                self._tracking.clear()
+                self._agent_until = None
+                self._remote = {n: math.degrees(v) for n, v in self._current.items()
+                                if n in JOINT_LIMITS and math.isfinite(v)}
+            self._mode = mode
+            if mode == 'remote':
+                self._remote.update(valid)
+            self._remote_seen = time.monotonic()
 
     def _validated(self, msg):
         if len(msg.names) != len(msg.angles_deg):
@@ -56,6 +90,8 @@ class ServoArbiter(Node):
         return result
 
     def _agent_callback(self, msg):
+        if self._mode == 'remote':
+            return
         if msg.cancel_agent:
             with self._lock:
                 self._agent.clear()
@@ -71,6 +107,8 @@ class ServoArbiter(Node):
             self._agent_until = self.get_clock().now() + Duration(seconds=hold)
 
     def _tracking_callback(self, msg):
+        if self._mode == 'remote':
+            return
         targets = self._validated(msg)
         if targets is None or not set(targets).issubset(self.TRACKING_JOINTS):
             self.get_logger().warning('Tracking may only control head/eye joints')
@@ -95,6 +133,12 @@ class ServoArbiter(Node):
                     name: angle for name, angle in self._agent.items()
                     if name not in self.TRACKING_JOINTS
                 })
+            if self._mode == 'remote':
+                # A lost bridge holds the last position; it never enables AI.
+                targets = dict(self._remote)
+        mode_msg = String()
+        mode_msg.data = self._mode if time.monotonic() - self._remote_seen < 0.5 else 'unavailable'
+        self.mode_pub.publish(mode_msg)
         if not targets:
             return
         msg = JointState()
