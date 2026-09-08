@@ -16,7 +16,7 @@ from .pca9685 import PCA9685
 # Channels follow ServoMotorJoint in the original C++ controller.
 JOINT_CHANNELS = {
     'rightArm': 0, 'leftArm': 1, 'neck': 2, 'headLeftRight': 3,
-    'eyeRight': 5, 'eyeLeft': 6,
+    'eyeRight': 4, 'eyeLeft': 5,
 }
 
 # Last-known startup assumptions from the C++ controller (no homing move).

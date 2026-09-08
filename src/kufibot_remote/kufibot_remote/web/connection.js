@@ -71,6 +71,14 @@ export class RobotConnection extends EventTarget {
     if (this.ready) this.send({ type: 'joint', name, value });
   }
 
+  calibrateCompass() {
+    if (this.ready) this.send({ type: 'calibrateCompass' });
+  }
+
+  startAiWorkflow(triggerUuid) {
+    if (this.state?.owner) this.send({ type: 'startAiWorkflow', triggerUuid });
+  }
+
   clearFrame() {
     if (this.frameVisible) this.emit('frame', null);
     this.frameVisible = false;

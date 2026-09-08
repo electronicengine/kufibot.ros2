@@ -124,25 +124,29 @@ açmaz. Web arayüzü köprünün içinden sunulur; robot üzerinde ayrı Node.j
 gerekmez. HTTP, `/control` ve `/video` varsayılan TCP `8080` portunu paylaşır;
 UDP `8888` yalnızca Android keşfi içindir.
 
-Köprü olmadan başlatılan arbiter varsayılan olarak YZ davranışıyla çalışır.
-Köprü başlatıldığında
-Kumanda modu seçilidir: ajan ve takip servo komutları engellenir, uzaktan gelen
+Arbiter varsayılan olarak Kumanda modunda başlar. Köprü başlatıldığında ajan ve
+takip servo komutları engellenir, uzaktan gelen
 eklem hedefleri uygulanır. YZ modunda süreli ajan komutları takip komutlarına
 önceliklidir. Takip yalnızca `neck` ve `headLeftRight` eklemlerini hedefler;
 arbiter eklem sınırlarını uygular. Servo sürücüsünün elle deneme için kabul ettiği
 `/servo/<joint>/angle_deg` girişleri arbiter dışındadır.
 
 `interactive_robot.launch.py`, `remote:=true` ile köprüyü, `motors:=true` ile DC
-motor node'unu başlatır; ikisi de varsayılan olarak kapalıdır. Ses ajanı
-`/cmd_vel` üretmez. `tracking_test.launch.py` bu iki node'u başlatmaz.
+motor node'unu başlatır; ikisi de varsayılan olarak açıktır. Bu nedenle
+argümansız `./tools/ros2_launch.sh` doğrudan Kumanda modunda açılır. Tanılama
+veya donanımsız çalıştırma için `remote:=false` ya da `motors:=false` verilebilir.
+Ses ajanı `/cmd_vel` üretmez. `tracking_test.launch.py` bu iki node'u başlatmaz.
 
 ## Robotun çalışma akışı
 
 `interactive_robot.launch.py` çalıştığında sensör, kamera, MediaPipe, servo,
 arbiter ve ses ajanı node'ları birlikte başlar. İsteğe bağlı uzaktan kontrol ve
-motor node'ları yukarıdaki launch argümanlarıyla eklenir. Ses ajanındaki
-`auto_start` parametresi açıksa Verasist oturumunu da açar; kapalıysa oturum aşağıdaki
-servisle başlatılır:
+motor node'ları yukarıdaki launch argümanlarıyla eklenir. Varsayılan
+yapılandırmada ses ajanı Kumanda modunda bekler; web veya mobil arayüzden YZ
+modu onaylanınca Verasist oturumunu otomatik açar. Kumanda moduna dönülünce
+oturumu ve otomatik YZ davranışlarını durdurur. `auto_start` yalnızca
+`remote_mode_controls_voice: false` yapılandırması için başlangıç oturumunu açar;
+bu özel yapılandırmada oturum aşağıdaki servisle de başlatılabilir:
 
 ```bash
 ros2 service call /voice_session/start std_srvs/srv/Trigger '{}'
@@ -334,8 +338,8 @@ değildir; sesli asistan robotun mikrofonunda çalışır.
 ## Mimik donanım testi
 
 Arbiter ve servo node çalışırken, tüm tanımlı mimikleri sırayla denemek için
-arbiter YZ modunda olmalıdır. Köprü kullanılıyorsa arayüzden YZ modunu seçin;
-Kumanda modu bu ajan komutlarını engeller. Köprüyü kapatmak YZ moduna geçirmez:
+arayüzden YZ modunu seçin. Kumanda modu bu ajan komutlarını engeller;
+köprüyü kapatmak YZ moduna geçirmez:
 
 ```bash
 ros2 run kufibot_interaction expression_test_node
@@ -360,8 +364,10 @@ YAML içindeki model ve hareket dosyaları ile `requirements.txt` içindeki öze
 SDK yolu hâlâ bu robota özgüdür; başka makinede bunları uyarlayın.
 `VERASIST_ENV_FILE`, `VERASIST_SDK_SRC` ve `ROS_SETUP` ortam değişkenleri
 başlatma betiğinin ilgili yollarını değiştirebilir. Paylaşılan YAML içine token
-koymayın. Mevcut YAML'de `auto_start: true` olduğundan ses oturumu otomatik
-başlar; yalnızca servisle başlatmak için bunu `false` yapın.
+koymayın. Mevcut YAML'de `auto_start: false` ve
+`remote_mode_controls_voice: true` olduğundan ses oturumu yalnızca YZ modu
+onaylandığında başlar. Bağımsız ses ajanı davranışı istenirse
+`remote_mode_controls_voice: false` ve gerekirse `auto_start: true` ayarlanır.
 
 ## Geliştirme doğrulaması
 
@@ -568,3 +574,6 @@ of concern selected `curious`. The requested model, English catalogue and mean
 pooling are preserved. The model metadata defaults to CLS pooling; overriding
 it with mean pooling intentionally matches the C++ configuration and emits a
 llama.cpp notice on startup.
+
+Yerel Vosk / llama.cpp / Piper sesli ajanı ve web-mobil sağlayıcı/model seçimi:
+[Local AI kurulumu ve kullanımı](docs/local-ai.md).

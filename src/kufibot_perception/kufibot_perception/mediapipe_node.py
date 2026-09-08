@@ -16,6 +16,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
 
 from kufibot_interfaces.msg import (
     Detection, DetectionArray, JointCommand, Landmark, TrackingTarget)
@@ -70,10 +71,18 @@ class MediaPipeNode(Node):
         self.debug_pub = self.create_publisher(
             Image, 'perception/debug_image', 2)
         self.create_subscription(Image, 'camera/image_raw', self._image, 5)
+        self.local_compute_active = False
+        self.create_subscription(
+            Bool, 'local_ai/compute_active', self._local_compute, 10)
         self.latest_target = None
         self.image_size = (640, 480)
         self.last_target_time = 0.0
         self.create_timer(1.0 / control_rate, self._control_tick)
+
+    def _local_compute(self, msg):
+        self.local_compute_active = bool(msg.data)
+        if getattr(self, 'local_compute_active', False):
+            self.latest_target = None
 
     @staticmethod
     def _landmark(index, point):
@@ -87,6 +96,8 @@ class MediaPipeNode(Node):
         return msg
 
     def _image(self, image_msg):
+        if getattr(self, 'local_compute_active', False):
+            return
         if image_msg.encoding not in ('bgr8', 'rgb8'):
             self.get_logger().warning(
                 f'Unsupported camera encoding: {image_msg.encoding}')
@@ -185,6 +196,8 @@ class MediaPipeNode(Node):
         self.target_pub.publish(target)
 
     def _control_tick(self):
+        if self.local_compute_active:
+            return
         now = time.monotonic()
         if (self.latest_target is not None
                 and now - self.last_target_time <= self.timeout):

@@ -10,6 +10,7 @@ import cv2
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import Bool
 
 
 class UsbCameraNode(Node):
@@ -36,10 +37,22 @@ class UsbCameraNode(Node):
         self.consecutive_failures = 0
         self.last_connect_attempt = 0.0
         self.last_no_camera_log = 0.0
+        self.local_compute_active = False
         self.image_pub = self.create_publisher(Image, 'camera/image_raw', 5)
         self.info_pub = self.create_publisher(CameraInfo, 'camera/camera_info', 5)
+        self.create_subscription(
+            Bool, 'local_ai/compute_active', self._local_compute, 10)
         self._connect_camera()
         self.create_timer(1.0 / fps, self._capture)
+
+    def _local_compute(self, msg):
+        active = bool(msg.data)
+        if active == self.local_compute_active:
+            return
+        self.local_compute_active = active
+        self.get_logger().info(
+            'Camera paused for Local AI inference' if active
+            else 'Camera resumed after Local AI inference')
 
     def _candidate_devices(self):
         candidates = []
@@ -114,6 +127,10 @@ class UsbCameraNode(Node):
         self.active_device = None
 
     def _capture(self):
+        # Keep the V4L2 device open so resume is instantaneous, but skip the
+        # expensive capture, conversion, and ROS image publication work.
+        if getattr(self, 'local_compute_active', False):
+            return
         if self.capture is None:
             if time.monotonic() - self.last_connect_attempt >= self.reconnect_interval:
                 self._connect_camera()

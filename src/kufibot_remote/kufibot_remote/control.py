@@ -1,7 +1,9 @@
 """Transport-independent controller state; all methods run on one event loop."""
 import math
 import time
+import uuid
 
+from kufibot_interaction.ai_settings import validate
 from kufibot_interaction.joint_limits import JOINT_LIMITS
 
 
@@ -15,6 +17,10 @@ class Control:
         self.last_heartbeat = 0.0
         self.axes = dict(drive_x=0.0, drive_y=0.0, head_x=0.0, head_y=0.0)
         self.targets = {}
+        self.calibration_requested = False
+        self.ai_trigger_uuid = None
+        self.ai_workflow_requested = False
+        self.ai_settings_requested = None
 
     def stop(self):
         self.axes = dict.fromkeys(self.axes, 0.0)
@@ -69,6 +75,33 @@ class Control:
                 raise ValueError('Invalid angle')
             low, high = JOINT_LIMITS[name]
             self.targets[name] = max(low, min(high, float(value)))
+        elif kind == 'calibrateCompass':
+            if self.mode != 'remote':
+                raise ValueError('Kumanda modu gerekli')
+            self.stop()
+            self.calibration_requested = True
+        elif kind == 'setAiSettings':
+            self.ai_settings_requested = validate(data.get('settings'))
+        elif kind == 'setAiTrigger':
+            trigger_uuid = data.get('triggerUuid')
+            if not isinstance(trigger_uuid, str):
+                raise ValueError('Geçerli bir trigger UUID girin')
+            try:
+                self.ai_trigger_uuid = str(uuid.UUID(trigger_uuid))
+            except ValueError as error:
+                raise ValueError('Geçerli bir trigger UUID girin') from error
+        elif kind == 'startAiWorkflow':
+            trigger_uuid = data.get('triggerUuid')
+            if not isinstance(trigger_uuid, str):
+                raise ValueError('Geçerli bir trigger UUID girin')
+            try:
+                self.ai_trigger_uuid = str(uuid.UUID(trigger_uuid))
+            except ValueError as error:
+                raise ValueError('Geçerli bir trigger UUID girin') from error
+            self.stop()
+            self.targets.clear()
+            self.mode = 'ai'
+            self.ai_workflow_requested = True
         else:
             raise ValueError('Unknown command')
 

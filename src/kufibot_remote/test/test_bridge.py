@@ -18,6 +18,9 @@ def bridge():
     node.frame_time = node.last_encode = node.mode_time = 0
     node.jpeg = None
     node.applied_mode = None
+    node.calibration = {'active': False, 'samples': 0, 'target': 500, 'message': ''}
+    node.ai_trigger_uuid = ''
+    node.local_compute_active = False
     node.drive_pub = SimpleNamespace(get_subscription_count=lambda: 0)
     node.get_logger = lambda: SimpleNamespace(warning=lambda _: None)
     return node
@@ -39,6 +42,21 @@ def test_invalid_frame_is_ignored():
     node = bridge()
     node._image(Image(height=480, width=640, step=1920, encoding='bgr8', data=b'bad'))
     assert node.jpeg is None
+
+
+def test_local_llm_compute_stops_camera_encoding_and_clears_old_frame():
+    node = bridge()
+    node.jpeg = 'old-frame'
+    node.frame_time = time.monotonic()
+    node._local_compute(SimpleNamespace(data=True))
+    assert node.jpeg is None
+    assert not node.status()['camera']
+    pixels = np.zeros((4, 12), np.uint8)
+    node._image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
+    assert node.jpeg is None
+    node._local_compute(SimpleNamespace(data=False))
+    node._image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
+    assert node.jpeg is not None
 
 
 def test_stale_sensors_and_missing_arbiter_are_explicit():

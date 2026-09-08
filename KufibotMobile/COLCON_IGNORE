@@ -1,0 +1,2 @@
+# This is a React Native project, not a ROS 2 package tree.
+# Prevent colcon from scanning node_modules and its package metadata.

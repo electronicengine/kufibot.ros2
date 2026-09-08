@@ -17,8 +17,11 @@ def generate_launch_description():
     config = LaunchConfiguration('config')
     return LaunchDescription([
         DeclareLaunchArgument('config', default_value=default_config),
-        DeclareLaunchArgument('remote', default_value='false'),
-        DeclareLaunchArgument('motors', default_value='false'),
+        # The normal launcher is a remote-control boot: the robot is safe to
+        # drive as soon as the mobile or web client connects.  Passing either
+        # argument explicitly still supports hardware-free diagnostics.
+        DeclareLaunchArgument('remote', default_value='true'),
+        DeclareLaunchArgument('motors', default_value='true'),
         Node(package='kufibot_remote', executable='remote_controller',
              name='remote_controller', parameters=[config], output='screen',
              condition=IfCondition(LaunchConfiguration('remote'))),

@@ -14,7 +14,10 @@ voice_agent_node:
     camera_jpeg_quality: 80
     camera_send_cooldown_sec: 2.0
     camera_attach_to_every_user_turn: true
-    auto_start: true
+    # The remote-control boot starts the voice session only after a client
+    # selects AI mode.  Manual service start remains available in AI mode.
+    auto_start: false
+    remote_mode_controls_voice: true
     expression_model_path: "/usr/local/ai.models/llamaModel/mxbaiV1.gguf"
     expression_n_threads: 2
     expression_n_ctx: 512
@@ -48,6 +51,7 @@ mediapipe_node:
 
 servo_arbiter:
   ros__parameters:
+    default_control_mode: "remote"
     default_agent_hold_sec: 2.0
     max_agent_hold_sec: 10.0
     publish_rate_hz: 20.0

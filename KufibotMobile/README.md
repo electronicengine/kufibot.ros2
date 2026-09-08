@@ -21,7 +21,8 @@ source install/setup.bash
 
 Yalnızca kamera/kafa için `motors:=false` kullanın. Motor düğümü bulunmazsa soldaki
 joystick pasif görünür. Normal başlatmada `remote` ve `motors` varsayılan olarak
-kapalıdır. Mevcut robot yığını zaten çalışıyorsa ikinci kez başlatmayın; güncel
+açıktır; robot Kumanda modunda başlar. YZ modu seçilene kadar sesli ajan oturumu
+ve otomatik YZ davranışları başlamaz. Mevcut robot yığını zaten çalışıyorsa ikinci kez başlatmayın; güncel
 `servo_arbiter` çalışırken köprüyü ayrıca `.venv/bin/python` ile çalıştırabilirsiniz:
 
 ```bash
@@ -69,9 +70,9 @@ alınabilir. Android çıktıları prebuild ile üretilir, depoya eklenmez.
 - İlk bağlanan telefon kontrolü alır; diğerleri izleyicidir. Kontrol sahibi
   ayrıldıktan sonra menüden **Kumandayı devral** seçilebilir.
 - Köprü başlangıçta kumanda modundadır. YZ modu servo arbiter üzerinden mevcut
-  görsel takip ve sesli asistan hareketlerini etkinleştirir; kumanda modunda
-  bunların servo komutları engellenir. Sesli asistanın ses oturumu kapanmaz.
-  Telefon mikrofonu aktarımı ve otonom navigasyon bu sürümde yoktur.
+  görsel takip ve sesli asistan hareketlerini etkinleştirir; sesli ajan oturumu
+  bu geçişte başlar. Kumanda moduna dönülünce oturum ve otomatik YZ davranışları
+  durur. Telefon mikrofonu aktarımı ve otonom navigasyon bu sürümde yoktur.
 - Kafa joysticki açı değişim hızını kontrol eder (en çok 45°/s); bırakılınca son
   hedefte kalır. Eklem sınırları mevcut robot sınırlarıyla aynıdır. Sağ/sol yönü
   `headLeftRight`, dikey yön `neck` üzerinden uygulanır. Kollar sürgü bırakılınca

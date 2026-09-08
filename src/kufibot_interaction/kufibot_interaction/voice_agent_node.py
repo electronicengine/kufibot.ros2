@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
-"""ROS gateway for a Verasist live voice session and robot-side tools."""
+"""ROS gateway for selectable Verasist and offline voice sessions."""
 
 import asyncio
 from collections import deque
 import math
+import json
+import signal
+import sys
 import os
 import threading
 import time
+import uuid
 
 import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
-from std_msgs.msg import Float32
+from std_msgs.msg import Bool, Float32, String
 from std_srvs.srv import Trigger
 
 from kufibot_interfaces.msg import (
     DetectionArray, JointCommand, TrackingTarget, Transcript, VoiceState)
+from .ai_settings import catalog, read_settings, save_settings, validate
 from .joint_limits import JOINT_LIMITS, validate_joint_targets
 from .expression_engine import ExpressionLibrary
 from .expression_embedding import EmbeddingSelector, ExpressionWorker
@@ -60,6 +65,7 @@ class VoiceAgentNode(Node):
         self.declare_parameter('camera_send_cooldown_sec', 2.0)
         self.declare_parameter('camera_attach_to_every_user_turn', True)
         self.declare_parameter('auto_start', False)
+        self.declare_parameter('remote_mode_controls_voice', True)
         self.declare_parameter(
             'expression_model_path',
             '/usr/local/ai.models/llamaModel/mxbaiV1.gguf')
@@ -102,6 +108,8 @@ class VoiceAgentNode(Node):
             self.get_parameter('camera_send_cooldown_sec').value)
         self.camera_attach_to_every_user_turn = bool(
             self.get_parameter('camera_attach_to_every_user_turn').value)
+        self.remote_mode_controls_voice = bool(
+            self.get_parameter('remote_mode_controls_voice').value)
         if not 1 <= self.camera_jpeg_quality <= 100:
             raise ValueError('camera_jpeg_quality must be within 1..100')
         self.cache = TimedCache()
@@ -112,6 +120,10 @@ class VoiceAgentNode(Node):
         self.last_auto_camera_at = 0.0
         self.auto_camera_turn_active = False
         self.camera_send_tasks = set()
+        self.ai_settings = read_settings()
+        self.local_process = None
+        self.local_task = None
+        self.ai_settings_error = ""
         self.session = None
         self.client = None
         self.mic = None
@@ -119,6 +131,10 @@ class VoiceAgentNode(Node):
         self.stopping = False
         self.starting = False
         self.session_active = False
+        # Remote mode is the boot default.  The arbiter's applied-mode topic
+        # changes this only after it has actually accepted the transition.
+        self.remote_mode = 'remote'
+        self.mode_generation = 0
         self.assistant_speaking = False
         self.expression_selected_for_response = False
         self.expression_library = ExpressionLibrary(
@@ -156,6 +172,8 @@ class VoiceAgentNode(Node):
             VoiceState, 'voice_session/state', 10)
         self.transcript_pub = self.create_publisher(
             Transcript, 'voice_session/transcript', 10)
+        self.trigger_uuid_pub = self.create_publisher(
+            String, 'voice_session/trigger_uuid', 10)
         self.create_subscription(BatteryState, 'battery_state', self._battery, 10)
         self.create_subscription(Range, 'lidar/range', self._range, 10)
         self.create_subscription(
@@ -173,16 +191,29 @@ class VoiceAgentNode(Node):
             TrackingTarget, 'perception/tracking_target', self._target, 10)
         self.create_subscription(
             Image, 'camera/image_raw', self._camera_image, 2)
+        self.create_subscription(
+            String, 'remote/applied_mode', self._remote_mode, 10)
+        self.create_subscription(
+            String, 'voice_session/trigger_uuid', self._trigger_uuid, 10)
         self.start_srv = self.create_service(
             Trigger, 'voice_session/start', self._start_service)
         self.stop_srv = self.create_service(
             Trigger, 'voice_session/stop', self._stop_service)
+        self.ai_settings_pub = self.create_publisher(String, 'voice_session/ai_settings', 10)
+        self.local_compute_pub = self.create_publisher(
+            Bool, 'local_ai/compute_active', 10)
+        self.create_subscription(String, 'voice_session/set_ai_settings', self._set_ai_settings, 10)
+        self.create_timer(1.0, self._publish_ai_settings)
+        self.session_lock = asyncio.Lock()
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(
             target=self.loop.run_forever, daemon=True)
         self.loop_thread.start()
         self.create_timer(0.05, self._motion_tick)
-        self._publish_state('idle', 'Ready; call /voice_session/start')
+        self._publish_state(
+            'idle', 'Waiting for AI mode' if self.remote_mode_controls_voice
+            else 'Ready; call /voice_session/start')
+        self._publish_trigger_uuid()
         self.auto_start_timer = None
         if bool(self.get_parameter('auto_start').value):
             self.auto_start_timer = self.create_timer(1.0, self._auto_start)
@@ -190,11 +221,14 @@ class VoiceAgentNode(Node):
     def _auto_start(self):
         """Start once after launch, without blocking the ROS executor."""
         self.auto_start_timer.cancel()
-        if not self.trigger_uuid:
+        if self.remote_mode_controls_voice and self.remote_mode != 'ai':
+            self._publish_state('idle', 'Waiting for AI mode')
+            return
+        if not self._is_local() and not self.trigger_uuid:
             self._publish_state('error', 'trigger_uuid is not configured')
             self.get_logger().error('Voice auto-start: trigger_uuid is missing')
             return
-        if not os.environ.get('VERASIST_API_TOKEN'):
+        if not self._is_local() and not os.environ.get('VERASIST_API_TOKEN'):
             self._publish_state('error', 'VERASIST_API_TOKEN is missing')
             self.get_logger().error(
                 'Voice auto-start: VERASIST_API_TOKEN is missing')
@@ -203,12 +237,88 @@ class VoiceAgentNode(Node):
         future = asyncio.run_coroutine_threadsafe(self._start_session(), self.loop)
         future.add_done_callback(self._auto_start_done)
 
+    def _remote_mode(self, msg):
+        """Run the selected voice provider only while the arbiter is in AI mode."""
+        if not self.remote_mode_controls_voice:
+            return
+        mode = msg.data
+        if mode not in ('ai', 'remote', 'unavailable') or mode == self.remote_mode:
+            return
+        self.remote_mode = mode
+        self.mode_generation += 1
+        generation = self.mode_generation
+        future = asyncio.run_coroutine_threadsafe(
+            self._apply_remote_mode(mode, generation), self.loop)
+        future.add_done_callback(self._remote_mode_done)
+
+    def _publish_trigger_uuid(self):
+        self.trigger_uuid_pub.publish(String(data=self.trigger_uuid))
+
+    def _trigger_uuid(self, msg):
+        try:
+            trigger_uuid = str(uuid.UUID(msg.data))
+        except (AttributeError, ValueError):
+            self.get_logger().warning('Ignored invalid Verasist trigger UUID')
+            return
+        if trigger_uuid == self.trigger_uuid:
+            return
+        self.trigger_uuid = trigger_uuid
+        self._publish_trigger_uuid()
+        self.get_logger().info(f'Verasist trigger UUID updated: {trigger_uuid}')
+        if self._is_local() or self.remote_mode != 'ai' or (not self.session_active and not self.starting):
+            return
+        self.mode_generation += 1
+        generation = self.mode_generation
+        future = asyncio.run_coroutine_threadsafe(
+            self._restart_ai_session(generation), self.loop)
+        future.add_done_callback(self._remote_mode_done)
+
+    async def _restart_ai_session(self, generation):
+        await self._stop_session()
+        if generation == self.mode_generation and self.remote_mode == 'ai':
+            await self._apply_remote_mode('ai', generation)
+
+    def _remote_mode_done(self, future):
+        try:
+            future.result()
+        except Exception as error:
+            self.get_logger().error(f'Remote mode transition failed: {error}')
+            self._publish_state('error', str(error))
+
+    async def _apply_remote_mode(self, mode, generation):
+        if mode != 'ai':
+            await self._stop_session()
+            self._publish_state('idle', 'Waiting for AI mode')
+            return
+        if self.session_active or self.starting:
+            return
+        if not self._is_local() and not self.trigger_uuid:
+            self._publish_state('error', 'trigger_uuid is not configured')
+            return
+        if not self._is_local() and not os.environ.get('VERASIST_API_TOKEN'):
+            self._publish_state('error', 'VERASIST_API_TOKEN is missing')
+            return
+        self.starting = True
+        try:
+            await self._start_session()
+        except Exception:
+            # A failed WebRTC setup can already own a microphone, client, or
+            # partial session.  Release it before reporting the transition.
+            await self._stop_session()
+            raise
+        finally:
+            self.starting = False
+        # A client may have selected Remote while the WebRTC connection was
+        # being established.  Do not leave a late connection active.
+        if generation != self.mode_generation or self.remote_mode != 'ai':
+            await self._stop_session()
+
     def _auto_start_done(self, future):
         self.starting = False
         try:
             future.result()
             self.get_logger().info(
-                f'Verasist voice session connected to {self.endpoint}')
+                f'Voice session started: {self.ai_settings["provider"]}')
         except Exception as error:
             self.get_logger().error(f'Voice auto-start failed: {error}')
             self._publish_state('error', str(error))
@@ -246,6 +356,10 @@ class VoiceAgentNode(Node):
             self.latest_camera_image = snapshot
 
     def _publish_state(self, state, detail=''):
+        transition = (state, detail)
+        if transition != getattr(self, '_last_logged_voice_state', None):
+            self.get_logger().info(f'Voice state: {state}; {detail}')
+            self._last_logged_voice_state = transition
         msg = VoiceState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.state, msg.detail = state, detail
@@ -254,13 +368,17 @@ class VoiceAgentNode(Node):
         self.state_pub.publish(msg)
 
     def _start_service(self, _request, response):
+        if self.remote_mode_controls_voice and self.remote_mode != 'ai':
+            response.success, response.message = (
+                False, 'Select AI mode from the remote controller first')
+            return response
         if self.session_active or self.starting:
             response.success, response.message = False, 'Session already active'
             return response
-        if not self.trigger_uuid:
+        if not self._is_local() and not self.trigger_uuid:
             response.success, response.message = False, 'trigger_uuid is not configured'
             return response
-        if not os.environ.get('VERASIST_API_TOKEN'):
+        if not self._is_local() and not os.environ.get('VERASIST_API_TOKEN'):
             response.success, response.message = False, 'VERASIST_API_TOKEN is missing'
             return response
         self.starting = True
@@ -290,7 +408,109 @@ class VoiceAgentNode(Node):
             response.success, response.message = False, str(error)
         return response
 
+    def _is_local(self):
+        return getattr(self, 'ai_settings', {}).get('provider') == 'local'
+
+    def _publish_ai_settings(self):
+        try:
+            models = [{k: v for k, v in m.items() if k != 'path'} for m in catalog()]
+            error = self.ai_settings_error
+        except (ValueError, OSError) as exc:
+            models, error = [], str(exc)
+        self.ai_settings_pub.publish(String(data=json.dumps({
+            'settings': self.ai_settings, 'models': models, 'error': error})))
+
+    def _set_ai_settings(self, msg):
+        future = asyncio.run_coroutine_threadsafe(self._apply_ai_settings(msg.data), self.loop)
+        future.add_done_callback(self._remote_mode_done)
+
+    async def _apply_ai_settings(self, raw):
+        try:
+            value = validate(json.loads(raw))
+            save_settings(value)
+        except (ValueError, OSError) as exc:
+            self.ai_settings_error = str(exc)
+            self._publish_ai_settings()
+            return
+        self.ai_settings_error = ''
+        if value != self.ai_settings:
+            self.ai_settings = value
+            self.mode_generation += 1
+            await self._restart_ai_session(self.mode_generation)
+        self._publish_ai_settings()
+
+    async def _local_events(self, process):
+        error = None
+        try:
+            async for line in process.stdout:
+                event = json.loads(line)
+                if self.local_process is not process:
+                    return
+                kind = event['type']
+                if kind == 'ready':
+                    self.session_active = True
+                    self._publish_state('listening', 'Mikrofon açık; ses verisi alınıyor')
+                elif kind == 'diagnostic':
+                    self.get_logger().info(event['message'])
+                elif kind == 'compute':
+                    # The worker emits this around llama.cpp inference only.
+                    # Verasist sessions never produce it, so their camera and
+                    # perception pipelines remain fully active.
+                    self.local_compute_pub.publish(Bool(data=bool(event['active'])))
+                elif kind == 'transcript':
+                    self.get_logger().info(f'Local transcript ({event["role"]}): {event["text"]}')
+                    msg = Transcript()
+                    msg.header.stamp = self.get_clock().now().to_msg()
+                    msg.role, msg.text, msg.final = event['role'], event['text'], True
+                    self.transcript_pub.publish(msg)
+                    if msg.role == 'user':
+                        self._expression_user_transcript(msg.text, True)
+                    else:
+                        self._express_from_text(msg.text)
+                elif kind == 'speaking':
+                    self._speaking_changed(event['value'])
+                elif kind == 'state':
+                    self._publish_state(event['state'], event.get('detail', ''))
+                elif kind == 'error':
+                    error = event['message']
+            error = error or 'Yerel ses süreci kapandı'
+        except (ValueError, KeyError) as exc:
+            error = str(exc)
+        finally:
+            if self.local_process is process:
+                await self._stop_session()
+                self._publish_state('error', error or 'Yerel ses süreci durdu')
+
     async def _start_session(self):
+        if not hasattr(self, 'session_lock'):
+            self.session_lock = asyncio.Lock()
+        async with self.session_lock:
+            if self.session_active:
+                return
+            await self._start_session_unlocked()
+
+    async def _start_session_unlocked(self):
+        if self._is_local():
+            value = validate(self.ai_settings)
+            models = {m['id']: m for m in catalog()}
+            config = {kind: models[value[kind]]['path'] for kind in ('stt', 'llm', 'tts')}
+            config.update(language=value['language'], system_prompt=value['system_prompt'],
+                          mic=self.mic_device, speaker=self.speaker_device)
+            self.get_logger().info(
+                f'Local voice selected: language={value["language"]}, '
+                f'stt={value["stt"]}, llm={value["llm"]}, tts={value["tts"]}')
+            self._reset_expression_turn(enabled=True)
+            self._publish_state('connecting', 'Yerel modeller yükleniyor')
+            self.local_process = await asyncio.create_subprocess_exec(
+                sys.executable, '-m', 'kufibot_interaction.local_voice_worker',
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                start_new_session=True)
+            self.local_process.stdin.write((json.dumps(config) + '\n').encode())
+            await self.local_process.stdin.drain()
+            self.local_process.stdin.close()
+            self.session_active = True
+            self.local_task = asyncio.create_task(self._local_events(self.local_process))
+            return
         from aiortc.contrib.media import MediaRelay
         from verasist_sdk import LiveSession, VerasistClient
         from .audio import AlsaMicTrack, AlsaSpeaker
@@ -738,11 +958,33 @@ class VoiceAgentNode(Node):
             await self._stop_session()
 
     async def _stop_session(self):
+        if not hasattr(self, 'session_lock'):
+            self.session_lock = asyncio.Lock()
+        async with self.session_lock:
+            await self._stop_session_unlocked()
+
+    async def _stop_session_unlocked(self):
         if self.stopping:
             return
         self.stopping = True
         self._reset_expression_turn(enabled=False)
         try:
+            process = getattr(self, 'local_process', None)
+            if process is not None:
+                self.local_process = None
+                task, self.local_task = self.local_task, None
+                if task and task is not asyncio.current_task():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(process.wait(), 3)
+                except asyncio.TimeoutError:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    await process.wait()
             for task in tuple(self.camera_send_tasks):
                 task.cancel()
             self.camera_send_tasks.clear()
@@ -760,6 +1002,7 @@ class VoiceAgentNode(Node):
                 self.client = None
             self.session_active = False
             self.assistant_speaking = False
+            self.local_compute_pub.publish(Bool(data=False))
             self.command_pub.publish(JointCommand(
                 hold_sec=0.01, cancel_agent=True))
             self._publish_state('idle')

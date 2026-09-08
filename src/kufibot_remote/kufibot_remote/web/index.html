@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#071015">
+  <meta name="theme-color" content="#111319">
   <title>Kufibot · Robot Kumandası</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/assets/style.css">
@@ -30,6 +30,11 @@
         <div class="mode-switch">
           <button id="mode-remote" aria-pressed="false" disabled>KUMANDA</button>
           <button id="mode-ai" aria-pressed="false" disabled>YZ MODU</button>
+        </div>
+        <div id="head-direction" class="head-direction" role="img" aria-label="Kafanın pusulaya göre baktığı yön">
+          <span class="compass-ring"><b>K</b><b>D</b><b>G</b><b>B</b></span>
+          <span id="direction-arrow" class="direction-arrow"><i></i></span>
+          <strong id="direction-value">—°</strong>
         </div>
         <div class="connection"><i id="connection-dot"></i><span id="connection" role="status">Bağlanıyor…</span></div>
         <div id="mode-notice" class="notice" hidden>Servo kontrolü bekleniyor</div>
@@ -85,11 +90,47 @@
     <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>
     <div class="address" id="menu-address"></div>
     <button id="reconnect" class="secondary">Bağlantıyı yenile</button>
+    <h3>Sesli Ajan Ayarları</h3>
+    <label for="ai-provider">Sağlayıcı</label>
+    <select id="ai-provider" class="trigger-input"><option value="verasist">Verasist AI</option><option value="local">Local AI</option></select>
+    <div id="local-model-settings" hidden>
+      <label for="ai-language">Dil</label><select id="ai-language" class="trigger-input"></select>
+      <label for="ai-stt">STT · Vosk</label><select id="ai-stt" class="trigger-input"></select>
+      <label for="ai-llm">LLM · llama.cpp</label><select id="ai-llm" class="trigger-input"></select>
+      <label for="ai-tts">TTS · Piper</label><select id="ai-tts" class="trigger-input"></select>
+      <label for="ai-system-prompt">Sistem mesajı</label>
+      <textarea id="ai-system-prompt" class="trigger-input" rows="7" maxlength="6000"
+        placeholder="Yerel ajanın rolünü, yanıt tarzını ve kurallarını yazın."></textarea>
+      <p class="help">Modeller robotta çalışır. Listede yalnızca seçilen dili destekleyen kurulu modeller gösterilir.</p>
+    </div>
+    <button id="save-ai-settings" class="secondary">Ayarları kaydet ve uygula</button>
+    <p id="ai-settings-status" role="status" class="calibration-info"></p>
+    <div id="verasist-settings">
+    <h3>YZ İş Akışı</h3>
+    <p>Verasist iş akışının trigger UUID değerini girin. API anahtarı robotta yapılandırılmış olarak kalır.</p>
+    <input id="ai-trigger-uuid" class="trigger-input" type="text" autocomplete="off" spellcheck="false" placeholder="27eac97b-5e74-494b-984f-01942324fe4b" aria-label="Verasist trigger UUID">
+    <button id="start-ai-workflow" class="secondary" disabled>YZ iş akışını başlat</button>
+    <p id="ai-trigger-info" class="calibration-info">YZ iş akışı bekleniyor</p>
+    </div>
+    <h3>HMC Pusula Kalibrasyonu</h3>
+    <p>Robotu yatay tutun. Başlatınca sensörü yavaşça farklı yönlere, birkaç tam tur döndürün. İşlem sırasında robotu metal ve mıknatıslardan uzak tutun.</p>
+    <button id="calibrate-compass" class="secondary" disabled>Pusulayı kalibre et</button>
+    <p id="calibration-info" class="calibration-info">Pusula sensörü bekleniyor</p>
     <h3>Kontroller</h3>
     <p>Joystickleri fareyle veya dokunarak sürükle. İki joystick aynı anda kullanılabilir. Bıraktığında hareket durur; kafa son hedefinde kalır.</p>
     <dl><dt>W A S D</dt><dd>İleri, sol, geri, sağ</dd><dt>Yön tuşları</dt><dd>Kafayı çevir</dd><dt>Boşluk / DUR</dt><dd>Kumanda joysticklerini sıfırla</dd></dl>
     <p>Kumanda modunda YZ hareketleri engellenir. YZ modunda mevcut takip ve sesli asistan hareketleri açılır. DUR, YZ hareketlerini iptal eden bir acil durdurma değildir.</p>
     <p>Sekme arka plana geçtiğinde bağlantı ve kontrol sahipliği bırakılır. Başka bir telefon veya tarayıcı kontrol ediyorsa izleyici olarak bağlanırsın.</p>
+  </dialog>
+  <dialog id="calibration-modal" aria-labelledby="calibration-title">
+    <div class="dialog-header"><h2 id="calibration-title">HMC Pusula Kalibrasyonu</h2><button id="calibration-close" aria-label="Kalibrasyon penceresini kapat">✕</button></div>
+    <p>Robotu yatay tutun ve yavaşça birkaç tam tur, farklı yönlere çevirin. Metal ve mıknatıslardan uzak tutun.</p>
+    <p id="calibration-modal-message" class="calibration-info">Kalibrasyon başlatılıyor</p>
+    <div class="calibration-values" aria-label="Canlı HMC5883L ölçümleri">
+      <span>HAM X <strong id="calibration-raw-x">—</strong></span><span>HAM Y <strong id="calibration-raw-y">—</strong></span>
+      <span>MİN X <strong id="calibration-min-x">—</strong></span><span>MAKS X <strong id="calibration-max-x">—</strong></span>
+      <span>MİN Y <strong id="calibration-min-y">—</strong></span><span>MAKS Y <strong id="calibration-max-y">—</strong></span>
+    </div>
   </dialog>
   <noscript>Robot kumandasını kullanmak için tarayıcınızda JavaScript etkin olmalıdır.</noscript>
 </body>

@@ -77,6 +77,30 @@ def test_head_limits_and_feedback_required(controller):
     assert control.targets['leftArm'] == 109
 
 
+def test_compass_calibration_requires_owner_and_remote_mode(controller):
+    control, owner, _ = controller
+    control.command(owner, {'type': 'calibrateCompass'})
+    assert control.calibration_requested is True
+    control.calibration_requested = False
+    control.command(owner, {'type': 'mode', 'mode': 'ai'})
+    with pytest.raises(ValueError):
+        control.command(owner, {'type': 'calibrateCompass'})
+    with pytest.raises(ValueError):
+        control.command(object(), {'type': 'calibrateCompass'})
+
+
+def test_ai_workflow_uses_owner_selected_uuid(controller):
+    control, owner, _ = controller
+    trigger_uuid = '27eac97b-5e74-494b-984f-01942324fe4b'
+    control.command(owner, {'type': 'setAiTrigger', 'triggerUuid': trigger_uuid})
+    assert control.ai_trigger_uuid == trigger_uuid
+    control.command(owner, {'type': 'startAiWorkflow', 'triggerUuid': trigger_uuid})
+    assert control.mode == 'ai'
+    assert control.ai_workflow_requested is True
+    with pytest.raises(ValueError, match='Geçerli bir trigger UUID'):
+        control.command(owner, {'type': 'setAiTrigger', 'triggerUuid': 'not-a-uuid'})
+
+
 @pytest.mark.parametrize('data', [[], None, 1, {'type': 'unknown'}, {'type': 'mode', 'mode': 'oops'}])
 def test_invalid_messages(controller, data):
     control, owner, _ = controller

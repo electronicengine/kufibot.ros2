@@ -44,9 +44,9 @@ export function Joystick({ label, disabled, onChange }: Props) {
   </View>;
 }
 const styles = StyleSheet.create({
-  wrapper: {alignItems: 'center'}, label: {color: '#d9e8ee', fontSize: 11, letterSpacing: 2, marginBottom: 8},
-  base: {width: 144, height: 144, borderRadius: 72, borderWidth: 1, borderColor: '#78939a88', backgroundColor: '#09171caa', alignItems: 'center', justifyContent: 'center'},
-  horizontal: {position: 'absolute', width: 114, height: 1, backgroundColor: '#78939a44'},
-  vertical: {position: 'absolute', width: 1, height: 114, backgroundColor: '#78939a44'},
-  knob: {width: 48, height: 48, borderRadius: 24, backgroundColor: '#b8e75ccc', borderColor: '#e2ffaa', borderWidth: 2},
+  wrapper: {alignItems: 'center'}, label: {color: '#e9effd', fontSize: 11, letterSpacing: 2, marginBottom: 8},
+  base: {width: 144, height: 144, borderRadius: 72, borderWidth: 1, borderColor: '#4d70d388', backgroundColor: '#111319dd', alignItems: 'center', justifyContent: 'center'},
+  horizontal: {position: 'absolute', width: 114, height: 1, backgroundColor: '#4d70d344'},
+  vertical: {position: 'absolute', width: 1, height: 114, backgroundColor: '#4d70d344'},
+  knob: {width: 48, height: 48, borderRadius: 24, backgroundColor: '#4b6fd4cc', borderColor: '#bdd0f9', borderWidth: 2},
 });

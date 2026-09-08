@@ -19,7 +19,7 @@ async def wait_for(predicate, timeout=4):
     await asyncio.wait_for(poll(), timeout)
 
 
-def test_browser_camera_controls_and_reconnect():
+def test_browser_camera_controls_and_reconnect(monkeypatch):
     playwright = pytest.importorskip('playwright.async_api')
     chromium = shutil.which('chromium')
     if not chromium:
@@ -27,6 +27,11 @@ def test_browser_camera_controls_and_reconnect():
 
     async def scenario():
         control = Control()
+        from kufibot_interaction.ai_settings import DEFAULT
+        models = [dict(id=kind, kind=kind, languages=['tr'], available=True)
+                  for kind in ('stt', 'llm', 'tts')]
+        monkeypatch.setattr('kufibot_interaction.ai_settings.catalog', lambda: models)
+        ai_config = {'settings': dict(DEFAULT), 'models': models, 'error': ''}
         values = {'camera': True, 'driveAvailable': True, 'voltage': 12.4}
         current = {'headLeftRight': 90.0, 'neck': 60.0, 'leftArm': 170.0,
                    'rightArm': 15.0, 'eyeLeft': 30.0, 'eyeRight': 150.0}
@@ -38,7 +43,7 @@ def test_browser_camera_controls_and_reconnect():
         jpeg = base64.b64encode(cv2.imencode('.jpg', pixels)[1])
 
         def status():
-            return {'version': 1, 'mode': control.mode, 'appliedMode': control.mode,
+            return {'aiConfig': ai_config, 'version': 1, 'mode': control.mode, 'appliedMode': control.mode,
                     'camera': values['camera'], 'driveAvailable': values['driveAvailable'],
                     'sensors': {'voltage': values['voltage'], 'current': .8,
                                 'heading': 123.4, 'distance': 1.5}, 'joints': current}
@@ -53,6 +58,9 @@ def test_browser_camera_controls_and_reconnect():
 
         async def tick():
             while True:
+                if control.ai_settings_requested is not None:
+                    ai_config['settings'] = control.ai_settings_requested
+                    control.ai_settings_requested = None
                 control.tick(.05, current)
                 current.update(control.targets)
                 await asyncio.sleep(.05)
@@ -72,6 +80,32 @@ def test_browser_camera_controls_and_reconnect():
                     await playwright.expect(page.locator('#voltage')).to_have_text('12.4 V')
                     await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'false')
                     await page.screenshot(path='/tmp/kufibot-web-desktop.png')
+
+                    # The UI saves installed model IDs and keeps drafts across telemetry.
+                    await page.locator('#menu-open').click()
+                    await page.locator('#ai-provider').select_option('local')
+                    await playwright.expect(page.locator('#local-model-settings')).to_be_visible()
+                    await playwright.expect(page.locator('#save-ai-settings')).to_be_disabled()
+                    for kind in ('stt', 'llm', 'tts'):
+                        await page.locator('#ai-' + kind).select_option(kind)
+                    await page.locator('#ai-system-prompt').fill(
+                        'You are Kufibot. Answer in one sentence.')
+                    await page.locator('#save-ai-settings').click()
+                    await wait_for(lambda: ai_config['settings']['provider'] == 'local')
+                    assert ai_config['settings']['stt'] == 'stt'
+                    assert ai_config['settings']['system_prompt'] == (
+                        'You are Kufibot. Answer in one sentence.')
+                    await page.locator('#menu-close').click()
+                    await page.locator('#mode-ai').click()
+                    await wait_for(lambda: control.mode == 'ai')
+                    await page.locator('#menu-open').click()
+                    await page.locator('#ai-provider').select_option('verasist')
+                    await page.locator('#save-ai-settings').click()
+                    await wait_for(lambda: ai_config['settings']['provider'] == 'verasist')
+                    await page.locator('#menu-close').click()
+                    await page.locator('#mode-remote').click()
+                    await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'false')
+                    await page.locator('#mode-remote').focus()
 
                     # Keyboard motion, release, and blur cannot leave a latched input.
                     await page.keyboard.down('w')

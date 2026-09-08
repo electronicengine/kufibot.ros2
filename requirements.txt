@@ -33,3 +33,7 @@ pydantic>=2,<3
 
 # Private SDK: editable install from the source checkout on the robot.
 /home/kufi/workspace/kufibot.cpp/live_voice_session/verasist-sdk[voice]
+
+# Optional offline voice backend (Vosk Turkish STT + llama.cpp + Piper)
+vosk==0.3.45
+piper-tts>=1.3,<2

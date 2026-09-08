@@ -23,6 +23,7 @@ class ServoArbiter(Node):
 
     def __init__(self):
         super().__init__('servo_arbiter')
+        self.declare_parameter('default_control_mode', 'remote')
         self.declare_parameter('default_agent_hold_sec', 2.0)
         self.declare_parameter('max_agent_hold_sec', 10.0)
         self.declare_parameter('publish_rate_hz', 20.0)
@@ -43,7 +44,9 @@ class ServoArbiter(Node):
         self.create_subscription(
             JointState, 'servo/joint_states', self._state_callback, 10)
         self._current = {}
-        self._mode = 'ai'
+        self._mode = str(self.get_parameter('default_control_mode').value)
+        if self._mode not in ('ai', 'remote'):
+            raise ValueError('default_control_mode must be ai or remote')
         self._remote = {}
         self._remote_seen = 0.0
         self.create_subscription(String, 'remote/command', self._remote_callback, 10)

@@ -2,9 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { Robot } from './discovery';
 
+export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt: string; llm: string; tts: string; system_prompt: string};
+export type AiConfig = {settings: AiSettings; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'tts'; languages: string[]; available: boolean}[]; error: string};
 export type State = {
+  aiConfig?: AiConfig;
+  voiceStatus?: {state: string; detail: string; active: boolean};
   type: 'state'; version: 1; owner: boolean; mode: 'ai' | 'remote';
   appliedMode: string | null; camera: boolean; driveAvailable: boolean;
+  aiTriggerUuid?: string;
+  calibration?: {active: boolean; samples: number; target: number; message: string;
+    raw?: {x: number; y: number}; minimum?: {x: number; y: number}; maximum?: {x: number; y: number}};
   sensors: Record<string, number | null>; joints: Record<string, number>;
 };
 type Axes = {drive_x: number; drive_y: number; head_x: number; head_y: number};

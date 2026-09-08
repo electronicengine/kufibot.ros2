@@ -60,9 +60,10 @@ bulunur. Ekran masaüstü, yatay telefon ve dikey telefon boyutlarına uyarlanı
 | Kol sürgüleri | Sürgü bırakıldığında ilgili ekleme hedef gönder |
 | Tam ekran | Tarayıcının desteklediği cihazlarda tam ekran görünümü |
 
-Kumanda modunda YZ servo hareketleri engellenir. YZ modu mevcut görsel takip ve
-sesli asistan hareketlerini açar; sesli asistan robotun mikrofonunda çalışmaya
-devam eder. DUR, YZ servo hareketlerini iptal eden fiziksel acil durdurma değildir.
+Kumanda modunda YZ servo hareketleri engellenir; sesli ajan oturumu ve otomatik
+YZ davranışları çalışmaz. YZ modu seçildiğinde bunlar robotun mikrofonunu
+kullanarak başlar; tekrar Kumanda moduna dönülünce durur. DUR, YZ servo
+hareketlerini iptal eden fiziksel acil durdurma değildir.
 
 İlk bağlanan tarayıcı veya telefon kontrol sahibidir; diğerleri izleyici olur.
 Sahip ayrılınca **Kumandayı devral** düğmesiyle kontrol alınır. Sekme gizlenince veya
