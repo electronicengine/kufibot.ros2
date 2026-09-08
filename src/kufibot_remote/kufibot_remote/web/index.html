@@ -12,7 +12,7 @@
 <body>
   <main class="controller" aria-label="Kufibot robot kumandası">
     <div class="camera-stage">
-      <img id="camera" alt="Robot kamerasından canlı görüntü" draggable="false" hidden>
+      <video id="camera" aria-label="Robot kamerasından canlı görüntü" autoplay playsinline muted hidden></video>
       <div id="camera-placeholder" class="camera-placeholder">
         <div class="reticle" aria-hidden="true"><span></span></div>
         <h1>KUFIBOT</h1>
@@ -31,6 +31,8 @@
           <button id="mode-remote" aria-pressed="false" disabled>KUMANDA</button>
           <button id="mode-ai" aria-pressed="false" disabled>YZ MODU</button>
         </div>
+        <button id="navigation-toggle" class="claim" aria-pressed="false" hidden disabled>Serbest gezinme</button>
+        <div id="navigation-status" class="notice" role="status" hidden></div>
         <div id="head-direction" class="head-direction" role="img" aria-label="Kafanın pusulaya göre baktığı yön">
           <span class="compass-ring"><b>K</b><b>D</b><b>G</b><b>B</b></span>
           <span id="direction-arrow" class="direction-arrow"><i></i></span>
@@ -52,8 +54,8 @@
     <section class="bottom-bar" aria-label="Hareket ve eklem kontrolleri">
       <div class="control-column">
         <label class="eye-control"><span>SOL GÖZ</span><input id="eyeLeft" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
-        <div class="joystick-label" id="drive-label">HAREKET</div>
-        <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Hareket joysticki, WASD tuşları" aria-disabled="true">
+        <div class="joystick-label" id="drive-label">HAREKET · TAM GÜÇ</div>
+        <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Dört yönlü, tam güç hareket joysticki; WASD ve yön tuşları" aria-disabled="true">
           <span class="axis axis-x"></span><span class="axis axis-y"></span>
           <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
           <span class="knob"></span>
@@ -64,16 +66,16 @@
 
       <div class="bottom-center">
         <div class="camera-tag" id="camera-tag">KAMERA BEKLENİYOR</div>
-        <button id="stop" class="stop" disabled title="Kumanda joysticklerini durdur (Boşluk)">DUR <span>■</span></button>
+        <button id="stop" class="stop" disabled title="Hareketi ve gezinme görevini durdur (Boşluk)">DUR <span>■</span></button>
         <p id="control-hint">Kontrol bağlantısı bekleniyor</p>
-        <div class="keyboard-hint"><span><kbd>W A S D</kbd> hareket</span><span><kbd>↑ ← ↓ →</kbd> kafa</span></div>
+        <div class="keyboard-hint"><span><kbd>W A S D</kbd> hareket</span><span><kbd>↑ ← ↓ →</kbd> hareket</span></div>
         <button id="fullscreen" class="fullscreen">⛶ Tam ekran</button>
       </div>
 
       <div class="control-column">
         <label class="eye-control"><span>SAĞ GÖZ</span><input id="eyeRight" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
         <div class="joystick-label">KAFA</div>
-        <div id="head-stick" class="joystick" role="group" tabindex="0" aria-label="Kafa joysticki, yön tuşları" aria-disabled="true">
+        <div id="head-stick" class="joystick" role="group" tabindex="0" aria-label="Kafa joysticki, fare ve dokunmatik" aria-disabled="true">
           <span class="axis axis-x"></span><span class="axis axis-y"></span>
           <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
           <span class="knob"></span>
@@ -117,7 +119,7 @@
     <button id="calibrate-compass" class="secondary" disabled>Pusulayı kalibre et</button>
     <p id="calibration-info" class="calibration-info">Pusula sensörü bekleniyor</p>
     <h3>Kontroller</h3>
-    <p>Joystickleri fareyle veya dokunarak sürükle. İki joystick aynı anda kullanılabilir. Bıraktığında hareket durur; kafa son hedefinde kalır.</p>
+    <p>Hareket joysticki dört bölgelidir: ileri, geri, sağ ve sol. Her bölge motorlara tam güç verir. Joystickleri fareyle veya dokunarak sürükle; bıraktığında hareket durur.</p>
     <dl><dt>W A S D</dt><dd>İleri, sol, geri, sağ</dd><dt>Yön tuşları</dt><dd>Kafayı çevir</dd><dt>Boşluk / DUR</dt><dd>Kumanda joysticklerini sıfırla</dd></dl>
     <p>Kumanda modunda YZ hareketleri engellenir. YZ modunda mevcut takip ve sesli asistan hareketleri açılır. DUR, YZ hareketlerini iptal eden bir acil durdurma değildir.</p>
     <p>Sekme arka plana geçtiğinde bağlantı ve kontrol sahipliği bırakılır. Başka bir telefon veya tarayıcı kontrol ediyorsa izleyici olarak bağlanırsın.</p>

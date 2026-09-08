@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+import { MediaStream, RTCPeerConnection, RTCSessionDescription } from 'react-native-webrtc';
 import { Robot } from './discovery';
 
 export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt: string; llm: string; tts: string; system_prompt: string};
 export type AiConfig = {settings: AiSettings; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'tts'; languages: string[]; available: boolean}[]; error: string};
 export type State = {
+  navigation?: {enabled: boolean; state: string; reason: string; calibrated: boolean; task_id: string} | null;
+  navigationRequested?: boolean;
   aiConfig?: AiConfig;
   voiceStatus?: {state: string; detail: string; active: boolean};
   type: 'state'; version: 1; owner: boolean; mode: 'ai' | 'remote';
@@ -16,6 +19,13 @@ export type State = {
 };
 type Axes = {drive_x: number; drive_y: number; head_x: number; head_y: number};
 const zero = (): Axes => ({drive_x: 0, drive_y: 0, head_x: 0, head_y: 0});
+
+// 124.0.7 inherits these runtime methods from event-target-shim, whose
+// "/index" declaration is not resolved by Expo's bundler module resolution.
+type VideoPeer = RTCPeerConnection & {
+  addEventListener(type: 'track', listener: (event: {streams: MediaStream[]}) => void): void;
+  addEventListener(type: 'connectionstatechange', listener: () => void): void;
+};
 
 export function useRobot(robot: Robot | null) {
   const [state, setState] = useState<State | null>(null);
@@ -55,9 +65,9 @@ export function useRobot(robot: Robot | null) {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let pulse: ReturnType<typeof setInterval> | undefined;
     let ws: WebSocket | null = null;
-    let video: WebSocket | null = null;
+    let video: RTCPeerConnection | null = null;
+    let videoAbort: AbortController | null = null;
     let lastState = 0;
-    let lastFrame = 0;
     let lastHeartbeat = 0;
     const reset = () => {
       axes.current = zero(); live.current = null; inputPending.current = false;
@@ -68,7 +78,9 @@ export function useRobot(robot: Robot | null) {
       socket.current = null;
       const old = ws; ws = null;
       if (old) { old.onclose = null; old.onmessage = null; old.onopen = null; old.onerror = null; old.close(); }
-      if (video) { video.onclose = null; video.onmessage = null; video.onerror = null; video.close(); video = null; }
+      const oldVideo = video; video = null;
+      videoAbort?.abort(); videoAbort = null;
+      oldVideo?.close();
       reset();
     };
     const reconnect = () => {
@@ -78,23 +90,51 @@ export function useRobot(robot: Robot | null) {
         retry = setTimeout(connect, 2000);
       }
     };
+    const startVideo = async () => {
+      const peer = new RTCPeerConnection({iceServers: []}) as VideoPeer;
+      video = peer;
+      const abort = new AbortController();
+      videoAbort = abort;
+      const timeout = setTimeout(() => abort.abort(), 15000);
+      peer.addEventListener('track', event => {
+        if (video === peer && event.streams[0]) setFrame(event.streams[0].toURL());
+      });
+      peer.addEventListener('connectionstatechange', () => {
+        if (video === peer && ['failed', 'disconnected'].includes(peer.connectionState)) reconnect();
+      });
+      try {
+        peer.addTransceiver('video', {direction: 'recvonly'});
+        await peer.setLocalDescription(await peer.createOffer());
+        // SDP carries all candidates: this server does not use trickle ICE.
+        while (peer.iceGatheringState !== 'complete') {
+          if (abort.signal.aborted || video !== peer) throw new Error('Video bağlantısı iptal edildi');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        const response = await fetch(`http://${robot.host}:${robot.port}/offer`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(peer.localDescription), signal: abort.signal,
+        });
+        if (!response.ok) throw new Error(`WebRTC: ${response.status}`);
+        const answer = await response.json();
+        if (video === peer) await peer.setRemoteDescription(new RTCSessionDescription(answer));
+      } catch (error) {
+        if (video === peer) {
+          setError(String(error));
+          reconnect();
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
     const connect = () => {
       if (disposed || !active) return;
       close(); setError(''); setConnection('Bağlanıyor…');
-      lastState = Date.now(); lastFrame = 0; lastHeartbeat = 0;
+      lastState = Date.now(); lastHeartbeat = 0;
       ws = new WebSocket(`ws://${robot.host}:${robot.port}/control`);
       socket.current = ws;
       ws.onopen = () => {
         send({type: 'claim'});
-        video = new WebSocket(`ws://${robot.host}:${robot.port}/video`);
-        video.onmessage = event => {
-          if (typeof event.data === 'string' && event.data.length < 1500000) {
-            lastFrame = Date.now();
-            setFrame(`data:image/jpeg;base64,${event.data}`);
-          }
-        };
-        video.onclose = reconnect;
-        video.onerror = reconnect;
+        void startVideo();
       };
       ws.onmessage = event => {
         try {
@@ -117,7 +157,6 @@ export function useRobot(robot: Robot | null) {
       pulse = setInterval(() => {
         const now = Date.now();
         if (now - lastState > 2500) { reconnect(); return; }
-        if (now - lastFrame > 2000) setFrame(null);
         const s = live.current;
         if (!s?.owner) return;
         if (now - lastHeartbeat > 500) { send({type: 'heartbeat'}); lastHeartbeat = now; }

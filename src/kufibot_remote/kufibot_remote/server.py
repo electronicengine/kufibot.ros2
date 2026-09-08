@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from aiohttp import web, WSMsgType
+from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 
 
 class Discovery(asyncio.DatagramProtocol):
@@ -23,14 +24,16 @@ class Discovery(asyncio.DatagramProtocol):
 
 
 class Server:
-    def __init__(self, control, status, frame):
-        self.control, self.status, self.frame = control, status, frame
+    def __init__(self, control, status, video_track=None):
+        self.control, self.status = control, status
+        self.video_track = video_track
         self.clients = set()
+        self.peers = set()
         self.app = web.Application()
         self.app.add_routes([web.get('/', self.index),
                              web.get('/assets/{name}', self.asset),
                              web.get('/control', self.controller),
-                             web.get('/video', self.video)])
+                             web.post('/offer', self.offer)])
 
     @staticmethod
     async def index(request):
@@ -97,40 +100,39 @@ class Server:
             await asyncio.gather(sender, return_exceptions=True)
         return ws
 
-    async def video(self, request):
+    async def offer(self, request):
+        """Accept browser SDP and return a LAN WebRTC video answer."""
         self.check_origin(request)
-        if len(self.clients) >= 8:
-            raise web.HTTPServiceUnavailable(text='Too many clients')
-        ws = web.WebSocketResponse(heartbeat=5, max_msg_size=128)
-        await ws.prepare(request)
-        self.clients.add(ws)
-        last = None
-
-        async def frames():
-            nonlocal last
-            while True:
-                frame = self.frame()
-                if frame is not None and frame is not last:
-                    last = frame
-                    # Separate socket and no frame queue: slow clients drop frames.
-                    await asyncio.wait_for(ws.send_str(frame), timeout=1)
-                await asyncio.sleep(0.1)
-
-        async def guarded_frames():
-            try:
-                await frames()
-            except (TimeoutError, ConnectionError, RuntimeError):
-                await ws.close()
-
-        sender = asyncio.create_task(guarded_frames())
+        if self.video_track is None or len(self.peers) >= 4:
+            raise web.HTTPServiceUnavailable(text='WebRTC video unavailable')
         try:
-            async for _ in ws:
-                pass
-        finally:
-            self.clients.discard(ws)
-            sender.cancel()
-            await asyncio.gather(sender, return_exceptions=True)
-        return ws
+            data = await request.json()
+            offer = RTCSessionDescription(sdp=data['sdp'], type=data['type'])
+            if offer.type != 'offer':
+                raise ValueError('Expected WebRTC offer')
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text='Invalid WebRTC offer')
+        peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.peers.add(peer)
+        peer.addTrack(self.video_track())
+
+        @peer.on('connectionstatechange')
+        async def connection_state_change():
+            if peer.connectionState in ('closed', 'failed', 'disconnected'):
+                self.peers.discard(peer)
+                await peer.close()
+
+        try:
+            await peer.setRemoteDescription(offer)
+            answer = await peer.createAnswer()
+            await peer.setLocalDescription(answer)
+            return web.json_response({'sdp': peer.localDescription.sdp,
+                                      'type': peer.localDescription.type})
+        except Exception:
+            self.peers.discard(peer)
+            await peer.close()
+            raise
 
     async def close(self):
         await asyncio.gather(*(ws.close() for ws in list(self.clients)))
+        await asyncio.gather(*(peer.close() for peer in list(self.peers)))

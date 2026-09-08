@@ -7,7 +7,7 @@ export class RobotConnection extends EventTarget {
     this.state = null;
     this.axes = zero();
     this.control = null;
-    this.video = null;
+    this.peer = null;
     this.retry = null;
     this.pulse = null;
     this.pendingInput = false;
@@ -84,15 +84,25 @@ export class RobotConnection extends EventTarget {
     this.frameVisible = false;
   }
 
+
+  frameReceived() {
+    this.lastFrame = performance.now();
+    this.frameVisible = true;
+  }
+
   close() {
     clearTimeout(this.retry);
     clearInterval(this.pulse);
-    for (const ws of [this.control, this.video]) {
+    for (const ws of [this.control]) {
       if (!ws) continue;
       ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
       ws.close();
     }
-    this.control = this.video = null;
+    this.control = null;
+    this.videoAbort?.abort();
+    const oldPeer = this.peer; this.peer = null;
+    if (oldPeer) oldPeer.close();
+    this.emit('stream', null);
     this.state = null;
     this.pendingInput = false;
     this.pendingMode = null;
@@ -129,14 +139,7 @@ export class RobotConnection extends EventTarget {
     const ws = this.control = new WebSocket(`${base}/control`);
     ws.onopen = () => {
       this.claim();
-      const video = this.video = new WebSocket(`${base}/video`);
-      video.onmessage = event => {
-        if (typeof event.data !== 'string' || event.data.length > 1500000) return;
-        this.lastFrame = performance.now();
-        this.frameVisible = true;
-        this.emit('frame', `data:image/jpeg;base64,${event.data}`);
-      };
-      video.onerror = video.onclose = () => this.reconnect();
+      this.startWebRtc(base);
     };
     ws.onmessage = event => {
       try {
@@ -172,6 +175,43 @@ export class RobotConnection extends EventTarget {
       }
       if (this.ready) this.send({ type: 'input', ...this.axes });
     }, 100);
+  }
+
+  async startWebRtc(base) {
+    const peer = this.peer = new RTCPeerConnection({ iceServers: [] });
+    const abort = this.videoAbort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 15000);
+    try {
+      peer.addTransceiver('video', { direction: 'recvonly' });
+      peer.ontrack = event => {
+        this.frameReceived();
+        this.emit('stream', event.streams[0]);
+      };
+      peer.onconnectionstatechange = () => {
+        if (peer !== this.peer) return;
+        if (['failed', 'disconnected'].includes(peer.connectionState)) this.reconnect();
+      };
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      while (peer.iceGatheringState !== 'complete') {
+        if (abort.signal.aborted || peer !== this.peer) throw new Error('Video bağlantısı iptal edildi');
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      const response = await fetch(`${base.replace(/^ws/, 'http')}/offer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(peer.localDescription), signal: abort.signal,
+      });
+      if (!response.ok) throw new Error(`WebRTC signaling failed (${response.status})`);
+      const answer = await response.json();
+      if (peer === this.peer) await peer.setRemoteDescription(answer);
+    } catch (error) {
+      if (peer === this.peer) {
+        this.emit('error', `Kamera bağlantısı kurulamadı: ${error.message}`);
+        this.reconnect();
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   dispose() {

@@ -44,8 +44,14 @@ class Joystick {
     const dx = event.clientX - rect.left - rect.width / 2;
     const dy = event.clientY - rect.top - rect.height / 2;
     const scale = Math.max(radius, Math.hypot(dx, dy));
-    this.position(dx / scale, dy / scale);
-    link.input(this.part, dx / scale, dy / scale);
+    let x = dx / scale;
+    let y = dy / scale;
+    // The drive control has four full-power sectors. Select the dominant
+    // axis so diagonal touches always resolve to one unambiguous direction.
+    if (this.part === 'drive') [x, y] = Math.abs(x) >= Math.abs(y)
+      ? [Math.sign(x), 0] : [0, Math.sign(y)];
+    this.position(x, y);
+    link.input(this.part, x, y);
   }
   position(x, y) {
     const radius = this.element.clientWidth * .32;
@@ -194,10 +200,25 @@ function render() {
   }
   $('mode-notice').hidden = !state || (state.mode === state.appliedMode && !link.pendingMode);
   $('claim').hidden = !state || state.owner;
-  $('stop').disabled = !enabled;
+  $('stop').disabled = !state?.owner;
+  const nav = state?.navigation;
+  const navLabels = {disabled: 'Kapalı', idle: 'Komut bekleniyor', aligning: 'Kafa hizalanıyor',
+    scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor',
+    waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'};
+  const navToggle = $('navigation-toggle');
+  navToggle.hidden = state?.mode !== 'ai';
+  navToggle.disabled = !state?.owner || state?.aiConfig?.settings?.provider !== 'verasist' ||
+    state?.voiceStatus?.state !== 'connected' || state?.appliedMode !== 'ai' || !nav;
+  navToggle.setAttribute('aria-pressed', String(!!nav?.enabled));
+  navToggle.textContent = nav?.enabled ? 'Serbest gezinme · Açık' : 'Serbest gezinme';
+  $('navigation-status').hidden = state?.mode !== 'ai';
+  $('navigation-status').textContent = state?.aiConfig?.settings?.provider !== 'verasist'
+    ? 'Gezinme yalnızca Verasist ile kullanılabilir'
+    : !nav ? 'Gezinme düğümü bekleniyor'
+    : `${navLabels[nav.state] || nav.state}${!nav.calibrated ? ' · Hareket kalibrasyonu gerekli' : ''}`;
   drive.enable(enabled && !!state?.driveAvailable);
   head.enable(enabled);
-  $('drive-label').textContent = state?.driveAvailable ? 'HAREKET' : 'HAREKET · MOTOR YOK';
+  $('drive-label').textContent = state?.driveAvailable ? 'HAREKET · TAM GÜÇ' : 'HAREKET · MOTOR YOK';
   for (const name of ['leftArm', 'rightArm']) {
     const input = $(name);
     input.disabled = !enabled;
@@ -214,7 +235,7 @@ function render() {
   }
   $('control-hint').textContent = !state ? 'Kontrol bağlantısı bekleniyor'
     : !state.owner ? 'Başka bir cihaz kontrol ediyor'
-    : state.mode === 'ai' ? 'YZ hareket kontrolü etkin'
+    : state.mode === 'ai' ? 'Gezinme için serbest gezinmeyi açıp sesli görev verin'
     : 'Joystick bırakıldığında hareket durur';
   renderDirection(state);
   renderCalibration(state);
@@ -232,15 +253,23 @@ link.addEventListener('error', ({ detail }) => {
   $('error').textContent = detail;
   $('error').hidden = !detail;
 });
-link.addEventListener('frame', ({ detail }) => {
-  if (detail) $('camera').src = detail;
-  else { imageLoaded = false; $('camera').removeAttribute('src'); camera(); }
+link.addEventListener('frame', () => { imageLoaded = false; camera(); });
+link.addEventListener('stream', ({ detail }) => {
+  $('camera').srcObject = detail;
+  imageLoaded = false;
+  camera();
 });
-$('camera').addEventListener('load', () => { imageLoaded = true; camera(); });
+$('camera').addEventListener('loadeddata', () => { imageLoaded = true; link.frameReceived(); camera(); });
+$('camera').addEventListener('timeupdate', () => {
+  if ($('camera').readyState >= 2) { imageLoaded = true; link.frameReceived(); camera(); }
+});
 $('camera').addEventListener('error', () => { imageLoaded = false; camera(); });
 
 for (const mode of ['remote', 'ai']) $(`mode-${mode}`).addEventListener('click', () => link.setMode(mode));
 $('stop').addEventListener('click', () => link.stop());
+$('navigation-toggle').addEventListener('click', () => {
+  link.send({type: 'setNavigationEnabled', enabled: !link.state?.navigation?.enabled});
+});
 $('claim').addEventListener('click', () => link.claim());
 for (const name of ['leftArm', 'rightArm']) {
   $(name).addEventListener('input', () => {
@@ -286,17 +315,13 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 function keyboard() {
-  for (const [part, stick, left, right, up, down] of [
-    ['drive', drive, 'KeyA', 'KeyD', 'KeyW', 'KeyS'],
-    ['head', head, 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'],
-  ]) {
-    if (!stick.enabled || stick.pointer !== null) continue;
-    const x = Number(keys.has(right)) - Number(keys.has(left));
-    const y = Number(keys.has(down)) - Number(keys.has(up));
-    const scale = Math.max(1, Math.hypot(x, y));
-    stick.position(x / scale, y / scale);
-    link.input(part, x / scale, y / scale);
-  }
+  if (!drive.enabled || drive.pointer !== null) return;
+  const held = (...codes) => codes.some(code => keys.has(code));
+  let x = Number(held('KeyD', 'ArrowRight')) - Number(held('KeyA', 'ArrowLeft'));
+  let y = Number(held('KeyS', 'ArrowDown')) - Number(held('KeyW', 'ArrowUp'));
+  if (x) y = 0; // Four-way drive: turning takes priority.
+  drive.position(x, y);
+  link.input('drive', x, y);
 }
 const movementKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
 window.addEventListener('keydown', event => {

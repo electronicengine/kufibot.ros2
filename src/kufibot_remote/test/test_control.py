@@ -17,7 +17,7 @@ def controller():
 def test_motion_times_out_even_with_heartbeat(controller):
     control, owner, now = controller
     control.command(owner, {'type': 'input', 'drive_y': -1, 'head_x': 1})
-    assert control.tick(.05, {'headLeftRight': 90}) == (.25, 0)
+    assert control.tick(.05, {'headLeftRight': 90}) == (.5, 0)
     assert control.targets['headLeftRight'] == 87.75
     now[0] += .6
     control.command(owner, {'type': 'heartbeat'})
@@ -34,6 +34,18 @@ def test_disconnect_holds_remote_and_releases_ownership(controller):
     assert control.mode == 'remote'
     assert control.owner is None
     assert control.tick(.05, {}) == (0, 0)
+
+
+@pytest.mark.parametrize(('axis', 'value', 'expected'), [
+    ('drive_y', -1, (.5, 0)),   # forward: both wheels forward at full speed
+    ('drive_y', 1, (-.5, 0)),   # backward: both wheels reverse at full speed
+    ('drive_x', 1, (0, 5)),     # right: positive ROS angular velocity
+    ('drive_x', -1, (0, -5)),   # left: negative ROS angular velocity
+])
+def test_drive_directions_use_full_power(controller, axis, value, expected):
+    control, owner, _ = controller
+    control.command(owner, {'type': 'input', axis: value})
+    assert control.tick(.05, {}) == expected
 
 
 def test_owner_lease_expires(controller):

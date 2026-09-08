@@ -5,6 +5,6 @@
     "android": {
       "package": "com.kufibot.controller", "permissions": ["INTERNET", "ACCESS_NETWORK_STATE", "ACCESS_WIFI_STATE", "CHANGE_WIFI_MULTICAST_STATE"]
     },
-    "plugins": [["expo-build-properties", {"android": {"usesCleartextTraffic": true}}]]
+    "plugins": ["@config-plugins/react-native-webrtc", ["expo-build-properties", {"android": {"usesCleartextTraffic": true}}]]
   }
 }

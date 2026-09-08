@@ -22,6 +22,8 @@ def generate_launch_description():
         # argument explicitly still supports hardware-free diagnostics.
         DeclareLaunchArgument('remote', default_value='true'),
         DeclareLaunchArgument('motors', default_value='true'),
+        Node(package='kufibot_navigation', executable='navigation_node',
+             name='navigation_node', parameters=[config], output='screen'),
         Node(package='kufibot_remote', executable='remote_controller',
              name='remote_controller', parameters=[config], output='screen',
              condition=IfCondition(LaunchConfiguration('remote'))),

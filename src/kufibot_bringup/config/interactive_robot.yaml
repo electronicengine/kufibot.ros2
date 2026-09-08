@@ -1,3 +1,12 @@
+dc_motor_node:
+  ros__parameters:
+    # Reverse the complete drivetrain polarity to match the robot's wiring.
+    invert_left: false
+    invert_right: true
+    navigation_calibrated: false
+    navigation_max_linear: 0.08
+    navigation_max_angular: 0.20
+
 voice_agent_node:
   ros__parameters:
     api_endpoint: "http://localhost:8000"
@@ -32,12 +41,17 @@ usb_camera_node:
     width: 640
     height: 480
     fps: 15.0
+    use_mjpeg: true
+    buffer_size: 1
     frame_id: "camera_link"
     reconnect_interval_sec: 2.0
     max_consecutive_failures: 5
 
 mediapipe_node:
   ros__parameters:
+    # Face/hand model and tracking logic are unchanged; process newest frames
+    # at a bounded rate so video encoding keeps CPU time on Raspberry Pi.
+    inference_fps: 10.0
     min_detection_confidence: 0.6
     target_timeout_sec: 0.25
     error_threshold_px: 70.0
@@ -67,3 +81,33 @@ remote_controller:
     port: 8080
     discovery_port: 8888
     robot_name: Kufibot
+    # Low-latency view profile; raise these on a fast robot/network if needed.
+    video_max_width: 480
+    video_fps: 15.0
+
+# Enable both calibrated flags only after completing docs/navigation.md.
+navigation_node:
+  ros__parameters:
+    calibrated: false
+    circular_footprint: false
+    body_radius_m: 0.20
+    lidar_forward_offset_m: 0.0
+    stopping_distance_m: 0.15
+    clearance_m: 0.10
+    latency_margin_sec: 0.15
+    linear_speed: 0.08
+    angular_speed: 0.20
+    head_center_deg: 90.0
+    neck_horizontal_deg: 60.0
+    head_sign: -1.0
+    compass_turn_sign: -1.0
+    lidar_yaw_offset_deg: 0.0
+    camera_yaw_offset_deg: 0.0
+    max_distance_m: 0.30
+    max_turn_deg: 30.0
+    scan_step_deg: 10.0
+    settle_sec: 0.25
+    sensor_age_sec: 0.30
+    camera_age_sec: 1.0
+    llm_timeout_sec: 60.0
+    step_timeout_sec: 25.0

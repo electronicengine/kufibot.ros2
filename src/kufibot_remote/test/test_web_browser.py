@@ -1,6 +1,5 @@
 """Optional real Chromium regression test against a hardware-free ROS bridge."""
 import asyncio
-import base64
 import shutil
 
 import cv2
@@ -10,6 +9,7 @@ from aiohttp import ClientSession, web
 
 from kufibot_remote.control import Control
 from kufibot_remote.server import Server
+from kufibot_remote.video import LatestCameraTrack
 
 
 async def wait_for(predicate, timeout=4):
@@ -40,7 +40,6 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
         cv2.rectangle(pixels, (100, 80), (540, 400), (100, 130, 155), 3)
         cv2.putText(pixels, 'TEST CAMERA', (180, 245), cv2.FONT_HERSHEY_SIMPLEX,
                     .9, (200, 230, 240), 2)
-        jpeg = base64.b64encode(cv2.imencode('.jpg', pixels)[1])
 
         def status():
             return {'aiConfig': ai_config, 'version': 1, 'mode': control.mode, 'appliedMode': control.mode,
@@ -48,7 +47,8 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     'sensors': {'voltage': values['voltage'], 'current': .8,
                                 'heading': 123.4, 'distance': 1.5}, 'joints': current}
 
-        server = Server(control, status, lambda: jpeg.decode() if values['camera'] else None)
+        server = Server(control, status,
+                        lambda: LatestCameraTrack(lambda: pixels if values['camera'] else None))
         runner = web.AppRunner(server.app)
         await runner.setup()
         site = web.TCPSite(runner, '127.0.0.1', 0)
@@ -75,8 +75,8 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     page.on('pageerror', lambda error: errors.append(str(error)))
                     await page.goto(url)
                     await playwright.expect(page.locator('#connection')).to_have_text('Bağlı · kontrol sende')
-                    await playwright.expect(page.locator('#camera')).to_be_visible()
-                    assert await page.locator('#camera').evaluate('(image) => image.naturalWidth') == 640
+                    await playwright.expect(page.locator('#camera')).to_be_visible(timeout=15000)
+                    assert await page.locator('#camera').evaluate('(video) => video.videoWidth') == 640
                     await playwright.expect(page.locator('#voltage')).to_have_text('12.4 V')
                     await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'false')
                     await page.screenshot(path='/tmp/kufibot-web-desktop.png')
@@ -113,11 +113,29 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     await page.keyboard.up('w')
                     await wait_for(lambda: control.axes['drive_y'] == 0)
                     await page.keyboard.down('ArrowUp')
-                    await wait_for(lambda: control.axes['head_y'] == -1)
+                    await wait_for(lambda: control.axes['drive_y'] == -1)
+                    assert control.axes['head_y'] == 0
                     await page.evaluate("window.dispatchEvent(new Event('blur'))")
                     await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     await page.keyboard.up('ArrowUp')
                     await page.evaluate("window.dispatchEvent(new Event('focus'))")
+
+                    for key, axis, value in [('w', 'drive_y', -1), ('ArrowUp', 'drive_y', -1),
+                                             ('s', 'drive_y', 1), ('ArrowDown', 'drive_y', 1),
+                                             ('a', 'drive_x', -1), ('ArrowLeft', 'drive_x', -1),
+                                             ('d', 'drive_x', 1), ('ArrowRight', 'drive_x', 1)]:
+                        await page.keyboard.down(key)
+                        await wait_for(lambda: control.axes[axis] == value)
+                        assert control.axes['head_x'] == control.axes['head_y'] == 0
+                        await page.keyboard.up(key)
+                        await wait_for(lambda: all(v == 0 for v in control.axes.values()))
+                    await page.keyboard.down('w')
+                    await page.keyboard.down('ArrowRight')
+                    await wait_for(lambda: control.axes['drive_x'] == 1 and control.axes['drive_y'] == 0)
+                    await page.keyboard.up('ArrowRight')
+                    await wait_for(lambda: control.axes['drive_y'] == -1)
+                    await page.keyboard.up('w')
+                    await wait_for(lambda: all(v == 0 for v in control.axes.values()))
 
                     # Pointer capture keeps release working outside the joystick.
                     rect = await page.locator('#drive-stick').bounding_box()

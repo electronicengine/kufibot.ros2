@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { RTCView } from 'react-native-webrtc';
+import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -68,7 +69,7 @@ function Controller() {
   };
   return <View style={styles.screen}>
     <StatusBar hidden/>
-    {link.frame && s?.camera ? <Image source={{uri: link.frame}} style={StyleSheet.absoluteFill} resizeMode="contain"/> :
+    {link.frame && s?.camera ? <RTCView streamURL={link.frame} style={StyleSheet.absoluteFill} objectFit="contain"/> :
       <View style={styles.placeholder}><View style={styles.reticle}/><Text style={styles.cameraTitle}>KUFIBOT</Text>
         <Text style={styles.muted}>{s ? 'Kamera görüntüsü bekleniyor' : 'Aynı Wi-Fi ağındaki robot aranıyor…'}</Text></View>}
     <SafeAreaView style={styles.overlay}>
@@ -84,6 +85,23 @@ function Controller() {
               style={[styles.mode, s?.mode === mode && s.appliedMode === mode && styles.selected]}>
               <Text style={styles.buttonText}>{mode === 'remote' ? 'KUMANDA' : 'YZ MODU'}</Text>
             </Pressable>)}</View>
+          {s?.mode === 'ai' && <>
+            <Pressable accessibilityRole="switch" accessibilityState={{checked: !!s.navigation?.enabled}}
+              accessibilityLabel="Serbest gezinme"
+              disabled={!s.owner || s.aiConfig?.settings.provider !== 'verasist' ||
+                s.voiceStatus?.state !== 'connected' || s.appliedMode !== 'ai' || !s.navigation}
+              onPress={() => link.send({type: 'setNavigationEnabled', enabled: !s.navigation?.enabled})}
+              style={[styles.mode, s.navigation?.enabled && styles.selected]}>
+              <Text style={styles.buttonText}>Serbest gezinme{s.navigation?.enabled ? ' · Açık' : ''}</Text>
+            </Pressable>
+            <Text style={styles.hint}>{s.aiConfig?.settings.provider !== 'verasist'
+              ? 'Gezinme yalnızca Verasist ile kullanılabilir'
+              : !s.navigation ? 'Gezinme düğümü bekleniyor'
+              : (({disabled: 'Kapalı', idle: 'Komut bekleniyor', aligning: 'Kafa hizalanıyor',
+                  scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor',
+                  waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'} as Record<string, string>)[s.navigation.state] || s.navigation.state)
+                + (!s.navigation.calibrated ? ' · Hareket kalibrasyonu gerekli' : '')}</Text>
+          </>}
           <View style={styles.headDirection} accessibilityLabel={headDirection === null ? 'Kafanın pusulaya göre baktığı yön bilinmiyor' : `Kafanın pusulaya göre baktığı yön ${Math.round(headDirection)} derece`}>
             <Text style={[styles.cardinal, styles.north]}>K</Text><Text style={[styles.cardinal, styles.east]}>D</Text><Text style={[styles.cardinal, styles.south]}>G</Text><Text style={[styles.cardinal, styles.west]}>B</Text>
             <View style={[styles.directionArrow, {transform: [{rotate: `${headDirection ?? 0}deg`}]}]}><View style={styles.arrowTip}/><View style={styles.arrowTail}/></View>
@@ -103,7 +121,7 @@ function Controller() {
         <View style={styles.controls}>
           <View style={styles.eye}><Text style={styles.small}>SOL GÖZ</Text><Switch disabled={!enabled}
             value={(s?.joints.eyeLeft ?? 30) < 20} onValueChange={v => joint('eyeLeft', v ? 0 : 30)} trackColor={{true: '#4b6fd4'}}/></View>
-          <Joystick label={s?.driveAvailable ? 'HAREKET' : 'HAREKET · MOTOR YOK'} disabled={!enabled || !s?.driveAvailable}
+          <Joystick label={s?.driveAvailable ? 'HAREKET · TAM GÜÇ' : 'HAREKET · MOTOR YOK'} disabled={!enabled || !s?.driveAvailable} fourWay
             onChange={(x, y) => link.input('drive', x, y)}/>
           <Text style={styles.small}>SOL KOL</Text><Slider style={styles.slider} disabled={!enabled}
             minimumValue={109} maximumValue={180} value={s?.joints.leftArm ?? 170}
@@ -111,7 +129,7 @@ function Controller() {
         </View>
         <View style={styles.centerBottom}>
           <Pressable style={styles.stop} onPress={link.stop} accessibilityLabel="Hareketi durdur"><Text style={styles.stopText}>DUR</Text></Pressable>
-          <Text style={styles.hint}>{s?.mode === 'ai' ? 'YZ hareket kontrolü etkin' : 'Joystick bırakıldığında hareket durur'}</Text>
+          <Text style={styles.hint}>{s?.mode === 'ai' ? 'Serbest gezinmeyi açıp sesli görev verin' : 'Joystick bırakıldığında hareket durur'}</Text>
         </View>
         <View style={styles.controls}>
           <View style={styles.eye}><Text style={styles.small}>SAĞ GÖZ</Text><Switch disabled={!enabled}

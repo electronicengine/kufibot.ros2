@@ -53,7 +53,7 @@ def generate_launch_description():
             package='kufibot_interaction',
             executable='servo_arbiter',
             name='servo_arbiter',
-            parameters=[config],
+            parameters=[config, {'default_control_mode': 'ai'}],
             output='screen',
         ),
         Node(

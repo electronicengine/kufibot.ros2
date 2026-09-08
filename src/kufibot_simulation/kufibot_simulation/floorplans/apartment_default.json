@@ -1,0 +1,36 @@
+{
+  "start_pose": {"x": 0.6, "y": 0.6, "theta_deg": 0.0},
+  "rooms": [
+    {"id": "living_room", "label": "Oturma Odasi", "color": [150, 90, 90], "rect": [0.0, 0.0, 4.0, 4.0]},
+    {"id": "corridor", "label": "Koridor", "color": [120, 120, 120], "rect": [-4.0, 1.5, 0.0, 2.5]},
+    {"id": "kitchen", "label": "Mutfak", "color": [90, 140, 90], "rect": [-6.0, 2.5, -3.0, 5.5]}
+  ],
+  "walls": [
+    {"a": [0.0, 0.0], "b": [4.0, 0.0], "room_id": "living_room"},
+    {"a": [4.0, 0.0], "b": [4.0, 4.0], "room_id": "living_room"},
+    {"a": [4.0, 4.0], "b": [0.0, 4.0], "room_id": "living_room"},
+    {"a": [0.0, 0.0], "b": [0.0, 1.5], "room_id": "living_room"},
+    {"a": [0.0, 2.5], "b": [0.0, 4.0], "room_id": "living_room"},
+
+    {"a": [-4.0, 1.5], "b": [0.0, 1.5], "room_id": "corridor"},
+    {"a": [-4.0, 1.5], "b": [-4.0, 2.5], "room_id": "corridor"},
+    {"a": [-4.0, 2.5], "b": [-3.9, 2.5], "room_id": "corridor"},
+    {"a": [-3.1, 2.5], "b": [0.0, 2.5], "room_id": "corridor"},
+
+    {"a": [-6.0, 2.5], "b": [-3.9, 2.5], "room_id": "kitchen"},
+    {"a": [-3.1, 2.5], "b": [-3.0, 2.5], "room_id": "kitchen"},
+    {"a": [-6.0, 2.5], "b": [-6.0, 5.5], "room_id": "kitchen"},
+    {"a": [-6.0, 5.5], "b": [-3.0, 5.5], "room_id": "kitchen"},
+    {"a": [-3.0, 2.5], "b": [-3.0, 5.5], "room_id": "kitchen"}
+  ],
+  "doors": [
+    {"id": "door_corridor", "label": "Koridor kapisi", "a": [0.0, 1.5], "b": [0.0, 2.5],
+     "connects": ["living_room", "corridor"]},
+    {"id": "door_kitchen", "label": "Mutfak kapisi", "a": [-3.9, 2.5], "b": [-3.1, 2.5],
+     "connects": ["corridor", "kitchen"]}
+  ],
+  "furniture": [
+    {"id": "sofa", "label": "Koltuk", "color": [90, 60, 140], "rect": [2.4, 0.2, 3.8, 1.2]},
+    {"id": "table", "label": "Masa", "color": [60, 110, 160], "rect": [-5.6, 3.0, -4.6, 4.0]}
+  ]
+}

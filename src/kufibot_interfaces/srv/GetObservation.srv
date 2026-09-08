@@ -1,0 +1,6 @@
+string session_id
+string task_id
+string observation_id
+---
+string result_json
+sensor_msgs/CompressedImage[] images

@@ -1,6 +1,5 @@
 """ROS 2 bridge for an Expo Android LAN controller."""
 import asyncio
-import base64
 import json
 import math
 import time
@@ -10,7 +9,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
 from geometry_msgs.msg import Twist
@@ -18,6 +17,7 @@ from geometry_msgs.msg import Twist
 from kufibot_interfaces.msg import VoiceState
 from .control import Control
 from .server import Discovery, Server
+from .video import LatestCameraTrack
 
 
 class RemoteController(Node):
@@ -26,12 +26,18 @@ class RemoteController(Node):
         self.declare_parameter('port', 8080)
         self.declare_parameter('discovery_port', 8888)
         self.declare_parameter('robot_name', 'Kufibot')
+        # The remote view is intentionally smaller/lighter than the camera
+        # stream used by local perception.  Keeping this configurable lets a
+        # fast LAN use a sharper image without making the default Pi profile
+        # fall behind real time.
+        self.declare_parameter('video_max_width', 480)
+        self.declare_parameter('video_fps', 15.0)
         self.control = Control()
         self.current = {}
         self.sensors = {}
-        self.jpeg = None
-        self.frame_time = 0.0
-        self.last_encode = 0.0
+        self.video_frame = None
+        self.video_frame_time = 0.0
+        self.video_max_width = max(0, int(self.get_parameter('video_max_width').value))
         self.applied_mode = None
         self.mode_time = 0.0
         self.calibration = {'active': False, 'samples': 0, 'target': 500,
@@ -45,13 +51,17 @@ class RemoteController(Node):
         self.create_subscription(VoiceState, 'voice_session/state', self._voice_state, 10)
         self.create_subscription(Bool, 'local_ai/compute_active', self._local_compute, 10)
         self.remote_pub = self.create_publisher(String, 'remote/command', 10)
-        self.drive_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.drive_pub = self.create_publisher(Twist, 'drive/manual_cmd', 1)
+        self.navigation = None
+        self.navigation_at = 0.0
+        self.navigation_pub = self.create_publisher(String, 'navigation/authority', 1)
+        self.create_subscription(String, 'navigation/state', self._navigation_state, 1)
         self.calibration_pub = self.create_publisher(String, 'compass/calibration_command', 10)
         self.ai_trigger_pub = self.create_publisher(String, 'voice_session/trigger_uuid', 10)
         self.create_subscription(String, 'remote/applied_mode', self._mode, 10)
         self.create_subscription(JointState, 'servo/joint_states', self._joints, 10)
         self.create_subscription(Image, 'camera/image_raw', self._image,
-                                 qos_profile_sensor_data)
+                                 QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.create_subscription(BatteryState, 'battery_state', self._battery,
                                  qos_profile_sensor_data)
         self.create_subscription(Range, 'lidar/range',
@@ -65,21 +75,36 @@ class RemoteController(Node):
         self.create_subscription(String, 'voice_session/trigger_uuid',
                                  self._ai_trigger_uuid, 10)
 
+    def _navigation_state(self, msg):
+        try:
+            value = json.loads(msg.data)
+            if not isinstance(value, dict):
+                return
+            self.navigation, self.navigation_at = value, time.monotonic()
+        except (ValueError, TypeError):
+            return
+
     def _ai_settings(self, msg):
         try:
             self.ai_config = json.loads(msg.data)
+            provider = self.ai_config.get('settings', {}).get('provider')
+            if provider != self.control.navigation_provider:
+                self.control.disable_navigation()
+            self.control.navigation_provider = provider
         except ValueError:
             self.get_logger().warning('Invalid AI settings status')
 
     def _voice_state(self, msg):
+        if not msg.session_active or msg.state != 'connected':
+            self.control.disable_navigation()
         self.voice_status = {'state': msg.state, 'detail': msg.detail,
                              'active': msg.session_active}
 
     def _local_compute(self, msg):
         self.local_compute_active = bool(msg.data)
         if self.local_compute_active:
-            self.jpeg = None
-            self.frame_time = 0.0
+            self.video_frame = None
+            self.video_frame_time = 0.0
 
     def _ai_trigger_uuid(self, msg):
         self.ai_trigger_uuid = msg.data
@@ -121,9 +146,6 @@ class RemoteController(Node):
         if getattr(self, 'local_compute_active', False):
             return
         now = time.monotonic()
-        if now - self.last_encode < 0.1:
-            return
-        self.last_encode = now
         if msg.encoding not in ('bgr8', 'rgb8'):
             return
         try:
@@ -132,22 +154,25 @@ class RemoteController(Node):
                     msg.height, msg.width, 3)
             if msg.encoding == 'rgb8':
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            if msg.width > 640:
-                frame = cv2.resize(frame, (640, max(1, int(msg.height * 640 / msg.width))))
-            ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
-            if ok:
-                self.jpeg = base64.b64encode(jpeg).decode('ascii')
-                self.frame_time = now
+            max_width = self.video_max_width
+            if max_width and msg.width > max_width:
+                frame = cv2.resize(frame, (max_width,
+                    max(1, round(msg.height * max_width / msg.width))),
+                    interpolation=cv2.INTER_AREA)
+            self.video_frame = frame.copy()
+            self.video_frame_time = now
         except (ValueError, cv2.error):
             self.get_logger().warning('Invalid camera frame')
 
     def status(self):
         now = time.monotonic()
         applied = self.applied_mode if now - self.mode_time < 1 else None
-        return {'version': 1, 'mode': self.control.mode, 'appliedMode': applied,
+        navigation = getattr(self, 'navigation', None) if now - getattr(self, 'navigation_at', 0) < .5 else None
+        return {'navigation': navigation, 'navigationRequested': self.control.navigation_enabled,
+                'version': 1, 'mode': self.control.mode, 'appliedMode': applied,
                 'camera': (not getattr(self, 'local_compute_active', False)
-                           and now - self.frame_time < 2),
-                'driveAvailable': self.drive_pub.get_subscription_count() > 0,
+                           and now - self.video_frame_time < 2),
+                'driveAvailable': bool(navigation and navigation.get('motor_available')),
                 'joints': self.current,
                 'calibration': self.calibration,
                 'aiTriggerUuid': self.ai_trigger_uuid,
@@ -157,7 +182,13 @@ class RemoteController(Node):
                             for name, (value, stamp) in self.sensors.items()}}
 
     def tick(self, dt):
+        voice = getattr(self, 'voice_status', None) or {}
+        self.control.navigation_ready = (voice.get('active') is True and voice.get('state') == 'connected'
+            and time.monotonic() - getattr(self, 'navigation_at', 0) < .5
+            and self.applied_mode == 'ai' and time.monotonic() - self.mode_time < .5)
         linear, angular = self.control.tick(dt, self.current)
+        if self.control.navigation_enabled and not self.control.navigation_ready:
+            self.control.disable_navigation()
         if self.control.calibration_requested:
             self.calibration = {'active': True, 'samples': 0, 'target': self.calibration['target'],
                                 'message': 'Kalibrasyon başlatılıyor'}
@@ -178,6 +209,11 @@ class RemoteController(Node):
         msg.data = json.dumps({'mode': self.control.mode,
                                'targets': self.control.targets})
         self.remote_pub.publish(msg)
+        if hasattr(self, 'navigation_pub'):
+            self.navigation_pub.publish(String(data=json.dumps({
+                'mode': self.control.mode, 'owner': self.control.owner is not None,
+                'enabled': self.control.navigation_enabled,
+                'provider': self.control.navigation_provider, 'epoch': self.control.navigation_epoch})))
         # Publish stop also on AI transition and on disconnect.
         drive = Twist()
         drive.linear.x, drive.angular.z = linear, angular
@@ -186,7 +222,9 @@ class RemoteController(Node):
 
 async def serve(node):
     server = Server(node.control, node.status,
-                    lambda: node.jpeg if time.monotonic() - node.frame_time < 2 else None)
+                    lambda: LatestCameraTrack(
+                        lambda: node.video_frame if time.monotonic() - node.video_frame_time < 2 else None,
+                        node.get_parameter('video_fps').value))
     runner = web.AppRunner(server.app)
     await runner.setup()
     transport = None

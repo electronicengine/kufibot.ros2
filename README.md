@@ -1,7 +1,8 @@
 # Kufibot ROS 2
 
 ROS 2 Jazzy packages for Kufibot sensors, actuators, USB-camera perception,
-MediaPipe tracking, a Verasist live voice agent, and Android/web remote control.
+MediaPipe tracking, Verasist veya yerelde çalışan sesli ajan ve Android/web
+remote control.
 
 Kufibot, Verasist.ai SDK'sı ile çalışan sesli yapay zekâ destekli bir ev
 asistanı robotudur. Verasist üzerinden sosyal medya, CRM, yazılım ve çeşitli
@@ -26,7 +27,7 @@ Sistem yedi ROS 2 paketinden ve iki kullanıcı arayüzünden oluşur.
 | `kufibot_interfaces` | Ortak mesaj sözleşmeleri: algılama, takip, eklem komutu, konuşma durumu ve metni |
 | `kufibot_sensors` | INA219 batarya, HMC5883L pusula ve TF-Luna mesafe sürücüleri |
 | `kufibot_perception` | USB kamera, MediaPipe algılama ve baş/boyun takip hedefleri |
-| `kufibot_interaction` | Verasist oturumu, ses, yerel ifade seçimi ve servo komut önceliklendirmesi |
+| `kufibot_interaction` | Verasist oturumu veya yerel Vosk → llama.cpp → Piper ses zinciri, yerel ifade seçimi ve servo komut önceliklendirmesi |
 | `kufibot_actuators` | PCA9685 servo çıkışı ve isteğe bağlı DC motor sürücüsü |
 | `kufibot_remote` | Web arayüzünü sunma, UDP keşfi, WebSocket kamera/sensör aktarımı ve uzaktan kontrol köprüsü |
 
@@ -83,10 +84,11 @@ flowchart LR
     MP["mediapipe_node"]
     subgraph Interaction["Etkileşim"]
         Voice["voice_agent_node"]
+        Local["local_voice_worker<br/>Vosk → llama.cpp → Piper<br/>yalnızca Local AI"]
         Expressions["Yerel ifade motoru<br/>+ embedding worker"]
     end
     Remote["remote_controller · kufibot_remote<br/>remote:=true ile başlar<br/>HTTP + WebSocket + UDP"]
-    Cloud["Verasist SDK / servis"]
+    Cloud["Verasist SDK / servis<br/>yalnızca Verasist AI"]
 
     subgraph Motion["Hareket kontrolü"]
         Arbiter["servo_arbiter<br/>Kumanda / YZ önceliği"]
@@ -96,9 +98,11 @@ flowchart LR
 
     Mobile <-->|UDP 8888 · keşif| Remote
     Mobile <-->|WS /control · komut ve durum| Remote
+    Mobile -->|sağlayıcı · dil · model<br/>sistem mesajı| Remote
     Browser <-->|HTTP / · WS /control| Remote
-    Remote -->|WS /video · JPEG| Mobile
-    Remote -->|WS /video · JPEG| Browser
+    Browser -->|sağlayıcı · dil · model<br/>sistem mesajı| Remote
+    Remote -->|WebRTC video| Mobile
+    Remote -->|WebRTC video| Browser
     Camera -->|/camera/image_raw| MP
     Camera -->|/camera/image_raw| Voice
     Camera -->|/camera/image_raw| Remote
@@ -107,7 +111,15 @@ flowchart LR
     MP -->|yüz · el · takip hedefi| Voice
     MP -->|/servo/tracking_targets| Arbiter
     Voice --- Expressions
-    Voice <-->|ses · metin · araç çağrısı · görüntü| Cloud
+    Remote -->|/voice_session/set_ai_settings| Voice
+    Voice -->|Local AI seçiliyken<br/>işçi yapılandırması| Local
+    Local -->|mikrofon · kullanıcı/asistan metni<br/>durum| Voice
+    Local -->|ALSA hoparlör| Speaker["Robot hoparlörü"]
+    Mic["Robot mikrofonu"] -->|ALSA PCM| Local
+    Voice <-->|Verasist AI seçiliyken<br/>ses · metin · araç çağrısı · görüntü| Cloud
+    Voice -->|/local_ai/compute_active<br/>Bool · Local AI| Camera
+    Voice -->|/local_ai/compute_active<br/>Bool · Local AI| MP
+    Voice -->|/local_ai/compute_active<br/>Bool · Local AI| Remote
     Voice -->|/servo/agent_targets| Arbiter
     Remote -->|/remote/command · String içinde JSON| Arbiter
     Arbiter -->|/remote/applied_mode · String| Remote
@@ -119,10 +131,18 @@ flowchart LR
 ```
 
 Kamera ve sensör verileri hem ses ajanına hem uzaktan kontrol köprüsüne gider;
-köprü mevcut ROS kamera görüntüsünü JPEG'e dönüştürür, kamera aygıtını ikinci kez
+köprü mevcut ROS kamera görüntüsünü WebRTC ile yayınlar, kamera aygıtını ikinci kez
 açmaz. Web arayüzü köprünün içinden sunulur; robot üzerinde ayrı Node.js sunucusu
-gerekmez. HTTP, `/control` ve `/video` varsayılan TCP `8080` portunu paylaşır;
+gerekmez. HTTP, `/control` ve `/offer` varsayılan TCP `8080` portunu paylaşır;
+video WebRTC'nin ICE ile belirlediği UDP portlarını kullanır.
 UDP `8888` yalnızca Android keşfi içindir.
+
+Sesli Ajan Ayarları'nda seçilen sağlayıcı, dil, modeller ve yalnızca Local AI için
+sistem mesajı köprüden `voice_agent_node`'a gider. YZ modu seçildiğinde node,
+seçime göre Verasist oturumunu veya ayrı `local_voice_worker` sürecini başlatır.
+Yerel işçinin LLM çıkarımı olayıyla `voice_agent_node`
+`local_ai/compute_active` yayınlar; kamera, MediaPipe ve köprünün canlı görüntü
+kodlaması geçici olarak durur. Bu sinyal Verasist akışında yayınlanmaz.
 
 Arbiter varsayılan olarak Kumanda modunda başlar. Köprü başlatıldığında ajan ve
 takip servo komutları engellenir, uzaktan gelen
@@ -136,6 +156,24 @@ motor node'unu başlatır; ikisi de varsayılan olarak açıktır. Bu nedenle
 argümansız `./tools/ros2_launch.sh` doğrudan Kumanda modunda açılır. Tanılama
 veya donanımsız çalıştırma için `remote:=false` ya da `motors:=false` verilebilir.
 Ses ajanı `/cmd_vel` üretmez. `tracking_test.launch.py` bu iki node'u başlatmaz.
+
+### Servo eksen testi
+
+PCA9685 servo sürücüsünü ve güvenli, sıralı eksen testini tek komutla başlatmak
+için çalışma alanı kökünden şunu çalıştırın:
+
+```bash
+./tools/servo_axis_test.sh
+```
+
+Betik önce `servo_node` düğümünü başlatır; ardından her eklemi tek tek test
+pozlarına götürüp varsayılan konumuna döndürür. Test tamamlandığında ya da
+`Ctrl+C` ile kesildiğinde başlattığı servo düğümünü kapatır. Bekleme süresini
+değiştirmek için ROS parametresi geçirilebilir:
+
+```bash
+./tools/servo_axis_test.sh --ros-args -p hold_seconds:=3.0
+```
 
 ## Robotun çalışma akışı
 
@@ -226,7 +264,7 @@ bulunur. Üst ortadan **KUMANDA / YZ MODU** seçilir.
 | Arayüz | Kaynak | Bağlantı ve kullanım |
 | --- | --- | --- |
 | Expo Android | `KufibotMobile/` | Aynı ağda UDP keşfi; robot seçimi veya elle IP girişi; development build / APK |
-| Web | `src/kufibot_remote/kufibot_remote/web/` | `http://ROBOT_IP:8080/`; fare ve dokunmatik joystickler, WASD ile hareket, yön tuşlarıyla kafa |
+| Web | `src/kufibot_remote/kufibot_remote/web/` | `http://ROBOT_IP:8080/`; fare ve dokunmatik joystickler, WASD ve yön tuşlarıyla hareket, dokunmatik/fare ile kafa |
 
 ### Başlatma ve erişim
 
@@ -286,10 +324,10 @@ sequenceDiagram
     U->>R: WS /control · claim
     R-->>U: Kontrol sahipliği ve durum
     Note over U,R: İlk istemci kontrol sahibidir<br/>diğerleri izleyicidir
-    U->>R: WS /video bağlantısı
+    U->>R: POST /offer · WebRTC SDP teklifi
     N-->>R: camera/image_raw, battery_state, compass/heading_deg, lidar/range
     N-->>R: servo/joint_states (JointState)
-    R-->>U: /video üzerinden JPEG<br/>/control üzerinden sensör ve eklem durumu
+    R-->>U: WebRTC video<br/>/control üzerinden sensör ve eklem durumu
 
     alt Kumanda modu
         U->>R: mode=remote, joystick veya eklem hedefi
@@ -318,7 +356,7 @@ sequenceDiagram
 | `/remote/applied_mode` | `std_msgs/String` | Arbiter → köprü; uygulanan mod veya `unavailable` |
 | `/cmd_vel` | `geometry_msgs/Twist` | Köprü → DC motor; sürüş ve durma komutları |
 | `/control` | WebSocket JSON | İstemci ↔ köprü; sahiplik, heartbeat, mod, girişler ve sensör/eklem durumu |
-| `/video` | WebSocket base64 JPEG | Köprü → istemci; yaklaşık 10 FPS, en çok 640 piksel genişliğinde görüntü |
+| `/offer` | HTTP SDP signaling | WebRTC video; varsayılan 480 piksel genişlik ve 15 FPS hedefi |
 
 Bir telefon veya tarayıcı kontrol sahibiyken diğer istemciler izleyici olur.
 Kontrol sahibi ayrılınca **Kumandayı devral** ile kontrol alınabilir. Uygulama veya
@@ -577,3 +615,28 @@ llama.cpp notice on startup.
 
 Yerel Vosk / llama.cpp / Piper sesli ajanı ve web-mobil sağlayıcı/model seçimi:
 [Local AI kurulumu ve kullanımı](docs/local-ai.md).
+
+
+### 3B robot simülasyonu
+
+`tools/ros2_sim_launch.sh sim` donanımsız ROS simülasyonunu ve Panda3D
+üçüncü şahıs penceresini açar. Görüntüleyici için proje sanal ortamında
+`pip install 'panda3d>=1.10.15,<1.11'` ve grafik masaüstü gerekir.
+Plan editörü pygame kullanmaya devam eder.
+
+Robotu `http://BILGISAYAR_IP:8080/` üzerinden veya mevcut mobil uygulamayla
+kontrol edin. Webde W/yukarı ileri, S/aşağı geri, A/sol ve D/sağ dönüş;
+eşzamanlı eksenlerde dönüş önceliklidir. Baş/kol/gözler ekrandaki kontrollerden
+hareket ettirilir. 3B pencere motor komutu göndermez.
+
+3B pencereye tıklayın ve fareyi hareket ettirerek robotun çevresine bakın.
+Fare tekerleği mesafeyi değiştirir, R kamerayı arkaya alır, M üstten görünümü
+açar. Esc veya odak kaybı fareyi serbest bırakır. Pencereyi kapatmak başlatılan
+simülasyonu da kapatır. Veri kesildiğinde tekerlek animasyonu durur.
+
+Ev geometrisi mevcut floorplan JSON dosyasından üretilir; kapılar açık geçittir.
+Robot basit eklemli bir modeldir; düz zeminde gövde çarpışması uygulanır.
+Web/mobil robot kamera yayını ayrı, mevcut birinci şahıs sensör görüntüsüdür.
+
+Tekerlek açıklığı motor ve dünya için ortak ayarlanır:
+`tools/ros2_sim_launch.sh sim wheel_separation_m:=0.2`.

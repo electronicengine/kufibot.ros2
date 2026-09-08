@@ -8,6 +8,12 @@ from kufibot_interaction.joint_limits import JOINT_LIMITS
 
 
 class Control:
+    # These values match the default motor configuration. With the 0.20 m
+    # wheel separation, 5 rad/s produces +/-0.50 m/s at the wheels: full
+    # power in-place turns just as forward/backward uses full power.
+    DRIVE_MAX_LINEAR_MPS = 0.5
+    DRIVE_MAX_ANGULAR_RPS = 5.0
+
     def __init__(self, clock=time.monotonic, timeout=0.5):
         self.clock = clock
         self.timeout = timeout
@@ -21,6 +27,14 @@ class Control:
         self.ai_trigger_uuid = None
         self.ai_workflow_requested = False
         self.ai_settings_requested = None
+        self.navigation_enabled = False
+        self.navigation_epoch = uuid.uuid4().hex
+        self.navigation_provider = None
+        self.navigation_ready = False
+
+    def disable_navigation(self):
+        self.navigation_enabled = False
+        self.navigation_epoch = uuid.uuid4().hex
 
     def stop(self):
         self.axes = dict.fromkeys(self.axes, 0.0)
@@ -28,6 +42,7 @@ class Control:
     def release(self, owner):
         if self.owner is owner:
             self.stop()
+            self.disable_navigation()
             self.owner = None
 
     def command(self, owner, data):
@@ -37,6 +52,7 @@ class Control:
         if kind == 'claim':
             if self.owner is not None and self.owner is not owner:
                 raise ValueError('Robot başka bir cihazdan kontrol ediliyor')
+            self.disable_navigation()
             self.owner = owner
             self.last_heartbeat = self.clock()
             self.stop()
@@ -47,12 +63,24 @@ class Control:
             self.last_heartbeat = self.clock()
         elif kind == 'stop':
             self.stop()
+            self.disable_navigation()
+        elif kind == 'setNavigationEnabled':
+            enabled = data.get('enabled')
+            if not isinstance(enabled, bool):
+                raise ValueError('enabled must be boolean')
+            if enabled and (self.mode != 'ai' or self.navigation_provider != 'verasist'
+                            or not self.navigation_ready):
+                raise ValueError('Verasist bağlantısı ve YZ modu gerekli')
+            self.stop()
+            self.navigation_enabled = enabled
+            self.navigation_epoch = uuid.uuid4().hex
         elif kind == 'mode':
             mode = data.get('mode')
             if mode not in ('remote', 'ai'):
                 raise ValueError('Invalid mode')
             self.stop()
             self.targets.clear()
+            self.disable_navigation()
             self.mode = mode
         elif kind == 'input':
             if self.mode != 'remote':
@@ -82,7 +110,9 @@ class Control:
             self.calibration_requested = True
         elif kind == 'setAiSettings':
             self.ai_settings_requested = validate(data.get('settings'))
+            self.disable_navigation()
         elif kind == 'setAiTrigger':
+            self.disable_navigation()
             trigger_uuid = data.get('triggerUuid')
             if not isinstance(trigger_uuid, str):
                 raise ValueError('Geçerli bir trigger UUID girin')
@@ -102,6 +132,7 @@ class Control:
             self.targets.clear()
             self.mode = 'ai'
             self.ai_workflow_requested = True
+            self.disable_navigation()
         else:
             raise ValueError('Unknown command')
 
@@ -122,4 +153,5 @@ class Control:
                 low, high = JOINT_LIMITS[name]
                 self.targets[name] = max(low, min(high, self.targets[name] +
                     sign * self.axes[axis] * 45.0 * min(dt, 0.1)))
-        return -self.axes['drive_y'] * 0.25, -self.axes['drive_x'] * 1.0
+        return (-(self.axes['drive_y'] * self.DRIVE_MAX_LINEAR_MPS),
+                self.axes['drive_x'] * self.DRIVE_MAX_ANGULAR_RPS)

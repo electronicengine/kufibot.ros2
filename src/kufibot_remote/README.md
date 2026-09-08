@@ -38,11 +38,26 @@ veya onu başlatan launch oturumunu yeniden başlatın. `8080` portunda yalnızc
 köprü çalışmalıdır. Web ve Expo uygulaması **aynı köprüyü** kullanır.
 
 Yalnızca kamera/kafa için `motors:=false` kullanın. Motor düğümü yoksa soldaki
-hareket joysticki pasif olur. Port ve robot adı
+hareket joysticki pasif olur. Port, robot adı ve video kalitesi
 `src/kufibot_bringup/config/interactive_robot.yaml` içindeki
 `remote_controller.ros__parameters` bölümünden değiştirilebilir. Web adresindeki
 portu da buna göre değiştirin; tarayıcı WebSocket adresini otomatik olarak mevcut
 sayfanın IP ve portundan alır.
+
+Web kumandası görüntüyü LAN üzerinde WebRTC ile alır; medya RTP/RTCP üzerinden
+akar, kontrol ve signaling ise mevcut HTTP/WebSocket uçlarında kalır. Bu, JPEG
+kuyruğu ve base64 dönüştürmesinden kaynaklanan gecikmeyi kaldırır. WebRTC için
+robotun Python ortamında `aiortc==1.9.0` bulunmalıdır (projenin
+`requirements.txt` dosyasında zaten vardır).
+
+Web ve native Expo uygulaması yalnızca WebRTC kullanır; JPEG/base64 yayın ve
+`/video` ucu kaldırıldı. Eski APK güncellenmelidir.
+Varsayılan yayın genişliği 480 piksel, hedef hız 15 FPS'tir; kaynak kamera 640×480
+15 FPS kalır. `video_max_width` sadece yayın kopyasını etkiler.
+MediaPipe yüz/el çıkarımı ve takip komutları yalnızca güncel
+`remote/applied_mode=ai` bildirimi varken çalışır. Kumandaya dönüşte eski hedef
+temizlenir. Model, landmark dönüşümü ve takip eşikleri korunur.
+Bağımsız tracking test launch'u bu nedenle arbiter'i YZ modunda başlatır.
 
 ## Ekran ve kontroller
 
@@ -83,7 +98,7 @@ ikiden fazla saniyedir yenilenmeyen kamera bekleme ekranı olarak gösterilir.
 | `GET /` | Web kumandası |
 | `GET /assets/app.js`, `connection.js`, `style.css` | Paketle birlikte gelen yerel web dosyaları |
 | `WS /control` | Mevcut Expo protokolü: sahiplik, mod, joystick, eklem komutları ve sensör durumu |
-| `WS /video` | JPEG karelerinin base64 aktarımı; kontrol soketinden bağımsız |
+| `POST /offer` | Web kumandasının WebRTC SDP signaling ucu |
 | `UDP 8888` | Expo Android otomatik keşfi; web tarayıcısında gerekli değildir |
 
 WebSocket bağlantıları tarayıcıda sayfanın kendi adresinden açılır. Farklı bir

@@ -1,0 +1,13 @@
+string session_id
+string task_id
+string request_id
+string operation
+string observation_id
+float32 distance_m
+float32 angle_deg
+float32 sweep_deg
+---
+string result_json
+---
+string state
+float32 progress

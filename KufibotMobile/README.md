@@ -32,11 +32,17 @@ source install/setup.bash
 
 `interactive_robot.yaml` içindeki `remote_controller` parametreleri robot adı,
 TCP portu ve keşif portunu belirler. Telefon UDP **8888** üzerinden keşif yapar;
-bu port iki tarafta aynı kalmalıdır. Kontrol `/control`, kamera `/video` WebSocket
-uçlarında varsayılan TCP **8080** üzerinden akar. Mod değişiminin gerçekten
+bu port iki tarafta aynı kalmalıdır. Kontrol `/control` WebSocket, video
+`/offer` HTTP signaling + WebRTC RTP üzerinden akar. Mod değişiminin gerçekten
 uygulanması için güncellenmiş `servo_arbiter` gereklidir.
 
 ## Android uygulaması
+
+WebRTC native bağımlılığı eklendi: eski APK ve Expo Go ile çalışmaz. Yeni APK
+kurulmalıdır. Expo 55 için WebRTC 124.0.7 ve config plugin 14.0.0 sabittir.
+`npm ci` sonrası `npx expo prebuild --platform android` ve
+`npx expo run:android` kullanın; mevcut UDP keşif modülünü koruyun.
+
 
 Node.js **22.13+**, npm, JDK 17 ve Android SDK kurulu bir geliştirme bilgisayarında:
 
@@ -87,10 +93,10 @@ alınabilir. Android çıktıları prebuild ile üretilir, depoya eklenmez.
 - Köprü/telefon kaybolduğunda kumanda modundan kendiliğinden YZ'ye geçilmez.
   Arbiter son servo hedefini tutar; motor düğümünün bağımsız 500 ms watchdog'u
   köprü çökmesinde tekerlekleri durdurur.
-- Kamera en çok 640 piksel genişlikte JPEG, yaklaşık 10 FPS aktarılır. Kontrol ve
-  görüntü ayrı soketlerdedir; yavaş video istemcileri için görüntü kuyruğu birikmez.
-  Üç saniyeden eski sensörler `—`, iki saniyedir yenilenmeyen kamera bekleme ekranı
-  olarak gösterilir. Arbiter yanıtı yoksa joystickler etkinleşmez.
+- Kamera yalnızca WebRTC ile alınır ve native RTCView'de çizilir.
+  Varsayılan yayın 480 piksel genişlikte, hedef 15 FPS'tir; JPEG/base64 yoktur.
+  MediaPipe yalnızca YZ modunda çalışır. Üç saniyeden eski sensörler `—`,
+  robot kamerası güncel değilse görüntü bekleme ekranı olarak gösterilir. Arbiter yanıtı yoksa joystickler etkinleşmez.
 - Bu sürüm güvenilen yerel ağ içindir: TLS, parola/eşleştirme ve internet üzerinden
   erişim içermez. Portları internete yönlendirmeyin. Mevcut Java istemcisinin
   protokolüyle uyumluluk amaçlanmaz; yalnızca arayüzü referans alınmıştır.

@@ -12,6 +12,10 @@ pi-ina219==1.4.1
 numpy>=1.26,<3
 mediapipe>=0.10,<0.11
 
+# 3D simulation viewer and 2D floor-plan editor
+panda3d>=1.10.15,<1.11
+pygame>=2.5,<3
+
 # Local background expression embeddings (llama.cpp Python binding)
 llama-cpp-python==0.3.35
 

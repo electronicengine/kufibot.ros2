@@ -20,6 +20,8 @@ class UsbCameraNode(Node):
         self.declare_parameter('width', 640)
         self.declare_parameter('height', 480)
         self.declare_parameter('fps', 15.0)
+        self.declare_parameter('use_mjpeg', True)
+        self.declare_parameter('buffer_size', 1)
         self.declare_parameter('frame_id', 'camera_link')
         self.declare_parameter('reconnect_interval_sec', 2.0)
         self.declare_parameter('max_consecutive_failures', 5)
@@ -32,6 +34,8 @@ class UsbCameraNode(Node):
             'reconnect_interval_sec').value)
         self.max_failures = int(self.get_parameter(
             'max_consecutive_failures').value)
+        self.use_mjpeg = bool(self.get_parameter('use_mjpeg').value)
+        self.buffer_size = max(1, int(self.get_parameter('buffer_size').value))
         self.capture = None
         self.active_device = None
         self.consecutive_failures = 0
@@ -85,6 +89,12 @@ class UsbCameraNode(Node):
             return False
 
     def _configure(self, capture):
+        # A one-frame V4L2 queue is crucial for teleoperation: when a client
+        # is briefly busy, resume from the newest camera frame rather than a
+        # backlog. MJPEG also cuts USB bandwidth for common UVC webcams.
+        capture.set(cv2.CAP_PROP_BUFFERSIZE, self.buffer_size)
+        if self.use_mjpeg:
+            capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         capture.set(cv2.CAP_PROP_FPS, float(self.get_parameter('fps').value))

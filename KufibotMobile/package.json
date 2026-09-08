@@ -9,15 +9,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "14.0.0",
+    "@react-native-community/slider": "5.1.2",
     "expo": "~55.0.0",
-    "expo-dev-client": "~55.0.0",
     "expo-build-properties": "~55.0.0",
+    "expo-dev-client": "~55.0.0",
+    "expo-keep-awake": "~55.0.8",
+    "expo-system-ui": "~55.0.22",
     "react": "19.2.0",
     "react-native": "0.83.10",
-    "@react-native-community/slider": "5.1.2",
     "react-native-safe-area-context": "~5.6.2",
-    "expo-system-ui": "~55.0.22",
-    "expo-keep-awake": "~55.0.8"
+    "react-native-webrtc": "124.0.7"
   },
   "devDependencies": {
     "@types/react": "~19.2.0",

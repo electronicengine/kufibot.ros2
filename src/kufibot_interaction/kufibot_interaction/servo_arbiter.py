@@ -34,11 +34,15 @@ class ServoArbiter(Node):
         self._lock = threading.Lock()
         self._agent = {}
         self._tracking = {}
+        self._navigation = {}
+        self._navigation_until = 0.0
         self._agent_until = None
         self.publisher = self.create_publisher(
             JointState, 'servo/joint_targets', 10)
         self.create_subscription(
             JointCommand, 'servo/agent_targets', self._agent_callback, 10)
+        self.create_subscription(
+            JointCommand, 'servo/navigation_targets', self._navigation_callback, 1)
         self.create_subscription(
             JointCommand, 'servo/tracking_targets', self._tracking_callback, 10)
         self.create_subscription(
@@ -69,6 +73,8 @@ class ServoArbiter(Node):
             return
         with self._lock:
             if mode != self._mode:
+                self._navigation = {}
+                self._navigation_until = 0.0
                 self._agent.clear()
                 self._tracking.clear()
                 self._agent_until = None
@@ -78,6 +84,20 @@ class ServoArbiter(Node):
             if mode == 'remote':
                 self._remote.update(valid)
             self._remote_seen = time.monotonic()
+
+    def _navigation_callback(self, msg):
+        with self._lock:
+            if msg.cancel_agent or self._mode != 'ai':
+                self._navigation = {}
+                self._navigation_until = 0.0
+                return
+            targets = self._validated(msg)
+            if targets is None or set(targets) != self.TRACKING_JOINTS:
+                return
+            if not math.isfinite(msg.hold_sec) or msg.hold_sec <= 0:
+                return
+            self._navigation = targets
+            self._navigation_until = time.monotonic() + min(.3, msg.hold_sec)
 
     def _validated(self, msg):
         if len(msg.names) != len(msg.angles_deg):
@@ -136,6 +156,8 @@ class ServoArbiter(Node):
                     name: angle for name, angle in self._agent.items()
                     if name not in self.TRACKING_JOINTS
                 })
+            if (self._mode == 'ai' and time.monotonic() < getattr(self, '_navigation_until', 0)):
+                targets.update(self._navigation)
             if self._mode == 'remote':
                 # A lost bridge holds the last position; it never enables AI.
                 targets = dict(self._remote)

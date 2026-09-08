@@ -204,6 +204,9 @@ class VoiceAgentNode(Node):
             Bool, 'local_ai/compute_active', 10)
         self.create_subscription(String, 'voice_session/set_ai_settings', self._set_ai_settings, 10)
         self.create_timer(1.0, self._publish_ai_settings)
+        self.navigation_camera_lock = asyncio.Lock()
+        from .navigation_tools import NavigationTools
+        self.navigation = NavigationTools(self)
         self.session_lock = asyncio.Lock()
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(
@@ -521,6 +524,7 @@ class VoiceAgentNode(Node):
         self.session = LiveSession(self.client)
         current_session = self.session
         self._register_tools(self.session)
+        self.navigation.register(self.session)
         relay = MediaRelay()
         self.mic = AlsaMicTrack(
             self.mic_device,
@@ -553,12 +557,15 @@ class VoiceAgentNode(Node):
 
         @self.session.on_connection_state
         def on_state(state):
-            self._publish_state(state)
+            if self.session is current_session:
+                self.navigation.connection_state(state)
+                self._publish_state(state)
 
         await self.session.connect(
             trigger_uuid=self.trigger_uuid, tracks=[self.mic],
             ice_timeout_secs=self.ice_timeout)
         self.session_active = True
+        self.navigation.connection_state('connected')
         self._publish_state('connected')
         asyncio.create_task(self._watch_session(self.session))
 
@@ -652,6 +659,9 @@ class VoiceAgentNode(Node):
             return {'status': 'ok'}
 
     def _set_joint_positions(self, names, angles, hold):
+        if (getattr(self, 'navigation', None) and self.navigation.active
+                and set(names) & {'neck', 'headLeftRight'}):
+            return {'status': 'error', 'error': 'head reserved for navigation; use observe_environment'}
         applied, clamped = validate_joint_targets(names, angles)
         msg = JointCommand()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -694,6 +704,8 @@ class VoiceAgentNode(Node):
         that gives the backend time to append the image before the final text
         triggers its response. Final-only streams use a best-effort fallback.
         """
+        if getattr(self, 'navigation', None) and self.navigation.active:
+            return
         text = str(text).strip()
         if final and not text:
             self.auto_camera_turn_active = False
@@ -743,7 +755,17 @@ class VoiceAgentNode(Node):
             self.get_logger().warning(
                 f'Automatic camera attachment skipped: {error}')
 
-    async def _send_camera_image(
+    async def _send_camera_image(self, session, prompt, enforce_cooldown=True,
+                                 trigger_response=True):
+        if getattr(self, 'navigation', None) and self.navigation.active:
+            return {'status': 'error', 'error': 'use observe_environment during navigation'}
+        lock = getattr(self, 'navigation_camera_lock', None)
+        if lock is None:
+            return await self._send_camera_image_unlocked(session, prompt, enforce_cooldown, trigger_response)
+        async with lock:
+            return await self._send_camera_image_unlocked(session, prompt, enforce_cooldown, trigger_response)
+
+    async def _send_camera_image_unlocked(
             self, session, prompt, enforce_cooldown=True,
             trigger_response=True):
         now = time.monotonic()
@@ -967,6 +989,8 @@ class VoiceAgentNode(Node):
         if self.stopping:
             return
         self.stopping = True
+        if hasattr(self, 'navigation'):
+            self.navigation.disconnect()
         self._reset_expression_turn(enabled=False)
         try:
             process = getattr(self, 'local_process', None)

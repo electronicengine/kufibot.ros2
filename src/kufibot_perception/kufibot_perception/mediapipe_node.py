@@ -16,7 +16,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from kufibot_interfaces.msg import (
     Detection, DetectionArray, JointCommand, Landmark, TrackingTarget)
@@ -37,6 +37,7 @@ class MediaPipeNode(Node):
         self.declare_parameter('control_rate_hz', 20.0)
         self.declare_parameter('neutral_step_deg', 1.0)
         self.declare_parameter('publish_debug_image', False)
+        self.declare_parameter('inference_fps', 10.0)
         confidence = float(self.get_parameter(
             'min_detection_confidence').value)
         self.timeout = float(self.get_parameter('target_timeout_sec').value)
@@ -52,6 +53,11 @@ class MediaPipeNode(Node):
         if control_rate <= 0.0:
             raise ValueError('control_rate_hz must be positive')
         self.debug = bool(self.get_parameter('publish_debug_image').value)
+        inference_fps = float(self.get_parameter('inference_fps').value)
+        if inference_fps <= 0.0:
+            raise ValueError('inference_fps must be positive')
+        self.inference_interval = 1.0 / inference_fps
+        self.last_inference = 0.0
         if not hasattr(mp, 'solutions'):
             raise RuntimeError('MediaPipe solutions API is unavailable')
         self.face = mp.solutions.face_detection.FaceDetection(
@@ -70,7 +76,10 @@ class MediaPipeNode(Node):
             JointCommand, 'servo/tracking_targets', 5)
         self.debug_pub = self.create_publisher(
             Image, 'perception/debug_image', 2)
-        self.create_subscription(Image, 'camera/image_raw', self._image, 5)
+        self.create_subscription(Image, 'camera/image_raw', self._image, 1)
+        self.applied_mode = 'remote'
+        self.mode_time = 0.0
+        self.create_subscription(String, 'remote/applied_mode', self._mode, 10)
         self.local_compute_active = False
         self.create_subscription(
             Bool, 'local_ai/compute_active', self._local_compute, 10)
@@ -78,6 +87,19 @@ class MediaPipeNode(Node):
         self.image_size = (640, 480)
         self.last_target_time = 0.0
         self.create_timer(1.0 / control_rate, self._control_tick)
+
+    def _mode(self, msg):
+        if msg.data != self.applied_mode:
+            self.latest_target = None
+            self.last_target_time = 0.0
+            self.last_inference = 0.0
+        self.applied_mode = msg.data
+        self.mode_time = time.monotonic()
+
+    def _tracking_enabled(self):
+        return (self.applied_mode == 'ai'
+                and time.monotonic() - self.mode_time < 1.0
+                and not self.local_compute_active)
 
     def _local_compute(self, msg):
         self.local_compute_active = bool(msg.data)
@@ -96,8 +118,12 @@ class MediaPipeNode(Node):
         return msg
 
     def _image(self, image_msg):
-        if getattr(self, 'local_compute_active', False):
+        if not self._tracking_enabled():
             return
+        now = time.monotonic()
+        if now - self.last_inference < self.inference_interval:
+            return
+        self.last_inference = now
         if image_msg.encoding not in ('bgr8', 'rgb8'):
             self.get_logger().warning(
                 f'Unsupported camera encoding: {image_msg.encoding}')
@@ -196,7 +222,7 @@ class MediaPipeNode(Node):
         self.target_pub.publish(target)
 
     def _control_tick(self):
-        if self.local_compute_active:
+        if not self._tracking_enabled():
             return
         now = time.monotonic()
         if (self.latest_target is not None
