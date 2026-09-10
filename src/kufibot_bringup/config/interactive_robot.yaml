@@ -4,8 +4,8 @@ dc_motor_node:
     invert_left: false
     invert_right: true
     navigation_calibrated: false
-    navigation_max_linear: 0.08
-    navigation_max_angular: 0.20
+    navigation_max_linear: 0.5
+    navigation_max_angular: 5.0
 
 voice_agent_node:
   ros__parameters:
@@ -22,7 +22,7 @@ voice_agent_node:
     camera_jpeg_max_width: 640
     camera_jpeg_quality: 80
     camera_send_cooldown_sec: 2.0
-    camera_attach_to_every_user_turn: true
+    camera_attach_to_every_user_turn: false
     # The remote-control boot starts the voice session only after a client
     # selects AI mode.  Manual service start remains available in AI mode.
     auto_start: false
@@ -95,16 +95,12 @@ navigation_node:
     stopping_distance_m: 0.15
     clearance_m: 0.10
     latency_margin_sec: 0.15
-    linear_speed: 0.08
-    angular_speed: 0.20
     head_center_deg: 90.0
     neck_horizontal_deg: 60.0
     head_sign: -1.0
     compass_turn_sign: -1.0
     lidar_yaw_offset_deg: 0.0
     camera_yaw_offset_deg: 0.0
-    max_distance_m: 0.30
-    max_turn_deg: 30.0
     scan_step_deg: 10.0
     settle_sec: 0.25
     sensor_age_sec: 0.30

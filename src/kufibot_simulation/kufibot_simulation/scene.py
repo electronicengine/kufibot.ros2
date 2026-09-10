@@ -1,9 +1,10 @@
-"""Procedural, metre-scale Panda3D scene. No external model assets required."""
+"""Metre-scale home geometry and the shared STL-derived articulated robot."""
 import math
 
 from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData,
                          GeomVertexFormat, GeomVertexWriter)
 from kufibot_interaction.joint_limits import JOINT_LIMITS, NEUTRAL_ANGLES
+from kufibot_interaction.robot_model import load_rig
 
 
 def box(parent, name, position, size, color):
@@ -33,6 +34,70 @@ def box(parent, name, position, size, color):
     return result
 
 
+def furniture(parent, obstacle):
+    """Recognizable furniture, contained in the plan's collision footprint."""
+    x0, y0, x1, y1 = obstacle.rect
+    w, d = x1-x0, y1-y0
+    if round(obstacle.yaw_deg / 90) % 2:
+        w, d = d, w
+    root = parent.attachNewNode(obstacle.id)
+    root.setPos((x0+x1)/2, (y0+y1)/2, 0)
+    root.setH(-obstacle.yaw_deg)
+    color = tuple(c/255 for c in obstacle.color)
+    wood, dark = (.42,.27,.15), (.08,.10,.12)
+    kind = obstacle.kind or (obstacle.id + ' ' + obstacle.label).lower()
+    def part(name, x,y,z, a,b,c, tint=color):
+        return box(root, name, (x*w,y*d,z), (a*w,b*d,c), tint)
+    def legs(height):
+        for x in (-.4,.4):
+            for y in (-.4,.4):
+                part('leg',x,y,height/2,.08,.08,height,wood)
+    if any(k in kind for k in ('sofa','koltuk')):
+        legs(.18)
+        part('seat',0,0,.3,.96,.94,.24)
+        part('backrest',0,.4,.64,.96,.16,.55)
+        for x in (-.44,.44):
+            part('armrest',x,0,.48,.12,.96,.3)
+        for x in (-.22,.22):
+            part('cushion',x,-.05,.45,.4,.68,.10,tuple(min(1,c*1.25) for c in color))
+        height=.92
+    elif any(k in kind for k in ('chair','sandalye')):
+        legs(.43)
+        part('seat',0,0,.45,.96,.96,.06)
+        for x in (-.4,.4):
+            part('back-support',x,.4,.65,.08,.08,.48,wood)
+        part('backrest',0,.4,.78,.9,.12,.25)
+        height=.91
+    elif any(k in kind for k in ('tv','television','televizyon')):
+        part('console',0,0,.25,.96,.94,.5,wood)
+        part('stand',0,0,.55,.18,.4,.1,dark)
+        part('television',0,.1,.95,.95,.15,.7,dark)
+        part('screen',0,.015,.95,.87,.025,.60,(.16,.36,.51))
+        height=1.3
+    elif any(k in kind for k in ('cabinet','dolap')):
+        part('cabinet',0,0,.85,.98,.98,1.7)
+        for x in (-.24,.24):
+            part('door',x,-.49,.87,.46,.025,1.57,wood)
+        for x in (-.05,.05):
+            part('handle',x,-.51,.85,.025,.025,.18,dark)
+        height=1.7
+    else:
+        coffee = any(k in kind for k in ('coffee','sehpa','sehba'))
+        height=.42 if coffee else .75
+        legs(height-.05)
+        part('tabletop',0,0,height-.025,.98,.98,.05,wood)
+        if any(k in kind for k in ('desk','bilgisayar')):
+            part('monitor-stand',0,.22,.85,.08,.1,.2,dark)
+            part('monitor',0,.25,1.06,.55,.07,.34,dark)
+            part('display',0,.21,1.06,.49,.015,.28,(.15,.4,.6))
+            part('keyboard',0,-.15,.79,.45,.18,.025,dark)
+            height=1.23
+    # Collision observer uses a separate bound, not any decorative component.
+    bound = root.attachNewNode('bounds')
+    bound.setZ(height/2)
+    return bound, (w/2,d/2,height/2)
+
+
 def build_home(parent, plan):
     root = parent.attachNewNode('home')
     # Bounds are also used by the camera's segment collision query.
@@ -50,10 +115,7 @@ def build_home(parent, plan):
         item.setH(math.degrees(math.atan2(by-ay, bx-ax)))
         blockers.append((item, (length/2, .01, 1.2)))
     for obstacle in plan.obstacles:
-        x0, y0, x1, y1 = obstacle.rect
-        item = box(root, obstacle.id, ((x0+x1)/2, (y0+y1)/2, .4),
-                   (x1-x0, y1-y0, .8), tuple(c/255 for c in obstacle.color))
-        blockers.append((item, ((x1-x0)/2, (y1-y0)/2, .4)))
+        blockers.append(furniture(root, obstacle))
     return root, blockers
 
 
@@ -75,77 +137,45 @@ def segment_fraction(start, end, half_extents, margin=.08):
 
 
 class Robot:
-    # The unscaled procedural model is 0.74 m tall.  Scale it to the physical
-    # robot's approximately 28 cm overall height while preserving metre-based
-    # world placement and motor animation.
-    height_m = .28
-    _unscaled_height_m = .74
-    model_scale = height_m / _unscaled_height_m
+    """STL-derived GLB, sharing servo pivots and calibration with the editor."""
+    width_m = .32
+    height_m = load_rig()['height_m']
+    sensor_height_m = .285
+    sensor_spacing_m = .06
+    model_scale = 1.0
     neck_up_degrees_per_servo_degree = .35
     wheel_radius = .10
 
     def __init__(self, parent):
+        import gltf
+        from panda3d.core import NodePath
+        from kufibot_interaction.robot_model import MODEL_DIRECTORY, load_rig
+        self.rig = load_rig()
         self.root = parent.attachNewNode('robot')
-        self.root.setScale(self.model_scale)
-        cyan, metal = (.08, .60, .72), (.65, .69, .72)
-        box(self.root, 'body', (0, 0, .27), (.26, .26, .28), cyan)
-        box(self.root, 'front-panel', (0, .135, .28), (.18, .015, .13), (.04,.08,.10))
-        self.wheels = []
-        for side in (-1, 1):
-            pivot = self.root.attachNewNode('wheel')
-            pivot.setPos(side*.10, 0, self.wheel_radius)
-            # Twelve tread blocks form a rounded wheel, with visible rotating spokes.
-            for i in range(12):
-                a = i * math.tau / 12
-                tread = box(pivot, 'tread', (0, math.sin(a)*.085, math.cos(a)*.085),
-                            (.08, .052, .03), (.06,.07,.08))
-                tread.setP(-math.degrees(a))
-            box(pivot, 'spoke', (side*.042,0,0), (.008,.15,.025), metal)
-            self.wheels.append(pivot)
-        self.joints = {}
-        for name, side in [('leftArm', -1), ('rightArm', 1)]:
-            pivot = self.root.attachNewNode(name)
-            pivot.setPos(side*.15, 0, .37)
-            box(pivot, 'arm', (side*.025, 0, -.10), (.045,.06,.22), metal)
-            box(pivot, 'hand', (side*.025,.025,-.21), (.07,.10,.045), cyan)
-            self.joints[name] = pivot
-        neck = self.root.attachNewNode('neck')
-        neck.setPos(0,0,.41)
-        box(neck, 'neck-link', (0,0,.09), (.055,.055,.18), metal)
-        head = neck.attachNewNode('head')
-        head.setPos(0,0,.19)
-        box(head, 'head-bar', (0,0,0), (.27,.08,.065), cyan)
-        self.joints.update(neck=neck, headLeftRight=head)
-        for name, side in [('eyeLeft', -1), ('eyeRight', 1)]:
-            pivot = head.attachNewNode(name)
-            pivot.setPos(side*.075,.025,0)
-            box(pivot, 'eye-shell', (0,.02,0), (.125,.10,.10), metal)
-            box(pivot, 'lens', (0,.075,0), (.085,.012,.068), (.015,.025,.035))
-            box(pivot, 'glint', (-.018,.083,.018), (.018,.003,.014), (.4,.85,1))
-            self.joints[name] = pivot
+        self.model = NodePath(gltf.load_model(str(MODEL_DIRECTORY / 'robot.glb')))
+        self.model.reparentTo(self.root)
+        # Panda fixed/auto lighting uses COLOR_0 without a diffuse-material override.
+        self.model.setMaterialOff(1)
+        self.joints = {name: self.model.find('**/' + name) for name in self.rig['joints']}
+        if any(node.isEmpty() for node in self.joints.values()):
+            raise ValueError('Robot model is missing servo nodes')
+        self.wheels = [self.model.find('**/' + name) for name in self.rig.get('wheels', {})]
         self.apply_joints(NEUTRAL_ANGLES)
 
     def apply_joints(self, angles):
+        from panda3d.core import Quat, Vec3
+        from kufibot_interaction.robot_model import joint_rotation
         for name, pivot in self.joints.items():
-            low, high = JOINT_LIMITS[name]
-            value = angles.get(name, NEUTRAL_ANGLES[name])
-            if not math.isfinite(value):
-                continue
-            value = max(low, min(high, value))
-            if name == 'headLeftRight':
-                pivot.setH(value - 90)
-            elif name == 'leftArm':
-                pivot.setP(180-value)
-            elif name == 'rightArm':
-                pivot.setP(value-10)
-            elif name == 'neck':
-                # The bottom stop is level; the neck only tilts the head up.
-                pivot.setP(value * self.neck_up_degrees_per_servo_degree)
-            else:
-                pivot.setR(value-NEUTRAL_ANGLES[name])
+            spec = self.rig['joints'][name]
+            angle = joint_rotation(spec, angles.get(name, spec['neutral_deg']))
+            # glTF (x,y,z) -> Panda3D (x,-z,y).
+            x, y, z = spec['axis']
+            rotation = Quat()
+            rotation.setFromAxisAngleRad(angle, Vec3(x, -z, y))
+            pivot.setQuat(rotation)
 
     def animate_wheels(self, linear, angular, separation, dt):
-        # World bearing increases clockwise, so left wheel travels farther in a right turn.
-        for wheel, speed in zip(self.wheels, (linear + angular*separation/2,
-                                               linear - angular*separation/2)):
-            wheel.setP((wheel.getP()-math.degrees(speed*dt/self.wheel_radius)) % 360)
+        # Roll the STL's individual rollers around their own axle centers.
+        for node, spec in zip(self.wheels, self.rig.get('wheels', {}).values()):
+            speed = linear + angular*separation/2 if spec['side'] == 'left' else linear - angular*separation/2
+            node.setP((node.getP()-math.degrees(speed*dt/spec['radius_m'])) % 360)

@@ -8,6 +8,7 @@ setup(
          ['resource/kufibot_interaction']),
         ('share/kufibot_interaction', ['package.xml']),
     ],
+    package_data={'kufibot_interaction': ['expression_defaults/*.json', 'model/*.json', 'model/*.glb']},
     install_requires=['setuptools'], zip_safe=True,
     maintainer='kufi', maintainer_email='y.bulbul@hotmail.com',
     description='Verasist voice agent and servo arbitration for Kufibot.',

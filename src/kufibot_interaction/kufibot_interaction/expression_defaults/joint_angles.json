@@ -1,0 +1,68 @@
+{
+  "rightArm": {
+    "idle": {
+      "angle": 15
+    },
+    "raised": {
+      "angle": 40
+    },
+    "wave": {
+      "angle": 65
+    }
+  },
+  "leftArm": {
+    "idle": {
+      "angle": 170
+    },
+    "raised": {
+      "angle": 140
+    },
+    "wave": {
+      "angle": 115
+    }
+  },
+  "neck": {
+    "idle": {
+      "angle": 30
+    },
+    "up": {
+      "angle": 50
+    },
+    "down": {
+      "angle": 15
+    }
+  },
+  "headLeftRight": {
+    "idle": {
+      "angle": 90
+    },
+    "left": {
+      "angle": 105
+    },
+    "right": {
+      "angle": 75
+    }
+  },
+  "eyeLeft": {
+    "idle": {
+      "angle": 30
+    },
+    "open": {
+      "angle": 5
+    },
+    "close": {
+      "angle": 40
+    }
+  },
+  "eyeRight": {
+    "idle": {
+      "angle": 150
+    },
+    "open": {
+      "angle": 170
+    },
+    "close": {
+      "angle": 140
+    }
+  }
+}

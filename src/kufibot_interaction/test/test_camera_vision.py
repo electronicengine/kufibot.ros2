@@ -84,8 +84,7 @@ def test_first_interim_user_turn_schedules_silent_camera_context():
 
         args, kwargs = node._send_camera_image.await_args
         assert args[0] is node.session
-        assert 'Elimde' in args[1]
-        assert 'began speaking' in args[1]
+        assert args[1] == 'Elimde'
         assert kwargs['enforce_cooldown'] is True
         assert kwargs['trigger_response'] is False
 
@@ -135,7 +134,7 @@ def test_final_only_transcript_uses_best_effort_fallback():
         node._handle_user_camera_context('Neye bakıyorum?', final=True)
         await asyncio.gather(*tuple(node.camera_send_tasks))
         args, kwargs = node._send_camera_image.await_args
-        assert 'final transcript fallback' in args[1]
+        assert args[1] == 'Neye bakıyorum?'
         assert kwargs['trigger_response'] is False
         assert node.auto_camera_turn_active is False
 

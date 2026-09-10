@@ -1,0 +1,54 @@
+[project]
+name = "verasist-sdk"
+version = "0.1.7"
+description = "Typed builder for Verasist voice-AI workflows"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-2-Clause" }
+authors = [
+    { name = "Zansat Technologies Private Limited", email = "contact@verasist.com" },
+]
+keywords = ["verasist", "voice-ai", "workflow", "sdk", "llm", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+voice = [
+    "aiortc>=1.9",
+    "websockets>=12.0",
+]
+
+[project.urls]
+Homepage = "https://verasist.com"
+Documentation = "https://docs.verasist.ai"
+Repository = "https://github.com/electronicengine/verasist"
+
+[project.scripts]
+verasist-sdk-codegen = "verasist_sdk.codegen:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/verasist_sdk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

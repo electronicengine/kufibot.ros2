@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from aiohttp import web, WSMsgType
+from kufibot_interaction.mimics import default_store, RevisionConflict
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 
 
@@ -24,16 +25,66 @@ class Discovery(asyncio.DatagramProtocol):
 
 
 class Server:
-    def __init__(self, control, status, video_track=None):
+    def __init__(self, control, status, video_track=None, tool_call=None, tool_image=None):
         self.control, self.status = control, status
         self.video_track = video_track
+        self.tool_call, self.tool_image = tool_call, tool_image
+        self.mimics = control.mimic_store or default_store()
+        control.mimic_store = self.mimics
         self.clients = set()
         self.peers = set()
         self.app = web.Application()
         self.app.add_routes([web.get('/', self.index),
                              web.get('/assets/{name}', self.asset),
+                             web.get('/mimics', self.editor),
+                             web.get('/api/mimics', self.list_mimics),
+                             web.get('/api/mimics/{name}', self.get_mimic),
+                             web.put('/api/mimics/{name}', self.save_mimic),
+                             web.get('/model/{name}', self.model_asset),
                              web.get('/control', self.controller),
-                             web.post('/offer', self.offer)])
+                             web.post('/offer', self.offer), web.get('/tool-image/{image_id}', self.image)])
+
+    async def list_mimics(self, request):
+        try:
+            return web.json_response(list(self.mimics.all().values()))
+        except (ValueError, OSError) as error:
+            raise web.HTTPServiceUnavailable(text=str(error))
+
+    async def get_mimic(self, request):
+        try:
+            return web.json_response(self.mimics.get(request.match_info['name']))
+        except ValueError as error:
+            raise web.HTTPNotFound(text=str(error))
+
+    async def save_mimic(self, request):
+        self.check_origin(request)
+        try:
+            value = await request.json()
+            if not isinstance(value, dict) or value.get('id') != request.match_info['name']:
+                raise ValueError('Mimik kimliği eşleşmiyor')
+            return web.json_response(self.mimics.save(value))
+        except RevisionConflict as error:
+            raise web.HTTPConflict(text=str(error))
+        except (ValueError, TypeError) as error:
+            raise web.HTTPBadRequest(text=str(error))
+
+    @staticmethod
+    async def editor(request):
+        return web.FileResponse(Path(__file__).with_name('web') / 'mimics.html')
+
+    @staticmethod
+    async def model_asset(request):
+        from kufibot_interaction import robot_model
+        name = request.match_info['name']
+        if name not in {'robot.glb', 'rig.json'}:
+            raise web.HTTPNotFound()
+        return web.FileResponse(Path(robot_model.__file__).with_name('model') / name)
+
+    async def image(self, request):
+        image = self.tool_image(request.match_info['image_id']) if self.tool_image else None
+        if not image:
+            raise web.HTTPNotFound()
+        return web.Response(body=image, content_type='image/jpeg')
 
     @staticmethod
     async def index(request):
@@ -43,7 +94,7 @@ class Server:
     @staticmethod
     async def asset(request):
         name = request.match_info['name']
-        if name not in {'app.js', 'connection.js', 'style.css'}:
+        if name not in {'app.js', 'connection.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js'}:
             raise web.HTTPNotFound()
         return web.FileResponse(Path(__file__).with_name('web') / name,
                                 headers={'Cache-Control': 'no-cache',
@@ -72,6 +123,7 @@ class Server:
                 await asyncio.wait_for(ws.send_json({
                     'type': 'state', **self.status(),
                     'owner': self.control.owner is ws,
+                    'mimic': self.control.mimic_status,
                 }), timeout=1)
                 await asyncio.sleep(0.2)
 
@@ -81,6 +133,16 @@ class Server:
             except (TimeoutError, ConnectionError, RuntimeError):
                 await ws.close()
 
+        tool_job = None
+
+        async def execute_tool(data):
+            try:
+                result = await self.tool_call(data.get('name'), data.get('arguments'))
+            except Exception as error:
+                result = {'status': 'error', 'reason': str(error)}
+            if not ws.closed:
+                await ws.send_json({'type': 'toolResult', 'name': data.get('name'), 'result': result})
+
         sender = asyncio.create_task(guarded_telemetry())
         try:
             async for msg in ws:
@@ -89,12 +151,35 @@ class Server:
                     try:
                         data = json.loads(msg.data)
                         command = data.get('type') if isinstance(data, dict) else None
-                        self.control.command(ws, data)
+                        if command == 'tool':
+                            if not self.tool_call:
+                                raise ValueError('Araç çağrıları kullanılamıyor')
+                            # A reconnect can race the initial claim/state
+                            # packet. Tool mode is an explicit user action, so
+                            # claim an otherwise idle controller here instead
+                            # of rejecting it with a misleading manual-control
+                            # error. Never take it from another client.
+                            if self.control.owner is None:
+                                self.control.command(ws, {'type': 'claim'})
+                            if self.control.owner is not ws:
+                                raise ValueError('Robot başka bir cihazdan kontrol ediliyor')
+                            if self.control.mode != 'tools':
+                                self.control.command(ws, {'type': 'mode', 'mode': 'tools'})
+                            if tool_job is not None and not tool_job.done():
+                                raise ValueError('Bir araç çağrısı zaten çalışıyor')
+                            tool_job = asyncio.create_task(execute_tool(data))
+                        else:
+                            self.control.command(ws, data)
                         await ws.send_json({'type': 'ack', 'command': command})
                     except (ValueError, TypeError) as error:
+                        if command == 'playMimic':
+                            self.control.mimic_status['error'] = str(error)
                         await ws.send_json({'type': 'error', 'command': command, 'message': str(error)})
         finally:
             self.control.release(ws)
+            if tool_job is not None:
+                tool_job.cancel()
+                await asyncio.gather(tool_job, return_exceptions=True)
             self.clients.discard(ws)
             sender.cancel()
             await asyncio.gather(sender, return_exceptions=True)

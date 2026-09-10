@@ -76,7 +76,9 @@ class Obstacle:
     id: str
     label: str
     color: tuple
-    rect: tuple  # (xmin, ymin, xmax, ymax), furniture or any other in-room blocker
+    rect: tuple  # Axis-aligned footprint after a quarter-turn rotation.
+    kind: str = ''
+    yaw_deg: float = 0.0
 
 
 @dataclass
@@ -106,7 +108,8 @@ class FloorPlan:
         doors = [Door(id=d['id'], label=d['label'], a=tuple(d['a']), b=tuple(d['b']),
                       connects=tuple(d['connects'])) for d in data['doors']]
         obstacles = [Obstacle(id=o['id'], label=o['label'], color=tuple(o['color']),
-                               rect=tuple(o['rect'])) for o in data.get('furniture', [])]
+                               rect=tuple(o['rect']), kind=o.get('kind', ''),
+                               yaw_deg=float(o.get('yaw_deg', 0))) for o in data.get('furniture', [])]
         return cls(rooms, walls, doors, obstacles, data.get('start_pose'))
 
     def raycast(self, x, y, bearing_deg, max_range=8.0, min_range=0.2):

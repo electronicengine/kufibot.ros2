@@ -1,0 +1,155 @@
+{
+  "default_idle": {
+    "joints": {
+      "rightArm": "idle",
+      "leftArm": "idle",
+      "neck": "idle",
+      "headLeftRight": "idle",
+      "eyeLeft": "idle",
+      "eyeRight": "idle"
+    }
+  },
+  "motions": {
+    "reactional_gestures": {
+      "talking": {
+        "duration": 1800,
+        "joints": {
+          "rightArm": "raised",
+          "neck": "up"
+        },
+        "sequence": [
+          {
+            "time": 500,
+            "joints": {
+              "headLeftRight": "left",
+              "eyeLeft": "open",
+              "eyeRight": "open"
+            }
+          },
+          {
+            "time": 1000,
+            "joints": {
+              "rightArm": "idle",
+              "leftArm": "raised",
+              "headLeftRight": "right"
+            }
+          },
+          {
+            "time": 1600,
+            "joints": {
+              "rightArm": "idle",
+              "leftArm": "idle",
+              "neck": "idle",
+              "headLeftRight": "idle",
+              "eyeLeft": "idle",
+              "eyeRight": "idle"
+            }
+          }
+        ]
+      },
+      "greeting": {
+        "duration": 2200,
+        "joints": {
+          "rightArm": "wave",
+          "eyeLeft": "open",
+          "eyeRight": "open"
+        },
+        "sequence": [
+          {
+            "time": 500,
+            "joints": {
+              "rightArm": "raised"
+            }
+          },
+          {
+            "time": 950,
+            "joints": {
+              "rightArm": "wave"
+            }
+          },
+          {
+            "time": 1400,
+            "joints": {
+              "rightArm": "raised"
+            }
+          },
+          {
+            "time": 2000,
+            "joints": {
+              "rightArm": "idle",
+              "leftArm": "idle",
+              "neck": "idle",
+              "headLeftRight": "idle",
+              "eyeLeft": "idle",
+              "eyeRight": "idle"
+            }
+          }
+        ]
+      },
+      "happy": {
+        "duration": 1600,
+        "joints": {
+          "rightArm": "raised",
+          "leftArm": "raised",
+          "neck": "up",
+          "eyeLeft": "open",
+          "eyeRight": "open"
+        },
+        "sequence": [
+          {
+            "time": 1400,
+            "joints": {
+              "rightArm": "idle",
+              "leftArm": "idle",
+              "neck": "idle",
+              "headLeftRight": "idle",
+              "eyeLeft": "idle",
+              "eyeRight": "idle"
+            }
+          }
+        ]
+      },
+      "thinking": {
+        "duration": 1600,
+        "joints": {
+          "headLeftRight": "left",
+          "neck": "up"
+        },
+        "sequence": [
+          {
+            "time": 1400,
+            "joints": {
+              "rightArm": "idle",
+              "leftArm": "idle",
+              "neck": "idle",
+              "headLeftRight": "idle",
+              "eyeLeft": "idle",
+              "eyeRight": "idle"
+            }
+          }
+        ]
+      },
+      "worried": {
+        "duration": 1600,
+        "joints": {
+          "neck": "down",
+          "eyeLeft": "close",
+          "eyeRight": "close"
+        },
+        "sequence": [
+          {
+            "time": 1400,
+            "joints": {
+              "rightArm": "idle",
+              "leftArm": "idle",
+              "neck": "idle",
+              "headLeftRight": "idle",
+              "eyeLeft": "idle",
+              "eyeRight": "idle"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

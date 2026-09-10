@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "coordinate_system": "glTF Y-up metres",
+  "source_sha256": "03f68b9c2867f6f7c419b888bd7de62012c46d35dfcf5aca6439040efe64b625",
+  "source_name": "Wall-E_Assembly_NotForPrinting.stl",
+  "calibrated": false,
+  "scale_m_per_source_unit": 0.0010979584834448447,
+  "joints": {
+    "neck": {
+      "parent": "body",
+      "pivot_m": [
+        0.0,
+        0.24659657738891747,
+        -0.0032938754503345343
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "neutral_deg": 60,
+      "assembly_deg": 60,
+      "limits_deg": [
+        0,
+        120
+      ],
+      "multiplier": 0.35
+    },
+    "headLeftRight": {
+      "parent": "neck",
+      "pivot_m": [
+        0.0,
+        0.06477955052324588,
+        0.0
+      ],
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "neutral_deg": 90,
+      "assembly_deg": 90,
+      "limits_deg": [
+        0,
+        180
+      ],
+      "multiplier": 1
+    },
+    "eyeLeft": {
+      "parent": "headLeftRight",
+      "pivot_m": [
+        -0.037236164007548464,
+        0.02635100360267628,
+        0.0
+      ],
+      "axis": [
+        0,
+        0,
+        1
+      ],
+      "neutral_deg": 30,
+      "assembly_deg": 30,
+      "limits_deg": [
+        0,
+        40
+      ],
+      "multiplier": 1
+    },
+    "eyeRight": {
+      "parent": "headLeftRight",
+      "pivot_m": [
+        0.037425012866700975,
+        0.02635100360267628,
+        0.0
+      ],
+      "axis": [
+        0,
+        0,
+        1
+      ],
+      "neutral_deg": 150,
+      "assembly_deg": 150,
+      "limits_deg": [
+        140,
+        170
+      ],
+      "multiplier": 1
+    },
+    "leftArm": {
+      "parent": "body",
+      "pivot_m": [
+        -0.0822524618287871,
+        0.2026782380511237,
+        0.03403671298679019
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "neutral_deg": 170,
+      "assembly_deg": 170,
+      "limits_deg": [
+        109,
+        180
+      ],
+      "multiplier": -1
+    },
+    "rightArm": {
+      "parent": "body",
+      "pivot_m": [
+        0.08244131068793961,
+        0.2026782380511237,
+        0.03403671298679019
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "neutral_deg": 15,
+      "assembly_deg": 15,
+      "limits_deg": [
+        10,
+        72
+      ],
+      "multiplier": 1
+    }
+  },
+  "height_m": 0.36976079412340235,
+  "wheels": {
+    "wheelLeft0": {
+      "side": "left",
+      "radius_m": 0.02305712815234174
+    },
+    "wheelLeft1": {
+      "side": "left",
+      "radius_m": 0.03733058843712472
+    },
+    "wheelLeft2": {
+      "side": "left",
+      "radius_m": 0.015371418768227826
+    },
+    "wheelLeft3": {
+      "side": "left",
+      "radius_m": 0.015371418768227826
+    },
+    "wheelRight0": {
+      "side": "right",
+      "radius_m": 0.02305712815234174
+    },
+    "wheelRight1": {
+      "side": "right",
+      "radius_m": 0.03733058843712472
+    },
+    "wheelRight2": {
+      "side": "right",
+      "radius_m": 0.015371418768227826
+    },
+    "wheelRight3": {
+      "side": "right",
+      "radius_m": 0.015371418768227826
+    }
+  },
+  "triangles": 132061
+}

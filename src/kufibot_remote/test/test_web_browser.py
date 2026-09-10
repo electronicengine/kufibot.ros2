@@ -80,6 +80,9 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     await playwright.expect(page.locator('#voltage')).to_have_text('12.4 V')
                     await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'false')
                     await page.screenshot(path='/tmp/kufibot-web-desktop.png')
+                    await page.locator('#distance-map').click()
+                    await playwright.expect(page.locator('#map-dialog')).to_be_visible()
+                    await page.locator('#map-close').click()
 
                     # The UI saves installed model IDs and keeps drafts across telemetry.
                     await page.locator('#menu-open').click()
@@ -113,25 +116,28 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     await page.keyboard.up('w')
                     await wait_for(lambda: control.axes['drive_y'] == 0)
                     await page.keyboard.down('ArrowUp')
-                    await wait_for(lambda: control.axes['drive_y'] == -1)
-                    assert control.axes['head_y'] == 0
+                    await wait_for(lambda: control.axes['head_y'] == -1)
+                    assert control.axes['drive_y'] == 0
                     await page.evaluate("window.dispatchEvent(new Event('blur'))")
                     await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     await page.keyboard.up('ArrowUp')
                     await page.evaluate("window.dispatchEvent(new Event('focus'))")
 
-                    for key, axis, value in [('w', 'drive_y', -1), ('ArrowUp', 'drive_y', -1),
-                                             ('s', 'drive_y', 1), ('ArrowDown', 'drive_y', 1),
-                                             ('a', 'drive_x', -1), ('ArrowLeft', 'drive_x', -1),
-                                             ('d', 'drive_x', 1), ('ArrowRight', 'drive_x', 1)]:
+                    for key, axis, value in [('w', 'drive_y', -1), ('s', 'drive_y', 1),
+                                             ('a', 'drive_x', -1), ('d', 'drive_x', 1),
+                                             ('ArrowUp', 'head_y', -1), ('ArrowDown', 'head_y', 1),
+                                             ('ArrowLeft', 'head_x', -1), ('ArrowRight', 'head_x', 1)]:
                         await page.keyboard.down(key)
                         await wait_for(lambda: control.axes[axis] == value)
-                        assert control.axes['head_x'] == control.axes['head_y'] == 0
+                        if key.startswith('Arrow'):
+                            assert control.axes['drive_x'] == control.axes['drive_y'] == 0
+                        else:
+                            assert control.axes['head_x'] == control.axes['head_y'] == 0
                         await page.keyboard.up(key)
                         await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     await page.keyboard.down('w')
                     await page.keyboard.down('ArrowRight')
-                    await wait_for(lambda: control.axes['drive_x'] == 1 and control.axes['drive_y'] == 0)
+                    await wait_for(lambda: control.axes['head_x'] == 1 and control.axes['drive_y'] == -1)
                     await page.keyboard.up('ArrowRight')
                     await wait_for(lambda: control.axes['drive_y'] == -1)
                     await page.keyboard.up('w')
@@ -174,7 +180,6 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     # Shortcuts still work after a mode button has keyboard focus.
                     await page.keyboard.down('w')
                     await wait_for(lambda: control.axes['drive_y'] == -1)
-                    await page.locator('#stop').click()
                     await page.keyboard.up('w')
                     await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     await page.locator('#eyeLeft').check()
@@ -187,7 +192,7 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     # Mobile browser sizing retains every control in the viewport.
                     for width, height, name in [(852, 393, 'landscape'), (390, 844, 'portrait')]:
                         await page.set_viewport_size({'width': width, 'height': height})
-                        for selector in ['#head-stick', '#drive-stick', '#rightArm', '#stop']:
+                        for selector in ['#head-stick', '#drive-stick', '#rightArm', '#distance-map']:
                             rect = await page.locator(selector).bounding_box()
                             assert 0 <= rect['x'] and rect['x'] + rect['width'] <= width
                             assert 0 <= rect['y'] and rect['y'] + rect['height'] <= height

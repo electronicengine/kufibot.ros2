@@ -46,7 +46,7 @@ def test_turning_changes_heading_without_moving(node):
     node._applied_twist(twist(angular=0.5))
     node.last_tick_at = time.monotonic() - 1.0
     node._tick()
-    assert node.theta > 0.0
+    assert node.theta == pytest.approx((360 - math.degrees(.5)) % 360, abs=.1)
     assert math.isclose(node.x, 0.6, abs_tol=1e-6)
     assert math.isclose(node.y, 0.6, abs_tol=1e-6)
 
@@ -76,11 +76,37 @@ def test_lidar_and_compass_reflect_the_integrated_pose(node):
     assert node.ranges[-1] > 0
 
 
+def test_sensor_noise_is_bounded_quantized_and_seeded(node):
+    node.lidar_noise_stddev = .02
+    node.lidar_quantization = .005
+    node.compass_noise_stddev = .8
+    node.noise.seed(42)
+    readings = [node._noisy_lidar(2.0) for _ in range(4)]
+    headings = [node._noisy_heading() for _ in range(4)]
+    assert any(value != 2.0 for value in readings)
+    assert all(node.lidar_min_range <= value <= node.lidar_max_range for value in readings)
+    assert all((value / .005).is_integer() for value in readings)
+    assert any(value != node.theta for value in headings)
+    node.noise.seed(42)
+    assert readings == [node._noisy_lidar(2.0) for _ in range(4)]
+
+
 def test_head_yaw_from_joint_states_changes_the_look_bearing(node):
     node.theta = 0.0
     node._joint_states(JointState(name=['headLeftRight'], position=[math.radians(45.0)]))
     assert node.head_deg == pytest.approx(45.0)
     assert node._look_bearing(0.0) == pytest.approx(45.0)
+
+
+def test_camera_and_lidar_use_the_drawn_eye_centres(node):
+    node.x, node.y, node.theta = 1.0, 2.0, 0.0
+    lidar = node._sensor_pose(node.lidar_lateral_offset, node.lidar_forward_offset, 0.0)
+    camera = node._sensor_pose(node.camera_lateral_offset, node.camera_forward_offset, 0.0)
+    assert lidar[:2] == pytest.approx((1.03, 2.0))
+    assert camera[:2] == pytest.approx((.97, 2.0))
+    assert math.dist(lidar[:2], camera[:2]) == pytest.approx(.06)
+    assert node.sensor_height == pytest.approx(.285)
+    assert node.body_radius == pytest.approx(.16)
 
 
 def test_neck_bottom_is_level_and_only_looks_up(node):
@@ -130,6 +156,10 @@ def test_motor_telemetry_stops_with_watchdog(node):
     node._tick()
     assert states[-1]['applied_twist'] == {'linear_mps': .2, 'angular_rps': .4}
     assert states[-1]['wheel_separation_m'] == .2
+    assert states[-1]['robot_dimensions_m'] == {
+        'width': .32, 'height': .32, 'collision_radius': .16}
+    assert states[-1]['lidar_pose']['x'] == pytest.approx(node.x + .03)
+    assert states[-1]['camera_pose']['x'] == pytest.approx(node.x - .03)
     node.last_twist_at -= 10
     node._tick()
     assert states[-1]['applied_twist'] == {'linear_mps': 0, 'angular_rps': 0}

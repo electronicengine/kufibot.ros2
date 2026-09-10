@@ -3,17 +3,20 @@ from pathlib import Path
 from kufibot_interaction.expression_engine import ExpressionLibrary
 
 
-CONFIG = Path('/home/kufi/workspace/kufibot.cpp/config')
+# A small C++-format catalogue, independent of another user's checkout.
+CONFIG = Path(__file__).parent / 'fixtures' / 'expressions'
+JOINTS = (Path(__file__).parents[2] / 'kufibot_actuators' /
+          'kufibot_actuators' / 'joint_angles.json')
 
 
 def library():
     return ExpressionLibrary(
         CONFIG / 'gesture_config.json',
         CONFIG / 'motion_definitions.json',
-        CONFIG / 'joint_angles.json')
+        JOINTS)
 
 
-def test_cpp_expression_catalogue_is_loaded():
+def test_cpp_format_expression_catalogue_is_loaded():
     expressions = library()
     assert {'happy', 'worried', 'greeting', 'talking', 'thinking'} \
         <= set(expressions.motions)
@@ -49,5 +52,4 @@ def test_each_sentence_gets_closest_or_talking_expression():
 def test_response_is_split_into_sentences():
     assert ExpressionLibrary.sentences('Merhaba! Bugün nasılsın? İyiyim.') == [
         'Merhaba!', 'Bugün nasılsın?', 'İyiyim.']
-
 

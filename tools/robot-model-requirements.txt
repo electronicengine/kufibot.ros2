@@ -1,0 +1,4 @@
+# Offline STL-to-GLB build tooling; runtime only needs the packaged model.
+trimesh==5.1.0
+fast-simplification==0.2.0
+networkx==3.6.1

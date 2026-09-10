@@ -7,7 +7,7 @@ const calibrationModal = $('calibration-modal');
 let windowActive = true;
 let imageLoaded = false;
 const keys = new Set();
-const canControl = () => link.ready && !menu.open && windowActive;
+const canControl = () => link.ready && !menu.open && !$('mimics-modal').open && windowActive;
 
 class Joystick {
   constructor(part) {
@@ -81,7 +81,6 @@ function camera() {
   $('camera').hidden = !live;
   $('camera-placeholder').hidden = live;
   $('live-dot').classList.toggle('active', live);
-  $('camera-tag').textContent = live ? 'CANLI · ROBOT KAMERASI' : 'KAMERA BEKLENİYOR';
   $('camera-message').textContent = link.state ? 'Kamera görüntüsü bekleniyor' : 'Robot bağlantısı bekleniyor';
 }
 
@@ -96,6 +95,17 @@ function renderDirection(state) {
     ? normalizeDegrees(heading + 90 - headAngle) : null;
   $('direction-arrow').style.transform = direction === null ? 'rotate(0deg)' : `rotate(${direction}deg)`;
   $('direction-value').textContent = direction === null ? '—°' : `${Math.round(direction)}°`;
+  $('body-direction').style.transform = `rotate(${Number.isFinite(heading) ? heading : 0}deg)`;
+  $('body-direction').hidden = !Number.isFinite(heading);
+  let reference = $('head-reference');
+  if (!reference) {
+    reference = document.createElement('button'); reference.id = 'head-reference';
+    reference.style.cssText = 'font-size:11px;background:#17233dcc;padding:6px;border-radius:6px';
+    $('head-direction').after(reference);
+    reference.addEventListener('click', () => link.joint('headLeftRight', 90));
+  }
+  reference.disabled = !canControl();
+  reference.textContent = `Gövde ${Number.isFinite(heading) ? Math.round(heading) : '—'}° · Kafa ${Number.isFinite(headAngle) ? Math.round(90-headAngle) : '—'}° · Öne bak`;
   $('head-direction').setAttribute('aria-label', direction === null
     ? 'Kafanın pusulaya göre baktığı yön bilinmiyor'
     : `Kafanın pusulaya göre baktığı yön ${Math.round(direction)} derece`);
@@ -168,6 +178,50 @@ function renderAiSettings(state) {
     local && !valid ? 'Bu dil için robotta STT, LLM ve TTS modellerini kurup seçin.' : '',
     !config ? 'Sesli ajan ayarları bekleniyor' : !saved ? 'Önce ayarları kaydedin.' : state.mode !== 'ai' ? 'Ayarlar kayıtlı. Ana ekrandan YZ modu seçildiğinde ajan başlar.' : ''].filter(Boolean).join(' · ');
 }
+
+function drawDistanceMap(canvas, mapping) {
+  const ratio = devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+  const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#101824d9'; ctx.fillRect(0, 0, width, height);
+  const points = mapping?.obstacle_points || [];
+  const robot = mapping?.robot_pose || [0, 0];
+  const extent = Math.max(2, ...points.flatMap(p => [Math.abs(p[0]), Math.abs(p[1])]),
+                          Math.abs(robot[0]), Math.abs(robot[1])) * 1.15;
+  const scale = Math.min(width, height) / (2 * extent);
+  const origin = [width / 2, height / 2];
+  const point = p => [origin[0] + p[0] * scale, origin[1] - p[1] * scale];
+  ctx.strokeStyle = '#78919e55'; ctx.lineWidth = Math.max(1, ratio);
+  for (let metre = 1; metre < extent; metre++) {
+    ctx.beginPath(); ctx.arc(...origin, metre * scale, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.strokeStyle = '#ff9981'; ctx.fillStyle = '#ff695f30';
+  ctx.lineWidth = 1.5 * ratio; ctx.lineJoin = 'round';
+  for (const path of mapping?.boundary_paths || []) {
+    if (path.length < 2) continue;
+    ctx.beginPath(); ctx.moveTo(...point(path[0]));
+    for (const vertex of path.slice(1)) ctx.lineTo(...point(vertex));
+    ctx.stroke();
+  }
+  const p = point(robot), heading = (mapping?.robot_heading_deg || 0) * Math.PI / 180;
+  ctx.fillStyle = '#ffd66e'; ctx.beginPath(); ctx.arc(...p, 4 * ratio, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffd66e'; ctx.lineWidth = 2 * ratio; ctx.beginPath();
+  ctx.moveTo(...p); ctx.lineTo(p[0] + Math.sin(heading) * 15 * ratio, p[1] - Math.cos(heading) * 15 * ratio); ctx.stroke();
+  ctx.fillStyle = '#67d9ed'; ctx.beginPath(); ctx.arc(...origin, 3 * ratio, 0, Math.PI * 2); ctx.fill();
+  const barMetres = Math.max(1, Math.ceil(50 * ratio / scale));
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2*ratio;
+  ctx.beginPath(); ctx.moveTo(10*ratio, height-15*ratio);
+  ctx.lineTo(10*ratio+barMetres*scale, height-15*ratio); ctx.stroke();
+  ctx.font = `${10*ratio}px sans-serif`; ctx.fillStyle = '#ffffff';
+  ctx.fillText(`${barMetres} m`, 10*ratio, height-20*ratio);
+  const nearest = points.length ? Math.min(...points.map(q => Math.hypot(q[0]-robot[0], q[1]-robot[1]))) : null;
+  ctx.fillText(nearest === null ? 'Sınır ölçümü bekleniyor' : `En yakın kayıtlı sınır ≈ ${nearest.toFixed(2)} m`, 8*ratio, 13*ratio);
+  const liveRange = link.state?.sensors.distance;
+  ctx.fillText(Number.isFinite(liveRange) ? `Lidar baktığı yön: ${liveRange.toFixed(2)} m` : 'Lidar: — m', 8*ratio, 26*ratio);
+}
 for (const key of ['provider', 'language', 'stt', 'llm', 'tts']) {
   $(`ai-${key}`).addEventListener('change', event => {
     aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), [key]: event.target.value};
@@ -193,14 +247,18 @@ function render() {
     const value = state?.sensors[name];
     $(name).textContent = Number.isFinite(value) ? `${value.toFixed(1)} ${unit}` : `— ${unit}`;
   }
-  for (const mode of ['remote', 'ai']) {
+  for (const mode of ['remote', 'ai', 'tools']) {
     const button = $(`mode-${mode}`);
     button.disabled = !state?.owner || !!link.pendingMode;
     button.setAttribute('aria-pressed', String(state?.mode === mode && state?.appliedMode === mode));
   }
   $('mode-notice').hidden = !state || (state.mode === state.appliedMode && !link.pendingMode);
+  // The bridge waits for the servo mode acknowledgement itself. Keeping this
+  // enabled after the user selects the mode avoids a dead-looking modal.
+  $('tool-call').disabled = state?.mode !== 'tools' || !state?.owner;
   $('claim').hidden = !state || state.owner;
-  $('stop').disabled = !state?.owner;
+  drawDistanceMap($('distance-map-canvas'), state?.distanceMap);
+  if ($('map-dialog').open) drawDistanceMap($('distance-map-full'), state?.distanceMap);
   const nav = state?.navigation;
   const navLabels = {disabled: 'Kapalı', idle: 'Komut bekleniyor', aligning: 'Kafa hizalanıyor',
     scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor',
@@ -233,10 +291,6 @@ function render() {
     const value = state?.joints[name];
     $(name).checked = Number.isFinite(value) && (name === 'eyeLeft' ? value < 20 : value > 160);
   }
-  $('control-hint').textContent = !state ? 'Kontrol bağlantısı bekleniyor'
-    : !state.owner ? 'Başka bir cihaz kontrol ediyor'
-    : state.mode === 'ai' ? 'Gezinme için serbest gezinmeyi açıp sesli görev verin'
-    : 'Joystick bırakıldığında hareket durur';
   renderDirection(state);
   renderCalibration(state);
   renderAiWorkflow(state);
@@ -265,8 +319,58 @@ $('camera').addEventListener('timeupdate', () => {
 });
 $('camera').addEventListener('error', () => { imageLoaded = false; camera(); });
 
-for (const mode of ['remote', 'ai']) $(`mode-${mode}`).addEventListener('click', () => link.setMode(mode));
-$('stop').addEventListener('click', () => link.stop());
+for (const mode of ['remote', 'ai', 'tools']) $(`mode-${mode}`).addEventListener('click', () => {
+  link.setMode(mode);
+  if (mode === 'tools') $('tool-modal').showModal();
+});
+function configureTool(reset = false) {
+  const name = $('tool-name').value;
+  const scanning = name === 'read_sensor_values';
+  if (reset) {
+    $('tool-angle').value = '0';
+    $('tool-sweep').value = '180';
+  }
+  $('tool-distance-label').hidden = name !== 'goto';
+  $('tool-sweep-label').hidden = !scanning;
+  const sweep = Number($('tool-sweep').value);
+  const limit = name === 'goto' ? 180 : scanning ? Math.max(0, 90 - sweep / 2) : 90;
+  $('tool-angle').min = String(-limit);
+  $('tool-angle').max = String(limit);
+  $('tool-angle').value = String(Math.max(-limit, Math.min(limit, Number($('tool-angle').value))));
+}
+$('tool-name').addEventListener('change', () => configureTool(true));
+$('tool-sweep').addEventListener('input', () => configureTool());
+configureTool();
+$('tool-close').addEventListener('click', () => $('tool-modal').close());
+$('tool-call').addEventListener('click', () => {
+  if (link.state?.mode !== 'tools') return;
+  const name = $('tool-name').value;
+  const angle = Number($('tool-angle').value);
+  const toolArguments = name === 'goto' ? {distance_m: Number($('tool-distance').value), angle_deg: angle}
+    : name === 'look_at' ? {angle_deg: angle}
+      : {angle_deg: angle, sweep_deg: Number($('tool-sweep').value)};
+  const fields = ['tool-angle', ...(name === 'goto' ? ['tool-distance'] :
+    name === 'read_sensor_values' ? ['tool-sweep'] : [])];
+  for (const id of fields) {
+    const input = $(id);
+    if (!input.value.trim() || !Number.isFinite(Number(input.value)) || !input.reportValidity()) {
+      $('tool-result').textContent = 'Lütfen belirtilen aralıkta geçerli bir sayı girin.';
+      return;
+    }
+  }
+  $('tool-result').textContent = 'Robot görevi yürütüyor…';
+  $('tool-call').disabled = true;
+  link.send({type: 'tool', name, arguments: toolArguments});
+  $('tool-modal').close();
+});
+link.addEventListener('toolResult', ({detail}) => {
+  $('tool-call').disabled = false;
+  $('tool-result').textContent = JSON.stringify(detail.result, null, 2);
+  const image = $('tool-image');
+  image.hidden = !detail.result?.image_url;
+  if (detail.result?.image_url) image.src = detail.result.image_url;
+  if (!$('tool-modal').open) $('tool-modal').showModal();
+});
 $('navigation-toggle').addEventListener('click', () => {
   link.send({type: 'setNavigationEnabled', enabled: !link.state?.navigation?.enabled});
 });
@@ -302,26 +406,26 @@ $('calibrate-compass').addEventListener('click', () => {
 $('calibration-close').addEventListener('click', () => calibrationModal.close());
 $('endpoint').textContent = location.host;
 $('menu-address').textContent = location.origin;
-$('fullscreen').hidden = !document.fullscreenEnabled;
-$('fullscreen').addEventListener('click', async () => {
-  link.stop();
-  try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await document.documentElement.requestFullscreen();
-  } catch { link.emit('error', 'Tarayıcı tam ekrana geçemedi'); }
+$('distance-map').addEventListener('click', () => {
+  $('map-dialog').showModal(); drawDistanceMap($('distance-map-full'), link.state?.distanceMap);
 });
-document.addEventListener('fullscreenchange', () => {
-  $('fullscreen').textContent = document.fullscreenElement ? '⛶ Tam ekrandan çık' : '⛶ Tam ekran';
-});
+$('map-close').addEventListener('click', () => $('map-dialog').close());
 
 function keyboard() {
-  if (!drive.enabled || drive.pointer !== null) return;
   const held = (...codes) => codes.some(code => keys.has(code));
-  let x = Number(held('KeyD', 'ArrowRight')) - Number(held('KeyA', 'ArrowLeft'));
-  let y = Number(held('KeyS', 'ArrowDown')) - Number(held('KeyW', 'ArrowUp'));
-  if (x) y = 0; // Four-way drive: turning takes priority.
-  drive.position(x, y);
-  link.input('drive', x, y);
+  if (drive.enabled && drive.pointer === null) {
+    let x = Number(held('KeyD')) - Number(held('KeyA'));
+    let y = Number(held('KeyS')) - Number(held('KeyW'));
+    if (x) y = 0; // Four-way drive: turning takes priority.
+    drive.position(x, y);
+    link.input('drive', x, y);
+  }
+  if (head.enabled && head.pointer === null) {
+    const x = Number(held('ArrowRight')) - Number(held('ArrowLeft'));
+    const y = Number(held('ArrowDown')) - Number(held('ArrowUp'));
+    head.position(x, y);
+    link.input('head', x, y);
+  }
 }
 const movementKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
 window.addEventListener('keydown', event => {
@@ -340,8 +444,33 @@ window.addEventListener('keyup', event => {
   event.preventDefault();
   keyboard();
 });
-window.addEventListener('blur', () => { windowActive = false; link.stop(); render(); });
+window.addEventListener('blur', () => { windowActive = false; link.stopManualInput(); render(); });
 window.addEventListener('focus', () => { windowActive = true; render(); });
-window.addEventListener('resize', () => link.stop());
+window.addEventListener('resize', () => link.stopManualInput());
 render();
 link.connect();
+
+// Reuse this controller's ownership; the embedded editor has no second socket.
+const mimicModal = $('mimics-modal');
+const mimicFrame = $('mimics-frame');
+$('mimics-open').addEventListener('click', () => {
+  link.stop(); menu.close(); mimicModal.showModal();
+  mimicFrame.src = '/mimics?embedded=1';
+});
+const closeMimics = () => {
+  if (link.state?.owner) link.send({type:'stopMimic'});
+  mimicModal.close(); mimicFrame.src = 'about:blank';
+};
+mimicModal.addEventListener('cancel', event => {event.preventDefault(); closeMimics();});
+const editorCommands = new Set(['playMimic','stopMimic','stop','claim','mode']);
+window.addEventListener('message', event => {
+  if (event.origin !== location.origin || event.source !== mimicFrame.contentWindow || !mimicModal.open) return;
+  if (event.data?.type === 'mimicClose') closeMimics();
+  if (event.data?.type === 'mimicCommand' && editorCommands.has(event.data.command?.type)) link.send(event.data.command);
+});
+link.addEventListener('state', () => {
+  if (mimicModal.open) mimicFrame.contentWindow?.postMessage({type:'mimicState',state:link.state},location.origin);
+});
+link.addEventListener('error', ({detail}) => {
+  if (mimicModal.open) mimicFrame.contentWindow?.postMessage({type:'mimicError',message:typeof detail === 'string' ? detail : detail.message},location.origin);
+});

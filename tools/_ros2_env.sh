@@ -8,8 +8,19 @@ WORKSPACE_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 VENV_DIR="${WORKSPACE_DIR}/.venv"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 WORKSPACE_SETUP="${WORKSPACE_DIR}/install/setup.bash"
-VERASIST_ENV="${VERASIST_ENV_FILE:-/home/kufi/workspace/kufibot.cpp/live_voice_session/.env}"
-VERASIST_SDK_SRC="${VERASIST_SDK_SRC:-/home/kufi/workspace/kufibot.cpp/live_voice_session/verasist-sdk/src}"
+# Prefer checkout-local configuration, retaining the original Raspberry Pi
+# layout for existing installations. Explicit overrides always take precedence.
+VERASIST_LEGACY_DIR="/home/kufi/workspace/kufibot.cpp/live_voice_session"
+VERASIST_ENV="${VERASIST_ENV_FILE:-${WORKSPACE_DIR}/.env}"
+if [[ -z "${VERASIST_ENV_FILE:-}" && ! -f "${VERASIST_ENV}" ]]; then
+    VERASIST_ENV="${VERASIST_LEGACY_DIR}/.env"
+fi
+if [[ -z "${VERASIST_SDK_SRC:-}" ]]; then
+    VERASIST_SDK_SRC="${WORKSPACE_DIR}/verasist-sdk/src"
+    if [[ ! -d "${VERASIST_SDK_SRC}/verasist_sdk" ]]; then
+        VERASIST_SDK_SRC="${VERASIST_LEGACY_DIR}/verasist-sdk/src"
+    fi
+fi
 
 if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
     echo "ERROR: virtual environment not found: ${VENV_DIR}" >&2
@@ -41,5 +52,5 @@ source "${WORKSPACE_SETUP}"
 # ROS-generated executables use the system interpreter, so a plain venv
 # activation isn't enough; add the venv's site-packages to PYTHONPATH too.
 VENV_SITE_PACKAGES="$("${VENV_DIR}/bin/python" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-export PYTHONPATH="${VERASIST_SDK_SRC}:${VENV_SITE_PACKAGES}:${PYTHONPATH:-}"
+export PYTHONPATH="${VERASIST_SDK_SRC:+${VERASIST_SDK_SRC}:}${VENV_SITE_PACKAGES}:${PYTHONPATH:-}"
 cd "${WORKSPACE_DIR}"

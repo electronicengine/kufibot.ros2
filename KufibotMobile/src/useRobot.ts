@@ -7,12 +7,15 @@ export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt:
 export type AiConfig = {settings: AiSettings; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'tts'; languages: string[]; available: boolean}[]; error: string};
 export type State = {
   navigation?: {enabled: boolean; state: string; reason: string; calibrated: boolean; task_id: string} | null;
+  mimic?: {state: string; id: string | null; elapsed_ms: number; duration_ms?: number; revision?: number; error?: string | null};
   navigationRequested?: boolean;
   aiConfig?: AiConfig;
   voiceStatus?: {state: string; detail: string; active: boolean};
   type: 'state'; version: 1; owner: boolean; mode: 'ai' | 'remote';
   appliedMode: string | null; camera: boolean; driveAvailable: boolean;
   aiTriggerUuid?: string;
+  distanceMap?: {frame: string; units: string; origin: number[]; robot_pose: number[];
+    robot_heading_deg: number; obstacle_points: number[][]; boundary_paths?: number[][][]} | null;
   calibration?: {active: boolean; samples: number; target: number; message: string;
     raw?: {x: number; y: number}; minimum?: {x: number; y: number}; maximum?: {x: number; y: number}};
   sensors: Record<string, number | null>; joints: Record<string, number>;

@@ -2,6 +2,7 @@
 import json
 import math
 import time
+from collections import deque
 
 import cv2
 import numpy as np
@@ -17,6 +18,7 @@ from kufibot_interfaces.action import NavigateStep
 from kufibot_interfaces.srv import NavigationTask, GetObservation
 from kufibot_interfaces.msg import JointCommand, DriveCommand
 from .core import Config, Navigator
+from .observation_visual import MAX_DISPLAY_RANGE_M
 
 
 def json_data(msg):
@@ -36,12 +38,24 @@ class NavigationNode(Node):
             self.declare_parameter(name, value)
             config[name] = self.get_parameter(name).value
         self.nav = Navigator(Config(**config))
+        # Compass samples are noisy in both hardware and the simulation. Keep
+        # a small circular moving average so a stationary robot does not look
+        # as though it has rotated between two scan samples.
+        self.declare_parameter('compass_filter_window', 1)
+        self.compass_samples = deque(maxlen=max(1, int(
+            self.get_parameter('compass_filter_window').value)))
+        self.live_distance_map = None
+        self.live_distance_map_at = 0.0
+        self.create_subscription(String, 'navigation/distance_map', self._distance_map, 1)
         self.pending = {}
         self.reserved = False
         self.drive_pub = self.create_publisher(DriveCommand, 'drive/command', 1)
         self.velocity_pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.state_pub = self.create_publisher(String, 'navigation/state', 1)
         self.head_pub = self.create_publisher(JointCommand, 'servo/navigation_targets', 1)
+        # One shared posture channel covers both remote driving and goto:
+        # this node is the sole source that selects the applied drive command.
+        self.motion_pub = self.create_publisher(JointCommand, 'servo/motion_targets', 1)
         self.create_subscription(Range, 'lidar/range', self._range, qos_profile_sensor_data)
         self.create_subscription(String, 'navigation/authority', self._authority, 1)
         self.create_subscription(String, 'navigation/session', self._session, 1)
@@ -58,7 +72,12 @@ class NavigationNode(Node):
         self.create_timer(.05, self._tick)
 
     def _authority(self, msg):
-        self.nav.set_authority(json_data(msg))
+        data = json_data(msg)
+        if (self.nav.task_id and self.nav.authority.get('epoch') != data.get('epoch')):
+            self.get_logger().warning(
+                f"Navigation authority revoked: {data.get('reason', 'authority_changed')}; "
+                f"task_id={self.nav.task_id}")
+        self.nav.set_authority(data)
 
     def _session(self, msg):
         data = json_data(msg)
@@ -74,7 +93,15 @@ class NavigationNode(Node):
             self.nav.manual_at = time.monotonic()
 
     def _heading(self, msg):
-        self.nav.sensor('heading', msg.data % 360 if math.isfinite(msg.data) else None)
+        if not math.isfinite(msg.data):
+            self.compass_samples.clear()
+            self.nav.sensor('heading', None)
+            return
+        self.compass_samples.append(msg.data % 360.0)
+        sine = sum(math.sin(math.radians(value)) for value in self.compass_samples)
+        cosine = sum(math.cos(math.radians(value)) for value in self.compass_samples)
+        filtered_heading = math.degrees(math.atan2(sine, cosine)) % 360.0
+        self.nav.sensor('heading', filtered_heading)
 
     def _source_fresh(self, msg, max_age):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
@@ -107,17 +134,26 @@ class NavigationNode(Node):
         return response
 
     @staticmethod
-    def encode(msg):
+    def encode(msg, observation=None):
         frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.step)
         frame = frame[:, :msg.width * 3].reshape(msg.height, msg.width, 3)
         if msg.encoding == 'rgb8':
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         if msg.width > 640:
             frame = cv2.resize(frame, (640, max(1, round(msg.height * 640 / msg.width))))
+        if observation is not None:
+            from .observation_visual import annotate
+            frame = annotate(frame, observation)
         ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if not ok:
             raise ValueError('JPEG encoding failed')
         return CompressedImage(header=msg.header, format='jpeg', data=jpeg.tobytes())
+
+    def _distance_map(self, msg):
+        mapping = json_data(msg)
+        if mapping.get('frame') == 'startup_robot_pose' and 'boundary_paths' in mapping:
+            self.live_distance_map = mapping
+            self.live_distance_map_at = time.monotonic()
 
     def _observation(self, request, response):
         obs = self.nav.observations.get(request.observation_id)
@@ -126,9 +162,19 @@ class NavigationNode(Node):
             response.result_json = json.dumps({'status': 'error', 'reason': 'observation_unavailable'})
             return response
         try:
-            response.images = [self.encode(frame) for _, frame in obs['frames']]
-            data = {key: value for key, value in obs.items() if key != 'frames'}
-            data['images'] = [metadata for metadata, _ in obs['frames']]
+            if self.live_distance_map is not None and time.monotonic() - self.live_distance_map_at < 1.0:
+                obs = dict(obs, map=self.live_distance_map)
+            response.images = [self.encode(obs['frames'][0][1], obs)]
+            data = {key: value for key, value in obs.items()
+                    if key not in ('frames', 'samples', 'created_at')}
+            data['observation_age_sec'] = round(self.nav.clock() - obs['created_at'], 2)
+            data['polar_ranges_cm'] = [[round(s['relative_deg'], 1), round(s['range_m'] * 100, 1)]
+                                       for s in obs['samples']]
+            data['polar_format'] = '[robot_relative_degrees, sensor_distance_cm]; negative=left'
+            data['images'] = [dict(obs['frames'][0][0],
+                overlay='persistent top-down lidar map anchored at first robot pose',
+                map_up='initial_robot_forward', map_right='initial_robot_right',
+                max_display_range_cm=int(MAX_DISPLAY_RANGE_M * 100))]
             data['status'] = 'ok'
             response.result_json = json.dumps(data, allow_nan=False)
         except (ValueError, cv2.error) as error:
@@ -138,9 +184,9 @@ class NavigationNode(Node):
     def _goal(self, request):
         if self.reserved or self.nav.step:
             return GoalResponse.REJECT
-        if (not self.nav.allowed() or request.session_id != self.nav.session_id
-                or not request.task_id or request.task_id != self.nav.task_id):
-            return GoalResponse.REJECT
+        # Admission only reserves the action slot. submit() checks authority
+        # and task identity before any motion, returning a diagnostic result
+        # instead of hiding the cause behind ROS's reasonless rejection.
         self.reserved = True
         return GoalResponse.ACCEPT
 
@@ -153,7 +199,9 @@ class NavigationNode(Node):
         request = goal.request
         fields = ('session_id', 'task_id', 'request_id', 'operation', 'observation_id',
                   'distance_m', 'angle_deg', 'sweep_deg')
-        result = self.nav.submit({key: getattr(request, key) for key in fields})
+        result = ({'status': 'cancelled', 'reason': 'action_cancelled'}
+                  if goal.is_cancel_requested else
+                  self.nav.submit({key: getattr(request, key) for key in fields}))
         if result is None:
             future = Future()
             self.pending[request.request_id] = (future, goal)
@@ -177,6 +225,17 @@ class NavigationNode(Node):
         command.header.stamp = self.get_clock().now().to_msg()
         self.drive_pub.publish(command)
         self.velocity_pub.publish(twist)
+        posture = JointCommand()
+        posture.header.stamp = command.header.stamp
+        if abs(linear) > 1e-6 or abs(angular) > 1e-6:
+            # These values are inside the physical servo limits.  The arbiter
+            # overlays them only while the current drive command is moving.
+            posture.names = ['rightArm', 'leftArm']
+            posture.angles_deg = [40.0, 140.0]
+            posture.hold_sec = .25
+        else:
+            posture.cancel_agent = True
+        self.motion_pub.publish(posture)
         msg = JointCommand()
         msg.header.stamp = command.header.stamp
         if self.nav.enabled and self.nav.task_id and self.nav.head_target:
@@ -201,12 +260,21 @@ class NavigationNode(Node):
                 future.set_result(result)
                 del self.pending[rid]
             else:
-                goal.publish_feedback(NavigateStep.Feedback(state=self.nav.state, progress=0.0))
+                step = self.nav.step
+                parts = []
+                if step:
+                    if step.get('distance_m'):
+                        parts.append(min(1.0, abs(step.get('moved_m', 0.0)) / step['distance_m']))
+                    if step.get('angle_deg'):
+                        parts.append(min(1.0, abs(step.get('turned_deg', 0.0)) / abs(step['angle_deg'])))
+                progress = sum(parts) / len(parts) if parts else 0.0
+                goal.publish_feedback(NavigateStep.Feedback(state=self.nav.state, progress=progress))
 
     def destroy_node(self):
         self.drive_pub.publish(DriveCommand(profile='stop'))
         self.velocity_pub.publish(Twist())
         self.head_pub.publish(JointCommand(cancel_agent=True))
+        self.motion_pub.publish(JointCommand(cancel_agent=True))
         self.action.destroy()
         super().destroy_node()
 

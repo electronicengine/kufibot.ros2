@@ -20,6 +20,7 @@ class ServoArbiter(Node):
     """Give valid, temporary agent commands priority over visual tracking."""
 
     TRACKING_JOINTS = {'neck', 'headLeftRight'}
+    MOTION_JOINTS = {'leftArm', 'rightArm'}
 
     def __init__(self):
         super().__init__('servo_arbiter')
@@ -36,6 +37,8 @@ class ServoArbiter(Node):
         self._tracking = {}
         self._navigation = {}
         self._navigation_until = 0.0
+        self._motion = {}
+        self._motion_until = 0.0
         self._agent_until = None
         self.publisher = self.create_publisher(
             JointState, 'servo/joint_targets', 10)
@@ -44,13 +47,15 @@ class ServoArbiter(Node):
         self.create_subscription(
             JointCommand, 'servo/navigation_targets', self._navigation_callback, 1)
         self.create_subscription(
+            JointCommand, 'servo/motion_targets', self._motion_callback, 1)
+        self.create_subscription(
             JointCommand, 'servo/tracking_targets', self._tracking_callback, 10)
         self.create_subscription(
             JointState, 'servo/joint_states', self._state_callback, 10)
         self._current = {}
         self._mode = str(self.get_parameter('default_control_mode').value)
-        if self._mode not in ('ai', 'remote'):
-            raise ValueError('default_control_mode must be ai or remote')
+        if self._mode not in ('ai', 'remote', 'tools'):
+            raise ValueError('default_control_mode must be ai, remote or tools')
         self._remote = {}
         self._remote_seen = 0.0
         self.create_subscription(String, 'remote/command', self._remote_callback, 10)
@@ -61,7 +66,7 @@ class ServoArbiter(Node):
         try:
             data = json.loads(msg.data)
             mode, targets = data['mode'], data['targets']
-            if mode not in ('ai', 'remote') or not isinstance(targets, dict):
+            if mode not in ('ai', 'remote', 'tools') or not isinstance(targets, dict):
                 return
             command = JointCommand()
             command.names = list(targets)
@@ -87,7 +92,7 @@ class ServoArbiter(Node):
 
     def _navigation_callback(self, msg):
         with self._lock:
-            if msg.cancel_agent or self._mode != 'ai':
+            if msg.cancel_agent or self._mode not in ('ai', 'tools'):
                 self._navigation = {}
                 self._navigation_until = 0.0
                 return
@@ -98,6 +103,21 @@ class ServoArbiter(Node):
                 return
             self._navigation = targets
             self._navigation_until = time.monotonic() + min(.3, msg.hold_sec)
+
+    def _motion_callback(self, msg):
+        """Temporarily raise both arms whenever an applied drive is non-zero."""
+        with self._lock:
+            if msg.cancel_agent:
+                self._motion = {}
+                self._motion_until = 0.0
+                return
+            targets = self._validated(msg)
+            if targets is None or set(targets) != self.MOTION_JOINTS:
+                return
+            if not math.isfinite(msg.hold_sec) or msg.hold_sec <= 0:
+                return
+            self._motion = targets
+            self._motion_until = time.monotonic() + min(.3, msg.hold_sec)
 
     def _validated(self, msg):
         if len(msg.names) != len(msg.angles_deg):
@@ -156,11 +176,15 @@ class ServoArbiter(Node):
                     name: angle for name, angle in self._agent.items()
                     if name not in self.TRACKING_JOINTS
                 })
-            if (self._mode == 'ai' and time.monotonic() < getattr(self, '_navigation_until', 0)):
+            if (self._mode in ('ai', 'tools') and time.monotonic() < getattr(self, '_navigation_until', 0)):
                 targets.update(self._navigation)
             if self._mode == 'remote':
                 # A lost bridge holds the last position; it never enables AI.
                 targets = dict(self._remote)
+            # Motion posture has the highest arm priority in either control
+            # mode, then immediately yields to the last user/agent pose.
+            if time.monotonic() < self._motion_until:
+                targets.update(self._motion)
         mode_msg = String()
         mode_msg.data = self._mode if time.monotonic() - self._remote_seen < 0.5 else 'unavailable'
         self.mode_pub.publish(mode_msg)

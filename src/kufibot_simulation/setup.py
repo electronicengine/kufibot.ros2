@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import find_packages, setup
 
 package_name = 'kufibot_simulation'
@@ -15,6 +16,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/simulation.launch.py']),
         ('share/' + package_name + '/config', ['config/simulation.yaml']),
+        ('share/' + package_name + '/config/expressions', glob('config/expressions/*.json')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

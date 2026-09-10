@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kufibot · Mimikler</title>
+    <link rel="stylesheet" href="/assets/mimics.css" />
+    <script type="module" src="/assets/mimics.js"></script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <small>KUFIBOT / HAREKET STÜDYOSU</small>
+        <h1>Mimikler</h1>
+      </div>
+      <button id="close">Kapat</button>
+    </header>
+    <div id="notice" role="status" aria-live="polite">
+      Robot modeli yükleniyor…
+    </div>
+    <main>
+      <aside>
+        <h2>Mimik kitaplığı</h2>
+        <select id="library" aria-label="Mimik kitaplığı"></select>
+        <div class="row">
+          <button id="load">Aç</button><button id="new">＋ Yeni</button
+          ><button id="refresh">Yenile</button>
+        </div>
+        <label>Ad<input id="name" maxlength="100" /></label
+        ><label
+          >Açıklama<textarea
+            id="description"
+            maxlength="2000"
+            placeholder="Bu mimik hangi durumda kullanılır?"
+          ></textarea></label
+        ><label
+          >Geçiş<select id="interpolation">
+            <option value="linear">Akıcı</option>
+            <option value="step">Basamaklı</option>
+          </select></label
+        >
+        <div class="row">
+          <button class="primary" id="save">Kaydet</button
+          ><span id="saved"></span>
+        </div>
+        <p>
+          Bir parçaya dokunun, ardından turkuaz halkayı sürükleyin. Boş alanı
+          sürükleyerek kamerayı döndürün.
+        </p>
+        <button id="claim">Kumandayı devral</button
+        ><button id="remote">Kumanda moduna geç</button
+        ><button class="primary" id="run" disabled>Robotta çalıştır</button
+        ><button class="danger" id="stop">■ DUR</button
+        ><output id="robot-status">Bağlantı bekleniyor</output>
+      </aside>
+      <section class="workspace">
+        <div id="viewport"><span class="badge">3D ÖNİZLEME</span></div>
+        <div class="pose">
+          <label>Eklem<select id="joint"></select></label
+          ><label>Açı (°)<input id="angle" type="number" step="0.1" /></label
+          ><input
+            id="angle-range"
+            aria-label="Servo açısı"
+            type="range"
+            step="0.1"
+          />
+        </div>
+        <div class="timeline">
+          <div class="row">
+            <button id="preview">▶ Önizle</button
+            ><button id="pause">Ⅱ Duraklat</button
+            ><output id="time-label">0.000 s</output>
+          </div>
+          <input
+            id="scrub"
+            aria-label="Önizleme zamanı"
+            type="range"
+            min="0"
+            max="1000"
+            step="1"
+            value="0"
+          />
+          <div id="frames" aria-label="Zaman adımları"></div>
+          <div class="row">
+            <label
+              >Adım zamanı (s)<input
+                id="frame-time"
+                type="number"
+                min="0"
+                max="300"
+                step="0.001" /></label
+            ><button id="add">＋ Adım</button
+            ><button id="duplicate">Kopyala</button
+            ><button id="delete">Sil</button
+            ><label
+              >Toplam süre (s)<input
+                id="duration"
+                type="number"
+                min="0"
+                max="300"
+                step="0.001"
+            /></label>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

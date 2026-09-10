@@ -1,0 +1,24 @@
+{
+  "reactional_gestures": [
+    {
+      "type": "talking",
+      "description": "talking"
+    },
+    {
+      "type": "greeting",
+      "description": "greeting"
+    },
+    {
+      "type": "happy",
+      "description": "happy"
+    },
+    {
+      "type": "thinking",
+      "description": "thinking"
+    },
+    {
+      "type": "worried",
+      "description": "worried"
+    }
+  ]
+}

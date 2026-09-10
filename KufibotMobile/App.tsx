@@ -7,20 +7,59 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { discover, Robot } from './src/discovery';
 import { Joystick } from './src/Joystick';
 import { useRobot } from './src/useRobot';
+import { MimicEditor } from './src/MimicEditor';
 import { AiSettingsPanel } from './src/AiSettingsPanel';
+
+function DistanceMap({map, large = false, distance}: {map: any; large?: boolean; distance?: number | null}) {
+  const size = large ? 320 : 150;
+  const points = map?.obstacle_points ?? [];
+  const robot = map?.robot_pose ?? [0, 0];
+  const extent = Math.max(2, ...points.flatMap((p: number[]) => [Math.abs(p[0]), Math.abs(p[1])]),
+    Math.abs(robot[0]), Math.abs(robot[1])) * 1.15;
+  const point = (p: number[]) => ({left: size / 2 + p[0] / extent * size / 2,
+    top: size / 2 - p[1] / extent * size / 2});
+  const r = point(robot);
+  const nearest = points.length ? Math.min(...points.map((p: number[]) => Math.hypot(p[0]-robot[0], p[1]-robot[1]))) : null;
+  const barMetres = Math.max(1, Math.ceil(50 / (size / (2*extent))));
+  return <View style={[styles.mapSurface, {width: size, height: size}]}>
+    {[.5, 1].map(f => <View key={f} style={[styles.mapRing, {width: size * f, height: size * f,
+      borderRadius: size * f / 2, left: size * (1-f) / 2, top: size * (1-f) / 2}]}/>) }
+    {(map?.boundary_paths ?? []).flatMap((path: number[][], pi: number) =>
+      path.slice(1).map((p: number[], i: number) => {
+        const a = point(path[i]), b = point(p);
+        const length = Math.hypot(b.left-a.left, b.top-a.top);
+        const angle = Math.atan2(b.top-a.top, b.left-a.left);
+        return <View key={`${pi}-${i}`} style={{position: 'absolute',
+          left: (a.left+b.left-length)/2, top: (a.top+b.top)/2-1,
+          width: length, height: 2, backgroundColor: '#ff9981',
+          transform: [{rotate: `${angle}rad`}]}}/>;
+      }))}
+    <View style={[styles.mapStart, {left: size/2-3, top: size/2-3}]}/>
+    <View style={[styles.mapRobot, {left: r.left-4, top: r.top-4}]}/>
+    <Text style={{position: 'absolute', top: 3, left: 3, color: '#fff', fontSize: 9}}>
+      {nearest === null ? 'Sınır ölçümü bekleniyor' : `Kayıtlı sınır ≈ ${nearest.toFixed(2)} m`}{'\n'}
+      {typeof distance === 'number' && Number.isFinite(distance) ? `Lidar yönü: ${distance.toFixed(2)} m` : 'Lidar: — m'}
+    </Text>
+    <View style={{position: 'absolute', bottom: 8, left: 8, width: barMetres*size/(2*extent), borderBottomWidth: 2, borderColor: '#fff'}}>
+      <Text style={{color: '#fff', fontSize: 10}}>{barMetres} m</Text>
+    </View>
+  </View>;
+}
 
 function Controller() {
   useKeepAwake();
   const [robots, setRobots] = useState<Robot[]>([]);
   const [selected, setSelected] = useState<Robot | null>(null);
   const [menu, setMenu] = useState(false);
+  const [mimicsOpen, setMimicsOpen] = useState(false);
   const [host, setHost] = useState('');
   const [discoveryError, setDiscoveryError] = useState('');
   const [calibrationModal, setCalibrationModal] = useState(false);
   const [aiTriggerUuid, setAiTriggerUuid] = useState('');
+  const [mapOpen, setMapOpen] = useState(false);
   const link = useRobot(selected);
   const s = link.state;
-  const enabled = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !menu;
+  const enabled = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !menu && !mimicsOpen;
   useEffect(() => {
     try {
       return discover(robot => {
@@ -105,9 +144,16 @@ function Controller() {
           <View style={styles.headDirection} accessibilityLabel={headDirection === null ? 'Kafanın pusulaya göre baktığı yön bilinmiyor' : `Kafanın pusulaya göre baktığı yön ${Math.round(headDirection)} derece`}>
             <Text style={[styles.cardinal, styles.north]}>K</Text><Text style={[styles.cardinal, styles.east]}>D</Text><Text style={[styles.cardinal, styles.south]}>G</Text><Text style={[styles.cardinal, styles.west]}>B</Text>
             <View style={[styles.directionArrow, {transform: [{rotate: `${headDirection ?? 0}deg`}]}]}><View style={styles.arrowTip}/><View style={styles.arrowTail}/></View>
+            {typeof s?.sensors.heading === 'number' && Number.isFinite(s.sensors.heading) &&
+              <View style={[styles.directionArrow, {opacity: .6, transform: [{rotate: `${s.sensors.heading}deg`}]}]}>
+                <View style={[styles.arrowTip, {borderBottomColor: '#ffffff'}]}/>
+              </View>}
             <Text style={styles.directionValue}>{headDirection === null ? '—°' : `${Math.round(headDirection)}°`}</Text>
           </View>
           <Text style={styles.connection}>{link.connection}{selected ? ` · ${selected.host}` : ''}</Text>
+          <Pressable disabled={!enabled} onPress={() => joint('headLeftRight', 90)}>
+            <Text style={styles.hint}>Gövde {value('heading', '°')} · Kafa {typeof s?.joints.headLeftRight === 'number' ? Math.round(90-s.joints.headLeftRight) : '—'}° · Öne bak</Text>
+          </Pressable>
           {!!s && s.appliedMode !== s.mode && <Text style={styles.warning}>Servo kontrolü bekleniyor</Text>}
           {!!link.error && <Text style={styles.warning}>{link.error}</Text>}
         </View>
@@ -128,8 +174,9 @@ function Controller() {
             minimumTrackTintColor="#4b6fd4" thumbTintColor="#7d9ef0" onSlidingComplete={v => joint('leftArm', v)}/>
         </View>
         <View style={styles.centerBottom}>
-          <Pressable style={styles.stop} onPress={link.stop} accessibilityLabel="Hareketi durdur"><Text style={styles.stopText}>DUR</Text></Pressable>
-          <Text style={styles.hint}>{s?.mode === 'ai' ? 'Serbest gezinmeyi açıp sesli görev verin' : 'Joystick bırakıldığında hareket durur'}</Text>
+          <Pressable onPress={() => setMapOpen(true)} accessibilityLabel="Mesafe haritasını büyüt" style={styles.mapCard}>
+            <DistanceMap map={s?.distanceMap} distance={s?.sensors.distance}/><Text style={styles.mapLabel}>CANLI MESAFE HARİTASI</Text>
+          </Pressable>
         </View>
         <View style={styles.controls}>
           <View style={styles.eye}><Text style={styles.small}>SAĞ GÖZ</Text><Switch disabled={!enabled}
@@ -154,12 +201,15 @@ function Controller() {
         {!!discoveryError && <Text style={styles.warning}>{discoveryError}</Text>}
         <Pressable style={styles.robot} onPress={manual}><Text style={styles.buttonText}>IP ile bağlan</Text></Pressable>
         {!!s && !s.owner && <Pressable style={styles.robot} onPress={() => link.send({type: 'claim'})}><Text style={styles.buttonText}>Kumandayı devral</Text></Pressable>}
+        <Pressable disabled={!selected} style={styles.robot} onPress={() => {link.stop(); setMenu(false); setMimicsOpen(true);}}>
+          <Text style={styles.buttonText}>Mimikler · 3D hareket editörü</Text>
+        </Pressable>
         <AiSettingsPanel config={s?.aiConfig} owner={!!s?.owner} send={link.send}
           status={s?.voiceStatus} error={link.error}/>
         {s?.aiConfig?.settings.provider !== 'local' && <>
         <Text style={styles.panelSection}>YZ İş Akışı</Text>
         <Text style={styles.help}>Verasist iş akışının trigger UUID değerini girin. API anahtarı robotta yapılandırılmış olarak kalır.</Text>
-        <TextInput value={aiTriggerUuid} onChangeText={setAiTriggerUuid} placeholder="27eac97b-5e74-494b-984f-01942324fe4b" placeholderTextColor="#799099"
+        <TextInput value={aiTriggerUuid} onChangeText={setAiTriggerUuid} placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" placeholderTextColor="#799099"
           style={styles.input} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Verasist trigger UUID"/>
         <Pressable disabled={!s?.owner || !validAiTriggerUuid} style={[styles.robot, (!s?.owner || !validAiTriggerUuid) && styles.disabled]} onPress={startAiWorkflow}>
           <Text style={styles.buttonText}>YZ iş akışını başlat</Text>
@@ -175,6 +225,14 @@ function Controller() {
         <Text style={styles.help}>Kumanda modu YZ hareketlerini engeller. YZ modu mevcut takip ve sesli asistan hareketlerini açar. Sesli görüşme robotun mikrofonunda sürer.</Text>
         <Pressable style={styles.robot} onPress={() => setMenu(false)}><Text style={styles.buttonText}>Kapat</Text></Pressable>
       </ScrollView></View></View>
+    </Modal>
+    {selected && <MimicEditor visible={mimicsOpen} robot={selected} state={s} error={link.error}
+      send={link.send} onClose={() => {link.send({type: 'stopMimic'}); setMimicsOpen(false);}}/>}
+    <Modal visible={mapOpen} transparent animationType="fade" onRequestClose={() => setMapOpen(false)}>
+      <Pressable style={styles.mapModal} onPress={() => setMapOpen(false)}><View style={styles.mapLargeCard}>
+        <Text style={styles.panelTitle}>Mesafe haritası</Text><DistanceMap map={s?.distanceMap} distance={s?.sensors.distance} large/>
+        <Text style={styles.hint}>Turkuaz: başlangıç · sarı: robot · kırmızı: engel sınırı</Text>
+      </View></Pressable>
     </Modal>
     <Modal visible={calibrationModal} transparent animationType="fade" onRequestClose={() => setCalibrationModal(false)}>
       <View style={styles.scrim}><View style={styles.panel}>
@@ -209,7 +267,7 @@ const styles = StyleSheet.create({
   warning: {color: '#7d9ef0', fontSize: 11, marginTop: 4},
   bottom: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end'}, controls: {width: 170, alignItems: 'center'},
   eye: {flexDirection: 'row', alignItems: 'center', height: 32, marginBottom: 4}, small: {color: '#bdd0f9', fontSize: 10, letterSpacing: 1}, slider: {width: 170, height: 26},
-  centerBottom: {alignItems: 'center', flex: 1, marginBottom: 22}, stop: {borderColor: '#fb7777', borderWidth: 1, borderRadius: 12, backgroundColor: '#6a2025dd', paddingHorizontal: 28, paddingVertical: 13},
+  centerBottom: {alignItems: 'center', flex: 1, marginBottom: 22}, mapCard: {padding: 5, borderColor: '#4d70d388', borderWidth: 1, borderRadius: 8, backgroundColor: '#111319aa'}, mapSurface: {overflow: 'hidden', backgroundColor: '#101824cc', borderRadius: 5}, mapRing: {position: 'absolute', borderColor: '#78919e55', borderWidth: 1}, mapDot: {position: 'absolute', width: 2, height: 2, backgroundColor: '#ff695f'}, mapStart: {position: 'absolute', width: 6, height: 6, borderRadius: 3, backgroundColor: '#67d9ed'}, mapRobot: {position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: '#ffd66e'}, mapLabel: {fontSize: 8, letterSpacing: 1, color: '#bdd0f9', textAlign: 'center', paddingTop: 3}, mapModal: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#03040add'}, mapLargeCard: {alignItems: 'center', backgroundColor: '#111319', borderColor: '#4d70d3', borderWidth: 1, borderRadius: 12, padding: 20}, stop: {borderColor: '#fb7777', borderWidth: 1, borderRadius: 12, backgroundColor: '#6a2025dd', paddingHorizontal: 28, paddingVertical: 13},
   stopText: {fontWeight: '700', letterSpacing: 3, color: '#fff'}, hint: {fontSize: 10, color: '#bdd0f9', marginTop: 10, textAlign: 'center'},
   connectButton: {position: 'absolute', alignSelf: 'center', top: '48%', padding: 14, backgroundColor: '#4b6fd4', borderRadius: 8},
   scrim: {flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#03040acc'}, panel: {width: '75%', maxWidth: 560, maxHeight: '90%', borderRadius: 16, padding: 22, backgroundColor: '#111319'},

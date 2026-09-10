@@ -1,0 +1,24 @@
+{
+  "default_idle": {"joints": {"rightArm": "fulldown"}},
+  "motions": {
+    "emotional_gestures": {
+      "happy": {
+        "duration": 1000,
+        "joints": {"rightArm": "halfup", "leftArm": "halfup", "eyeRight": "halfup", "headUpDown": "fullup"}
+      },
+      "worried": {"duration": 1000, "joints": {"neck": "halfdown"}},
+      "thinking": {"duration": 1000, "joints": {"neck": "middle"}}
+    },
+    "reactional_gestures": {
+      "greeting": {
+        "duration": 3000,
+        "joints": {"rightArm": "halfup"},
+        "sequence": [
+          {"time": 2500, "joints": {"rightArm": "fulldown", "headUpDown": "fulldown"}},
+          {"time": 500, "joints": {"rightArm": "fullup"}}
+        ]
+      },
+      "talking": {"duration": 1000, "joints": {"neck": "middle"}}
+    }
+  }
+}

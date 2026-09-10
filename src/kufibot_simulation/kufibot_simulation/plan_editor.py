@@ -31,6 +31,15 @@ FURNITURE_PALETTE = [
     (90, 60, 140), (60, 110, 160), (160, 90, 60), (60, 160, 90),
     (160, 160, 60), (160, 60, 120),
 ]
+CATALOG = [
+    ('chair', 'Sandalye', .5, .5),
+    ('table', 'Masa', 1.2, .8),
+    ('sofa', 'Koltuk', 1.8, .9),
+    ('cabinet', 'Dolap', 1.2, .55),
+    ('desk', 'Bilgisayar masasi', 1.3, .7),
+    ('tv', 'TV ve unitesi', 1.2, .4),
+    ('coffee_table', 'Sehpa', 1.0, .6),
+]
 TOOL_NAMES = {'room': 'Oda', 'wall': 'Duvar', 'door': 'Kapi',
               'furniture': 'Esya', 'pose': 'Baslangic konumu'}
 TOOL_HELP = [
@@ -74,6 +83,9 @@ class EditorState:
         self._door_n = len(self.doors)
         self._undo_stack = []
         self.last_added = None  # (kind, object)
+        self.selected = None
+        self.catalog_index = 0
+        self.furniture_yaw = 0
 
     def _snapshot(self):
         self._undo_stack.append(copy.deepcopy(
@@ -84,6 +96,8 @@ class EditorState:
         if not self._undo_stack:
             return False
         self.rooms, self.walls, self.doors, self.obstacles, self.start_pose = self._undo_stack.pop()
+        self.selected = None
+        self.last_added = None
         return True
 
     def clear(self):
@@ -116,6 +130,42 @@ class EditorState:
                              rect=rect)
         self.obstacles.append(obstacle)
         self.last_added = ('furniture', obstacle)
+
+    def place_furniture(self, center):
+        self._snapshot()
+        kind, label, w, d = CATALOG[self.catalog_index]
+        if self.furniture_yaw % 180:
+            w, d = d, w
+        x, y = center
+        self._furniture_n += 1
+        used = {o.id for o in self.obstacles}
+        while f'{kind}_{self._furniture_n}' in used:
+            self._furniture_n += 1
+        item = Obstacle(f'{kind}_{self._furniture_n}', label, (115, 95, 75),
+                        (x-w/2, y-d/2, x+w/2, y+d/2), kind, self.furniture_yaw)
+        self.obstacles.append(item)
+        self.selected = item
+        self.last_added = ('furniture', item)
+
+    def move_selected(self, center):
+        if self.selected not in self.obstacles:
+            return
+        self._snapshot()
+        x0,y0,x1,y1 = self.selected.rect
+        w,d = x1-x0,y1-y0
+        x,y = center
+        self.selected.rect = (x-w/2,y-d/2,x+w/2,y+d/2)
+
+    def rotate_furniture(self):
+        self.furniture_yaw = (self.furniture_yaw + 90) % 360
+        if self.selected not in self.obstacles:
+            return
+        self._snapshot()
+        item = self.selected
+        x0,y0,x1,y1 = item.rect
+        x,y,w,d = (x0+x1)/2,(y0+y1)/2,x1-x0,y1-y0
+        item.rect = (x-d/2,y-w/2,x+d/2,y+w/2)
+        item.yaw_deg = (item.yaw_deg + 90) % 360
 
     def add_door(self, a, b):
         self._snapshot()
@@ -190,7 +240,8 @@ class EditorState:
             'walls': [{'a': list(w.a), 'b': list(w.b), 'room_id': w.room_id} for w in self.walls],
             'doors': [{'id': d.id, 'label': d.label, 'a': list(d.a), 'b': list(d.b),
                        'connects': list(d.connects)} for d in self.doors],
-            'furniture': [{'id': o.id, 'label': o.label, 'color': list(o.color), 'rect': list(o.rect)}
+            'furniture': [{'id': o.id, 'label': o.label, 'color': list(o.color), 'rect': list(o.rect),
+                           'kind': o.kind, 'yaw_deg': o.yaw_deg}
                           for o in self.obstacles],
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,6 +283,10 @@ def _draw_plan(screen, font, state, origin, px_per_m):
         pygame.draw.rect(screen, obstacle.color, (*top_left, *size))
         pygame.draw.rect(screen, (0, 0, 0), (*top_left, *size), 1)
         screen.blit(font.render(obstacle.label, True, (255, 255, 255)), (top_left[0] + 3, top_left[1] + 3))
+        cx,cy = (xmin+xmax)/2, (ymin+ymax)/2
+        rad = math.radians(obstacle.yaw_deg)
+        pygame.draw.line(screen, (255,240,100), _to_screen(cx,cy,ox,oy,px_per_m),
+                         _to_screen(cx-.25*math.sin(rad),cy-.25*math.cos(rad),ox,oy,px_per_m), 3)
     for door in state.doors:
         pygame.draw.line(screen, DOOR_COLOR, _to_screen(*door.a, ox, oy, px_per_m),
                           _to_screen(*door.b, ox, oy, px_per_m), 5)
@@ -330,6 +385,13 @@ def main(args=None):
                     tool, two_click_first = 'furniture', None
                 elif event.key == pygame.K_5:
                     tool, two_click_first = 'pose', None
+                elif event.key == pygame.K_r and tool == 'furniture':
+                    state.rotate_furniture()
+                elif event.key == pygame.K_DELETE and tool == 'furniture':
+                    if state.selected in state.obstacles:
+                        state._snapshot()
+                        state.obstacles.remove(state.selected)
+                        state.selected = None
                 elif event.key == pygame.K_s:
                     state.save()
                 elif event.key == pygame.K_z:
@@ -346,7 +408,22 @@ def main(args=None):
                 elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
                     px_per_m = max(20, px_per_m - 10)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if tool in ('room', 'furniture'):
+                if tool == 'furniture':
+                    if event.pos[0] >= WIDTH-220 and 160 <= event.pos[1] < 160+len(CATALOG)*38:
+                        state.catalog_index = (event.pos[1]-160)//38
+                        state.selected = None
+                    elif event.pos[0] >= WIDTH-220 and event.pos[1] >= 150:
+                        continue
+                    else:
+                        hit = next((o for o in reversed(state.obstacles)
+                                    if o.rect[0] <= mouse_world[0] <= o.rect[2]
+                                    and o.rect[1] <= mouse_world[1] <= o.rect[3]), None)
+                        if hit:
+                            state.selected = hit
+                        else:
+                            state.place_furniture(mouse_world)
+                        drag_start = mouse_world
+                elif tool == 'room':
                     drag_start = mouse_world
                 elif tool in ('wall', 'door'):
                     if two_click_first is None:
@@ -359,7 +436,11 @@ def main(args=None):
                     pose_theta = state.start_pose.get('theta_deg', 0.0)
                     pose_rotate_mode = True
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                if tool in ('room', 'furniture') and drag_start is not None:
+                if tool == 'furniture' and drag_start is not None:
+                    if math.dist(drag_start, mouse_world) > .01:
+                        state.move_selected(mouse_world)
+                    drag_start = None
+                if tool == 'room' and drag_start is not None:
                     xmin, xmax = sorted((drag_start[0], mouse_world[0]))
                     ymin, ymax = sorted((drag_start[1], mouse_world[1]))
                     drag_start = None
@@ -376,7 +457,7 @@ def main(args=None):
         screen.fill(BACKGROUND)
         _draw_grid(screen, origin, px_per_m)
         _draw_plan(screen, font, state, origin, px_per_m)
-        if drag_start is not None and tool in ('room', 'furniture'):
+        if drag_start is not None and tool == 'room':
             _draw_preview_rect(screen, drag_start, mouse_world, origin, px_per_m, tool)
         if two_click_first is not None and tool in ('wall', 'door'):
             pygame.draw.line(screen, PREVIEW_COLOR, _to_screen(*two_click_first, *origin, px_per_m),
@@ -384,6 +465,19 @@ def main(args=None):
         if pose_rotate_mode:
             _draw_pose_preview(screen, pose_start, pose_theta, origin, px_per_m)
         _draw_hud(screen, font, big_font, tool, mouse_world, state, show_help)
+        if tool == 'furniture':
+            pygame.draw.rect(screen, (25,30,40), (WIDTH-220,150,220,HEIGHT-150))
+            for i, (_, label, w, d) in enumerate(CATALOG):
+                rect = pygame.Rect(WIDTH-215, 160+i*38, 210, 34)
+                pygame.draw.rect(screen, (65,90,140) if i == state.catalog_index else (45,50,60), rect)
+                screen.blit(font.render(f'{label} ({w} x {d} m)', True, TEXT_COLOR), (rect.x+5, rect.y+8))
+            for i, line in enumerate(['Sec > haritaya tikla', 'Esya: surukle ve tasi', 'R: 90 derece dondur', 'Delete: secileni sil', 'Z: geri al / S: kaydet']):
+                screen.blit(font.render(line, True, TEXT_COLOR), (WIDTH-210, 445+i*22))
+            if state.selected in state.obstacles:
+                o = state.selected
+                a = _to_screen(o.rect[0],o.rect[3],*origin,px_per_m)
+                b = _to_screen(o.rect[2],o.rect[1],*origin,px_per_m)
+                pygame.draw.rect(screen, (255,235,100), (a[0],a[1],b[0]-a[0],b[1]-a[1]), 3)
         pygame.display.flip()
         clock.tick(30)
     pygame.quit()

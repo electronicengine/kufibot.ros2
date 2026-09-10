@@ -30,12 +30,14 @@
         <div class="mode-switch">
           <button id="mode-remote" aria-pressed="false" disabled>KUMANDA</button>
           <button id="mode-ai" aria-pressed="false" disabled>YZ MODU</button>
+          <button id="mode-tools" aria-pressed="false" disabled>ARAÇ ÇAĞIR</button>
         </div>
         <button id="navigation-toggle" class="claim" aria-pressed="false" hidden disabled>Serbest gezinme</button>
         <div id="navigation-status" class="notice" role="status" hidden></div>
         <div id="head-direction" class="head-direction" role="img" aria-label="Kafanın pusulaya göre baktığı yön">
           <span class="compass-ring"><b>K</b><b>D</b><b>G</b><b>B</b></span>
           <span id="direction-arrow" class="direction-arrow"><i></i></span>
+          <div id="body-direction" class="direction-arrow" style="opacity:.6; filter:grayscale(1)"><i></i></div>
           <strong id="direction-value">—°</strong>
         </div>
         <div class="connection"><i id="connection-dot"></i><span id="connection" role="status">Bağlanıyor…</span></div>
@@ -55,7 +57,7 @@
       <div class="control-column">
         <label class="eye-control"><span>SOL GÖZ</span><input id="eyeLeft" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
         <div class="joystick-label" id="drive-label">HAREKET · TAM GÜÇ</div>
-        <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Dört yönlü, tam güç hareket joysticki; WASD ve yön tuşları" aria-disabled="true">
+        <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Dört yönlü, tam güç hareket joysticki; WASD" aria-disabled="true">
           <span class="axis axis-x"></span><span class="axis axis-y"></span>
           <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
           <span class="knob"></span>
@@ -65,11 +67,9 @@
       </div>
 
       <div class="bottom-center">
-        <div class="camera-tag" id="camera-tag">KAMERA BEKLENİYOR</div>
-        <button id="stop" class="stop" disabled title="Hareketi ve gezinme görevini durdur (Boşluk)">DUR <span>■</span></button>
-        <p id="control-hint">Kontrol bağlantısı bekleniyor</p>
-        <div class="keyboard-hint"><span><kbd>W A S D</kbd> hareket</span><span><kbd>↑ ← ↓ →</kbd> hareket</span></div>
-        <button id="fullscreen" class="fullscreen">⛶ Tam ekran</button>
+        <button id="distance-map" class="distance-map" title="Mesafe haritasını büyüt" aria-label="Canlı mesafe haritasını büyüt">
+          <canvas id="distance-map-canvas" width="220" height="160"></canvas><span>CANLI MESAFE HARİTASI</span>
+        </button>
       </div>
 
       <div class="control-column">
@@ -86,11 +86,23 @@
     </section>
     <footer><span id="endpoint"></span><span>YEREL AĞ KUMANDASI</span></footer>
   </main>
+  <dialog id="map-dialog" class="map-dialog" aria-label="Büyütülmüş mesafe haritası">
+    <button id="map-close" aria-label="Haritayı kapat">✕</button><canvas id="distance-map-full" width="900" height="700"></canvas>
+  </dialog>
+  <dialog id="tool-modal" aria-labelledby="tool-title">
+    <div class="dialog-header"><h2 id="tool-title">Araç çağrısı</h2><button id="tool-close">✕</button></div>
+    <label>Araç <select id="tool-name" class="trigger-input"><option value="goto">goto</option><option value="look_at">look_at</option><option value="read_sensor_values">read_sensor_values</option></select></label>
+    <label id="tool-distance-label">Mesafe (m)<input id="tool-distance" class="trigger-input" type="number" min="0" max="3.5" step="0.05" value="0.3"></label>
+    <label>Açı (°)<input id="tool-angle" class="trigger-input" type="number" min="-180" max="180" step="1" value="0"></label>
+    <label id="tool-sweep-label">Tarama (°)<input id="tool-sweep" class="trigger-input" type="number" min="0" max="180" step="10" value="180"></label>
+    <button id="tool-call" class="secondary">Çağır</button><pre id="tool-result" class="help"></pre><img id="tool-image" hidden alt="Araç çağrısına teslim edilen gözlem">
+  </dialog>
 
   <dialog id="menu" aria-labelledby="menu-title">
     <div class="dialog-header"><h2 id="menu-title">Robot bağlantısı</h2><button id="menu-close" aria-label="Menüyü kapat">✕</button></div>
     <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>
     <div class="address" id="menu-address"></div>
+    <button id="mimics-open">Mimikler · 3D hareket editörü</button>
     <button id="reconnect" class="secondary">Bağlantıyı yenile</button>
     <h3>Sesli Ajan Ayarları</h3>
     <label for="ai-provider">Sağlayıcı</label>
@@ -110,7 +122,7 @@
     <div id="verasist-settings">
     <h3>YZ İş Akışı</h3>
     <p>Verasist iş akışının trigger UUID değerini girin. API anahtarı robotta yapılandırılmış olarak kalır.</p>
-    <input id="ai-trigger-uuid" class="trigger-input" type="text" autocomplete="off" spellcheck="false" placeholder="27eac97b-5e74-494b-984f-01942324fe4b" aria-label="Verasist trigger UUID">
+    <input id="ai-trigger-uuid" class="trigger-input" type="text" autocomplete="off" spellcheck="false" placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" aria-label="Verasist trigger UUID">
     <button id="start-ai-workflow" class="secondary" disabled>YZ iş akışını başlat</button>
     <p id="ai-trigger-info" class="calibration-info">YZ iş akışı bekleniyor</p>
     </div>
@@ -134,6 +146,7 @@
       <span>MİN Y <strong id="calibration-min-y">—</strong></span><span>MAKS Y <strong id="calibration-max-y">—</strong></span>
     </div>
   </dialog>
+  <dialog id="mimics-modal" style="width:96vw;max-width:1400px;height:94vh;padding:0;border:1px solid #405064"><iframe id="mimics-frame" title="3D mimik editörü" style="width:100%;height:100%;border:0"></iframe></dialog>
   <noscript>Robot kumandasını kullanmak için tarayıcınızda JavaScript etkin olmalıdır.</noscript>
 </body>
 </html>

@@ -24,7 +24,7 @@ from kufibot_interfaces.msg import (
     DetectionArray, JointCommand, TrackingTarget, Transcript, VoiceState)
 from .ai_settings import catalog, read_settings, save_settings, validate
 from .joint_limits import JOINT_LIMITS, validate_joint_targets
-from .expression_engine import ExpressionLibrary
+from .expression_engine import ExpressionConfigError, ExpressionLibrary
 from .expression_embedding import EmbeddingSelector, ExpressionWorker
 
 
@@ -47,6 +47,19 @@ class TimedCache:
                 'age_sec': round(age, 2), 'value': item[1]}
 
 
+class UnavailableExpressionLibrary:
+    """No-op catalogue for installations without the robot motion files."""
+
+    idle = {}
+    motions = {}
+    descriptions = {}
+    sentences = staticmethod(ExpressionLibrary.sentences)
+
+    @staticmethod
+    def classify(_text):
+        return ''
+
+
 class VoiceAgentNode(Node):
     def __init__(self):
         super().__init__('voice_agent_node')
@@ -63,7 +76,7 @@ class VoiceAgentNode(Node):
         self.declare_parameter('camera_jpeg_max_width', 640)
         self.declare_parameter('camera_jpeg_quality', 80)
         self.declare_parameter('camera_send_cooldown_sec', 2.0)
-        self.declare_parameter('camera_attach_to_every_user_turn', True)
+        self.declare_parameter('camera_attach_to_every_user_turn', False)
         self.declare_parameter('auto_start', False)
         self.declare_parameter('remote_mode_controls_voice', True)
         self.declare_parameter(
@@ -83,8 +96,10 @@ class VoiceAgentNode(Node):
             '/home/kufi/workspace/kufibot.cpp/config/joint_angles.json')
         self.endpoint = os.environ.get(
             'VERASIST_API_ENDPOINT',
-            str(self.get_parameter('api_endpoint').value))
-        self.trigger_uuid = str(self.get_parameter('trigger_uuid').value)
+            os.environ.get('VERASIST_API_URL',
+                           str(self.get_parameter('api_endpoint').value)))
+        self.trigger_uuid = os.environ.get(
+            'VERASIST_TRIGGER_UUID', str(self.get_parameter('trigger_uuid').value))
         self.mic_device = os.environ.get(
             'MIC_ALSA_DEVICE', str(self.get_parameter('mic_device').value))
         self.speaker_device = os.environ.get(
@@ -137,10 +152,26 @@ class VoiceAgentNode(Node):
         self.mode_generation = 0
         self.assistant_speaking = False
         self.expression_selected_for_response = False
-        self.expression_library = ExpressionLibrary(
-            self.get_parameter('gesture_config_file').value,
-            self.get_parameter('motion_config_file').value,
-            self.get_parameter('joint_angles_file').value)
+        self.expressions_available = True
+        try:
+            self.expression_library = ExpressionLibrary(
+                self.get_parameter('gesture_config_file').value,
+                self.get_parameter('motion_config_file').value,
+                self.get_parameter('joint_angles_file').value)
+        except ExpressionConfigError as error:
+            # Fresh desktop installations still share the editor's bundled
+            # catalogue and saved user motions when the legacy Pi files are absent.
+            from pathlib import Path
+            root = Path(__file__).with_name('expression_defaults')
+            self.get_logger().warning(f'Using bundled expression catalogue: {error}')
+            try:
+                self.expression_library = ExpressionLibrary(
+                    root / 'gesture_config.json', root / 'motion_definitions.json',
+                    root / 'joint_angles.json')
+            except ExpressionConfigError as fallback_error:
+                self.expressions_available = False
+                self.expression_library = UnavailableExpressionLibrary()
+                self.get_logger().warning(f'Expression motions disabled: {fallback_error}')
         self.expression_lock = threading.RLock()
         self.expression_generation = 0
         self.expression_enabled = False
@@ -231,7 +262,7 @@ class VoiceAgentNode(Node):
             self._publish_state('error', 'trigger_uuid is not configured')
             self.get_logger().error('Voice auto-start: trigger_uuid is missing')
             return
-        if not self._is_local() and not os.environ.get('VERASIST_API_TOKEN'):
+        if not self._is_local() and not (os.environ.get('VERASIST_API_TOKEN') or os.environ.get('VERASIST_API_KEY')):
             self._publish_state('error', 'VERASIST_API_TOKEN is missing')
             self.get_logger().error(
                 'Voice auto-start: VERASIST_API_TOKEN is missing')
@@ -298,7 +329,7 @@ class VoiceAgentNode(Node):
         if not self._is_local() and not self.trigger_uuid:
             self._publish_state('error', 'trigger_uuid is not configured')
             return
-        if not self._is_local() and not os.environ.get('VERASIST_API_TOKEN'):
+        if not self._is_local() and not (os.environ.get('VERASIST_API_TOKEN') or os.environ.get('VERASIST_API_KEY')):
             self._publish_state('error', 'VERASIST_API_TOKEN is missing')
             return
         self.starting = True
@@ -381,7 +412,7 @@ class VoiceAgentNode(Node):
         if not self._is_local() and not self.trigger_uuid:
             response.success, response.message = False, 'trigger_uuid is not configured'
             return response
-        if not self._is_local() and not os.environ.get('VERASIST_API_TOKEN'):
+        if not self._is_local() and not (os.environ.get('VERASIST_API_TOKEN') or os.environ.get('VERASIST_API_KEY')):
             response.success, response.message = False, 'VERASIST_API_TOKEN is missing'
             return response
         self.starting = True
@@ -502,7 +533,7 @@ class VoiceAgentNode(Node):
             self.get_logger().info(
                 f'Local voice selected: language={value["language"]}, '
                 f'stt={value["stt"]}, llm={value["llm"]}, tts={value["tts"]}')
-            self._reset_expression_turn(enabled=True)
+            self._reset_expression_turn(enabled=self.expressions_available)
             self._publish_state('connecting', 'Yerel modeller yükleniyor')
             self.local_process = await asyncio.create_subprocess_exec(
                 sys.executable, '-m', 'kufibot_interaction.local_voice_worker',
@@ -517,10 +548,11 @@ class VoiceAgentNode(Node):
         from aiortc.contrib.media import MediaRelay
         from verasist_sdk import LiveSession, VerasistClient
         from .audio import AlsaMicTrack, AlsaSpeaker
-        self._reset_expression_turn(enabled=True)
+        self._reset_expression_turn(enabled=self.expressions_available)
         self._publish_state('connecting')
         self.client = VerasistClient(
-            base_url=self.endpoint, api_key=os.environ['VERASIST_API_TOKEN'])
+            base_url=self.endpoint, api_key=(os.environ.get('VERASIST_API_TOKEN')
+                     or os.environ.get('VERASIST_API_KEY')))
         self.session = LiveSession(self.client)
         current_session = self.session
         self._register_tools(self.session)
@@ -590,7 +622,7 @@ class VoiceAgentNode(Node):
 
         @session.tool(
             description=(
-                'Read live physical sensor measurements from the robot. Call '
+                'Read live sensor measurements from the robot. Call '
                 'this tool instead of guessing whenever the user asks about '
                 'battery voltage/current, obstacle distance, range, direction '
                 'or compass heading. Values include freshness status.'),
@@ -614,11 +646,10 @@ class VoiceAgentNode(Node):
 
         @session.tool(
             description=(
-                'Capture the robot USB camera now and let the multimodal LLM '
-                'inspect it. A silent camera frame is normally inserted when '
-                'the user starts speaking and should be used for that turn. '
-                'Call analyze_camera only when the user explicitly requests '
-                'a newer/repeated look or no usable current image exists. '
+                'Capture the robot camera now and let the multimodal LLM '
+                'inspect it. Use for explicit visual questions or when a new view is needed. '
+                'During navigation use the single annotated observation image; '
+                'do not request redundant images. '
                 'Never guess visual details.'),
             parameters=vision_schema)
         async def analyze_camera(prompt='Describe what you see clearly.'):
@@ -661,7 +692,7 @@ class VoiceAgentNode(Node):
     def _set_joint_positions(self, names, angles, hold):
         if (getattr(self, 'navigation', None) and self.navigation.active
                 and set(names) & {'neck', 'headLeftRight'}):
-            return {'status': 'error', 'error': 'head reserved for navigation; use observe_environment'}
+            return {'status': 'error', 'error': 'head reserved for navigation; use read_sensor_values'}
         applied, clamped = validate_joint_targets(names, angles)
         msg = JointCommand()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -734,8 +765,8 @@ class VoiceAgentNode(Node):
         timing = ('as the user began speaking' if captured_at_speech_start
                   else 'at the final transcript fallback')
         prompt = (
-            f'camera context captured {timing}. Use it as visual '
-            'context for the current spoken turn. Initial transcript: '
+            f''
+            ''
             f'{text}')
         task = asyncio.create_task(self._send_auto_camera_image(prompt))
         self.camera_send_tasks.add(task)
@@ -758,12 +789,19 @@ class VoiceAgentNode(Node):
     async def _send_camera_image(self, session, prompt, enforce_cooldown=True,
                                  trigger_response=True):
         if getattr(self, 'navigation', None) and self.navigation.active:
-            return {'status': 'error', 'error': 'use observe_environment during navigation'}
+            return {'status': 'error', 'error': 'use read_sensor_values during navigation'}
         lock = getattr(self, 'navigation_camera_lock', None)
         if lock is None:
             return await self._send_camera_image_unlocked(session, prompt, enforce_cooldown, trigger_response)
         async with lock:
             return await self._send_camera_image_unlocked(session, prompt, enforce_cooldown, trigger_response)
+
+    async def _send_device_image(self, session, **kwargs):
+        from .device_images import DeviceImageSender
+        if getattr(self, '_device_image_session', None) is not session:
+            self._device_image_session = session
+            self._device_image_sender = DeviceImageSender(self.camera_send_cooldown)
+        return await self._device_image_sender.send(session, **kwargs)
 
     async def _send_camera_image_unlocked(
             self, session, prompt, enforce_cooldown=True,
@@ -783,8 +821,8 @@ class VoiceAgentNode(Node):
         jpeg = self._encode_camera_jpeg(
             snapshot, self.camera_jpeg_max_width, self.camera_jpeg_quality)
         self.last_camera_send_at = now
-        result = await session.send_image(
-            image_bytes=jpeg, mime_type='image/jpeg', prompt=str(prompt),
+        result = await self._send_device_image(
+            session, image_bytes=jpeg, mime_type='image/jpeg', prompt=str(prompt),
             trigger_response=trigger_response,
             timeout=self.ice_timeout)
         self.get_logger().info(
@@ -906,6 +944,18 @@ class VoiceAgentNode(Node):
 
     def _motion_tick(self):
         with self.expression_lock:
+            now = time.monotonic()
+            if now >= getattr(self, '_mimic_refresh_at', 0):
+                self._mimic_refresh_at = now + 1.0
+                refresh = getattr(self.expression_library, 'refresh_users', None)
+                if refresh:
+                    try:
+                        if refresh():
+                            self.expression_generation += 1
+                            self.expression_worker.invalidate(self.expression_generation)
+                            self.expression_queue.clear()
+                    except ExpressionConfigError as error:
+                        self.get_logger().warning(str(error))
             if self.expression_reset_pending:
                 self.expression_queue.clear()
                 if self.active_motion is not None:
@@ -936,6 +986,16 @@ class VoiceAgentNode(Node):
                 return
             self._start_motion(name, now)
         elapsed_ms = int((now - self.motion_started_at) * 1000.0)
+        if 'keyframe_motion' in self.active_motion:
+            from .mimics import evaluate
+            self.motion_pose = evaluate(self.active_motion['keyframe_motion'], elapsed_ms)
+            self._publish_gesture(list(self.motion_pose), list(self.motion_pose.values()), .5)
+            if elapsed_ms >= self.active_motion['duration_ms']:
+                if self.speech_motion_active and self.assistant_speaking:
+                    self._start_motion('talking', now)
+                else:
+                    self.active_motion = None
+            return
         events = self.active_motion['events']
         while (self.motion_event_index < len(events)
                and elapsed_ms >= events[self.motion_event_index][0]):

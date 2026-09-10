@@ -12,6 +12,8 @@ export class RobotConnection extends EventTarget {
     this.pulse = null;
     this.pendingInput = false;
     this.pendingMode = null;
+    this.claimPending = false;
+    this.lastClaimAt = 0;
     this.frameVisible = false;
     this.active = !document.hidden;
     this.disposed = false;
@@ -55,6 +57,14 @@ export class RobotConnection extends EventTarget {
     this.axes = zero();
     if (this.state?.owner) this.send({ type: 'stop' });
     this.emit('reset');
+  }
+
+  stopManualInput() {
+    // Focus/layout changes end manual gestures. Explicit STOP and connection
+    // loss still revoke autonomous navigation through stop().
+    this.axes = zero();
+    if (this.state?.mode !== 'ai' || this.pendingMode) this.stop();
+    else this.emit('reset');
   }
 
   setMode(mode) {
@@ -145,21 +155,36 @@ export class RobotConnection extends EventTarget {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'state' && data.version === 1 && data.sensors && data.joints &&
-            ['remote', 'ai'].includes(data.mode) && typeof data.owner === 'boolean') {
+            ['remote', 'ai', 'tools'].includes(data.mode) && typeof data.owner === 'boolean') {
           this.lastState = performance.now();
           this.state = data;
+          // A browser can receive a state packet before its initial claim is
+          // processed, or immediately after a short Wi-Fi/WebRTC reconnect.
+          // Reclaim an idle controller once so the UI cannot remain disabled.
+          if (!data.owner && !this.claimPending && performance.now() - this.lastClaimAt > 1000) {
+            this.claimPending = true;
+            this.lastClaimAt = performance.now();
+            this.claim();
+          }
+          if (data.owner) this.claimPending = false;
           if (this.pendingMode === data.mode && data.appliedMode === data.mode) this.pendingMode = null;
           if (!this.ready) { this.axes = zero(); this.emit('reset'); }
           if (!data.driveAvailable) { this.axes.drive_x = 0; this.axes.drive_y = 0; }
           if (!data.camera) this.clearFrame();
           this.emit('connection', { text: data.owner ? 'Bağlı · kontrol sende' : 'Bağlı · izleyici', connected: true });
           this.emit('state', data);
+        } else if (data.type === 'toolResult') {
+          this.emit('toolResult', data);
         } else if (data.type === 'ack' || data.type === 'error') {
           if (data.command === 'input') this.pendingInput = false;
           if (data.type === 'error') {
             if (data.command === 'mode') this.pendingMode = null;
+            if (data.command === 'claim') this.claimPending = false;
             this.emit('error', String(data.message));
-          } else if (['claim', 'mode', 'joint'].includes(data.command)) this.emit('error', '');
+          } else if (['claim', 'mode', 'joint'].includes(data.command)) {
+            if (data.command === 'claim') this.claimPending = false;
+            this.emit('error', '');
+          }
         }
       } catch { this.emit('error', 'Geçersiz robot yanıtı'); }
     };

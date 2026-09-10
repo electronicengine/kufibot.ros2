@@ -1,5 +1,6 @@
 """Config-driven expression catalogue compatible with Kufibot C++ configs."""
 
+import copy
 import json
 import re
 from pathlib import Path
@@ -17,7 +18,7 @@ class ExpressionConfigError(RuntimeError):
 class ExpressionLibrary:
     """Load gesture metadata, symbolic joint angles and motion sequences."""
 
-    def __init__(self, gesture_path, motion_path, joint_path):
+    def __init__(self, gesture_path, motion_path, joint_path, *, load_users=True):
         gestures = self._read(gesture_path)
         motions_doc = self._read(motion_path)
         joint_doc = self._read(joint_path)
@@ -40,6 +41,38 @@ class ExpressionLibrary:
                 self.descriptions[item['type']] = item.get('description', '')
         if not self.motions:
             raise ExpressionConfigError('No emotional/reactional motions found')
+        self._base_motions = copy.deepcopy(self.motions)
+        self._base_descriptions = dict(self.descriptions)
+        self._user_signature = None
+        if load_users:
+            self.refresh_users()
+
+    def refresh_users(self):
+        from .mimics import MimicStore
+        store = MimicStore()
+        try:
+            stamp = store.path.stat()
+            signature = (stamp.st_mtime_ns, stamp.st_size)
+        except FileNotFoundError:
+            signature = ()
+        except OSError as error:
+            raise ExpressionConfigError(f'Cannot inspect user mimics: {error}') from error
+        if signature == self._user_signature:
+            return False
+        try:
+            records = store.all()
+        except (OSError, ValueError) as error:
+            raise ExpressionConfigError(f'Cannot load user mimics: {error}') from error
+        motions = copy.deepcopy(self._base_motions)
+        descriptions = dict(self._base_descriptions)
+        for name, record in records.items():
+            motions[name] = {'name': name, 'duration_ms': record['duration_ms'],
+                'description': record['description'], 'keyframe_motion': record,
+                'events': [(frame['time_ms'], frame['joints']) for frame in record['keyframes']]}
+            descriptions[name] = record['description'] or record['name']
+        self.motions, self.descriptions = motions, descriptions
+        self._user_signature = signature
+        return True
 
     @staticmethod
     def _read(path):
@@ -89,6 +122,14 @@ class ExpressionLibrary:
             'happy': ('mutlu', 'sevindim', 'harika', 'süper', 'tebrik', 'happy'),
             'serious': ('ciddi', 'önemli', 'risk', 'uyarı', 'serious'),
         }
+        user_scores = []
+        words = set(re.findall(r'\w+', text))
+        for name, motion in self.motions.items():
+            if 'keyframe_motion' in motion:
+                terms = set(re.findall(r'\w+', (self.descriptions.get(name, '') + ' ' + motion['keyframe_motion']['name']).casefold()))
+                user_scores.append((len(words & terms), name))
+        if user_scores and max(user_scores)[0] > 0:
+            return max(user_scores)[1]
         best = None
         best_score = 0
         for name, words in cues.items():

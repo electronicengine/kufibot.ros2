@@ -1,3 +1,5 @@
+> **WSL üzerinde sesli Verasist simülasyonu:** [Kurulum ve kullanım](docs/simulation-ai.md)
+
 # Kufibot ROS 2
 
 ROS 2 Jazzy packages for Kufibot sensors, actuators, USB-camera perception,
@@ -619,6 +621,22 @@ Yerel Vosk / llama.cpp / Piper sesli ajanı ve web-mobil sağlayıcı/model seç
 
 ### 3B robot simülasyonu
 
+LLM yerine araçları kendiniz çağırabileceğiniz görsel navigasyon paneli:
+
+```bash
+./tools/navigation_sim_demo.sh
+# eşdeğer kısa ad:
+./tools/navigation_sim.sh
+```
+
+Araç seçip parametrelerini girin ve Çağır düğmesine basın. `read_sensor_values`
+anlık lidar/kamera görüntüsünü verir; `goto` ve `look_at` doğrudan çağrılabilir.
+Ev planı, robotun yolu, canlı kamera, teslim edilen fotoğraflar ve tam JSON
+sonuçları aynı pencerede görünür. Yanıtınızı da yazıp kaydedebilirsiniz.
+Başlangıçta otomatik çağrı yapılmaz; hazır mutfak rotası için `--auto` ekleyin.
+Esc ile durdurulur.
+[Demo ve test ayrıntıları](docs/navigation-simulation-tests.md).
+
 `tools/ros2_sim_launch.sh sim` donanımsız ROS simülasyonunu ve Panda3D
 üçüncü şahıs penceresini açar. Görüntüleyici için proje sanal ortamında
 `pip install 'panda3d>=1.10.15,<1.11'` ve grafik masaüstü gerekir.
@@ -640,3 +658,9 @@ Web/mobil robot kamera yayını ayrı, mevcut birinci şahıs sensör görüntü
 
 Tekerlek açıklığı motor ve dünya için ortak ayarlanır:
 `tools/ros2_sim_launch.sh sim wheel_separation_m:=0.2`.
+
+### 3D mimik editörü
+
+Web ve mobil sol üst menüsündeki **Mimikler** sayfasında STL tabanlı robot
+üzerinden zamanlı servo pozları oluşturabilir, kaydedebilir ve bağlı robotta
+veya simülasyonda çalıştırabilirsiniz. [Kullanım, model kalibrasyonu ve API](docs/mimics.md).

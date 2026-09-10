@@ -39,8 +39,8 @@ def test_disconnect_holds_remote_and_releases_ownership(controller):
 @pytest.mark.parametrize(('axis', 'value', 'expected'), [
     ('drive_y', -1, (.5, 0)),   # forward: both wheels forward at full speed
     ('drive_y', 1, (-.5, 0)),   # backward: both wheels reverse at full speed
-    ('drive_x', 1, (0, 5)),     # right: positive ROS angular velocity
-    ('drive_x', -1, (0, -5)),   # left: negative ROS angular velocity
+    ('drive_x', 1, (0, -5)),    # right: negative ROS yaw turns right
+    ('drive_x', -1, (0, 5)),    # left: positive ROS yaw turns left
 ])
 def test_drive_directions_use_full_power(controller, axis, value, expected):
     control, owner, _ = controller
@@ -103,7 +103,7 @@ def test_compass_calibration_requires_owner_and_remote_mode(controller):
 
 def test_ai_workflow_uses_owner_selected_uuid(controller):
     control, owner, _ = controller
-    trigger_uuid = '27eac97b-5e74-494b-984f-01942324fe4b'
+    trigger_uuid = 'b2ec9f54-9260-4d0a-b305-0401eb7694d7'
     control.command(owner, {'type': 'setAiTrigger', 'triggerUuid': trigger_uuid})
     assert control.ai_trigger_uuid == trigger_uuid
     control.command(owner, {'type': 'startAiWorkflow', 'triggerUuid': trigger_uuid})

@@ -19,6 +19,7 @@ from .scene import Robot, build_home, segment_fraction
 class ViewerNode(Node):
     def __init__(self):
         super().__init__('sim_viewer')
+        self.declare_parameter('remote_url', 'http://127.0.0.1:8080')
         self.state = None
         self.received_at = 0.0
         self.joints_deg = dict(NEUTRAL_ANGLES)
@@ -75,9 +76,13 @@ class Viewer(ShowBase):
         self.accept('wheel_down', self.zoom, [.15])
         self.accept('r', self.reset_camera)
         self.accept('m', self.toggle_map)
+        from .mimic_panel import MimicPanel
+        self.mimic_panel = MimicPanel(self.a2dBottomLeft, node.get_parameter('remote_url').value)
         self.taskMgr.add(self.update, 'ros-and-scene')
 
     def capture(self, enabled):
+        if enabled and self.mouseWatcherNode.hasMouse() and self.mouseWatcherNode.getMouseY() < -.5:
+            return
         if not self.win or not hasattr(self.win, 'requestProperties'):
             return
         self.captured = enabled
@@ -115,6 +120,7 @@ class Viewer(ShowBase):
         self.plan, self.plan_path = plan, path
 
     def update(self, task):
+        self.mimic_panel.update()
         now = time.monotonic()
         dt, self.last_frame = min(.1, now-self.last_frame), now
         if not rclpy.ok():
@@ -193,6 +199,7 @@ def main(args=None):
         pass
     finally:
         if app:
+            app.mimic_panel.close()
             app.capture(False)
             app.destroy()
         node.destroy_node()

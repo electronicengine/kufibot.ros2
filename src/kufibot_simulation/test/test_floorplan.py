@@ -108,6 +108,6 @@ def test_clearance_treats_furniture_as_a_solid_obstacle():
 
 def test_default_apartment_furniture_loads_and_does_not_block_the_kitchen_door():
     plan = FloorPlan.load(DEFAULT)
-    assert {'sofa', 'table'} == set(o.id for o in plan.obstacles)
+    assert {'sofa', 'table', 'chair', 'cabinet', 'desk', 'tv', 'coffee_table'} == set(o.id for o in plan.obstacles)
     hit = plan.raycast(-3.5, 2.0, bearing_deg=0, max_range=8.0)
     assert hit.obstacle_id is None  # the table doesn't sit on this ray

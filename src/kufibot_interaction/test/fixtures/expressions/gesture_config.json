@@ -1,0 +1,11 @@
+{
+  "emotional_gestures": [
+    {"type": "happy", "description": "Sevinç"},
+    {"type": "worried", "description": "Endişe"},
+    {"type": "thinking", "description": "Düşünme"}
+  ],
+  "reactional_gestures": [
+    {"type": "greeting", "description": "Selamlama"},
+    {"type": "talking", "description": "Konuşma"}
+  ]
+}

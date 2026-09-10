@@ -9,11 +9,15 @@ smbus2==0.4.2
 pi-ina219==1.4.1
 
 # USB camera perception and MediaPipe tracking
-numpy>=1.26,<3
-mediapipe>=0.10,<0.11
+# ROS/apt binary extensions use the NumPy 1.x ABI. Tracking uses the
+# MediaPipe solutions API shipped in 0.10.21; newer releases removed it.
+numpy>=1.26,<2
+mediapipe==0.10.21
+opencv-contrib-python>=4.11,<4.12
 
 # 3D simulation viewer and 2D floor-plan editor
 panda3d>=1.10.15,<1.11
+panda3d-gltf==1.3.0
 pygame>=2.5,<3
 
 # Local background expression embeddings (llama.cpp Python binding)
@@ -35,8 +39,9 @@ pydantic>=2,<3
 # unconditionally compiles x86 SSE code and fails on Raspberry Pi aarch64.
 # The current audio node uses playback-aware echo gating and does not import it.
 
-# Private SDK: editable install from the source checkout on the robot.
-/home/kufi/workspace/kufibot.cpp/live_voice_session/verasist-sdk[voice]
+# Private SDK vendored at the workspace root. Install requirements from the
+# workspace root so this relative path resolves correctly.
+./verasist-sdk[voice]
 
 # Optional offline voice backend (Vosk Turkish STT + llama.cpp + Piper)
 vosk==0.3.45

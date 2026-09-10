@@ -13,31 +13,34 @@ def test_camera_segment_collision():
 
 
 def test_joint_limits_and_hierarchy():
+    from panda3d.core import Quat, Vec3
+    from kufibot_interaction.robot_model import joint_rotation
     robot = Robot(NodePath('scene'))
     for endpoint in (0, 1):
         values = {name: bounds[endpoint] for name, bounds in JOINT_LIMITS.items()}
         robot.apply_joints(values)
-        assert robot.joints['headLeftRight'].getH() == pytest.approx(values['headLeftRight']-90)
-        assert robot.joints['leftArm'].getP() == pytest.approx(180-values['leftArm'])
-        assert robot.joints['rightArm'].getP() == pytest.approx(values['rightArm']-10)
-        assert robot.joints['neck'].getP() == pytest.approx(
-            values['neck'] * robot.neck_up_degrees_per_servo_degree)
-        assert robot.joints['eyeLeft'].getR() == pytest.approx(values['eyeLeft']-30)
-        assert robot.joints['eyeRight'].getR() == pytest.approx(values['eyeRight']-150)
+        for name, spec in robot.rig['joints'].items():
+            x, y, z = spec['axis']
+            expected = Quat()
+            expected.setFromAxisAngleRad(joint_rotation(spec, values[name]), Vec3(x,-z,y))
+            assert abs(robot.joints[name].getQuat().dot(expected)) == pytest.approx(1, abs=1e-6)
     assert robot.joints['eyeLeft'].getParent() == robot.joints['headLeftRight']
     assert robot.joints['headLeftRight'].getParent() == robot.joints['neck']
     robot.apply_joints({'headLeftRight': 1000})
-    assert robot.joints['headLeftRight'].getH() == 90
-    assert robot.root.getScale().z == pytest.approx(robot.model_scale)
-    assert robot.height_m == pytest.approx(.28)
+    assert robot.joints['headLeftRight'].getH() == pytest.approx(90)
+    low, high = robot.root.getTightBounds()
+    assert all(math.isfinite(v) for v in (*low, *high))
+    assert robot.rig['source_name'] == 'Wall-E_Assembly_NotForPrinting.stl'
+    assert robot.rig['triangles'] < 160000
 
 
 def test_wheels_forward_reverse_and_turn():
     robot = Robot(NodePath('scene'))
+    assert len(robot.wheels) == 8
     robot.animate_wheels(.1, 0, .2, .1)
-    expected = (-math.degrees(.1)) % 360
-    assert all(w.getP() == pytest.approx(expected) for w in robot.wheels)
+    for wheel, spec in zip(robot.wheels, robot.rig['wheels'].values()):
+        assert wheel.getP() == pytest.approx((-math.degrees(.01/spec['radius_m'])) % 360)
     robot.animate_wheels(-.1, 0, .2, .1)
     assert all(min(abs(w.getP()), abs(w.getP()-360)) < .001 for w in robot.wheels)
     robot.animate_wheels(0, 1, .2, .1)
-    assert robot.wheels[0].getP() != pytest.approx(robot.wheels[1].getP())
+    assert robot.wheels[0].getP() != pytest.approx(robot.wheels[4].getP())

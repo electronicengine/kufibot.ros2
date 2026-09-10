@@ -18,6 +18,8 @@ class EmbeddingSelector:
             n_ctx=n_ctx, n_batch=n_ctx, n_ubatch=n_ctx,
             n_gpu_layers=n_gpu_layers, verbose=False)
         self.n_ctx = n_ctx
+        self.library = library
+        self.signature = self._catalogue_signature()
         self.names = list(library.motions)
         try:
             self.catalogue = np.stack([
@@ -49,7 +51,21 @@ class EmbeddingSelector:
             raise ValueError('Invalid sequence embedding')
         return vector / norm
 
+    def _catalogue_signature(self):
+        motions = self.library.motions.copy()
+        descriptions = self.library.descriptions.copy()
+        return tuple((name, descriptions.get(name, '').strip()
+                      or motion.get('description', '').strip() or name)
+                     for name, motion in motions.items())
+
     def select(self, text):
+        # This runs exclusively on the embedding worker, including rebuilds.
+        if hasattr(self, 'library'):
+            signature = self._catalogue_signature()
+            if signature != self.signature:
+                names = [name for name, _ in signature]
+                catalogue = np.stack([self.vector(description) for _, description in signature])
+                self.names, self.catalogue, self.signature = names, catalogue, signature
         scores = self.catalogue @ self.vector(text)
         index = int(np.argmax(scores))
         return self.names[index], float(scores[index])

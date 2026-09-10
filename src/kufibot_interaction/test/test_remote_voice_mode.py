@@ -165,3 +165,14 @@ def test_stop_terminates_local_process_group(monkeypatch):
     process.wait.assert_awaited_once()
     assert node.local_process is None
     assert not node.session_active
+
+
+def test_sdk_api_key_starts_voice_session(monkeypatch):
+    node = voice_node()
+    monkeypatch.delenv('VERASIST_API_TOKEN', raising=False)
+    monkeypatch.setenv('VERASIST_API_KEY', 'sdk-test-key')
+
+    asyncio.run(node._apply_remote_mode('ai', 1))
+
+    node._start_session.assert_awaited_once()
+    node._stop_session.assert_not_awaited()
