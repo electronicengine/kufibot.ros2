@@ -14,11 +14,10 @@ from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Range, Image, CompressedImage, JointState
 from std_msgs.msg import String
-from kufibot_interfaces.action import NavigateStep
+from kufibot_interfaces.action import NavigateStep, FollowRoute
 from kufibot_interfaces.srv import NavigationTask, GetObservation
 from kufibot_interfaces.msg import JointCommand, DriveCommand
 from .core import Config, Navigator
-from .observation_visual import MAX_DISPLAY_RANGE_M
 
 
 def json_data(msg):
@@ -44,9 +43,9 @@ class NavigationNode(Node):
         self.declare_parameter('compass_filter_window', 1)
         self.compass_samples = deque(maxlen=max(1, int(
             self.get_parameter('compass_filter_window').value)))
-        self.live_distance_map = None
-        self.live_distance_map_at = 0.0
-        self.create_subscription(String, 'navigation/distance_map', self._distance_map, 1)
+        self.map_pub = self.create_publisher(String, 'navigation/distance_map', 1)
+        self.create_timer(.1, self._publish_distance_map)
+        self.create_subscription(String, 'simulation/world_state', self._world_state, 1)
         self.pending = {}
         self.reserved = False
         self.drive_pub = self.create_publisher(DriveCommand, 'drive/command', 1)
@@ -69,6 +68,8 @@ class NavigationNode(Node):
         self.create_service(GetObservation, 'navigation/observation', self._observation)
         self.action = ActionServer(self, NavigateStep, 'navigation/step', self._execute,
                                    goal_callback=self._goal, cancel_callback=self._cancel)
+        self.route_action = ActionServer(self, FollowRoute, 'navigation/follow_route', self._execute_route,
+                                         goal_callback=self._goal, cancel_callback=self._cancel)
         self.create_timer(.05, self._tick)
 
     def _authority(self, msg):
@@ -101,18 +102,24 @@ class NavigationNode(Node):
         sine = sum(math.sin(math.radians(value)) for value in self.compass_samples)
         cosine = sum(math.cos(math.radians(value)) for value in self.compass_samples)
         filtered_heading = math.degrees(math.atan2(sine, cosine)) % 360.0
-        self.nav.sensor('heading', filtered_heading)
+        self.nav.sensor('heading', filtered_heading, mapping_value=msg.data % 360.)
 
     def _source_fresh(self, msg, max_age):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         age = self.get_clock().now().nanoseconds / 1e9 - stamp
         return 0 <= age <= max_age
 
+    def _mapping_stamp(self, msg):
+        """Convert a stamped ROS acquisition time to the mapping monotonic clock."""
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        age = self.get_clock().now().nanoseconds / 1e9 - stamp
+        return time.monotonic()-max(0., age)
+
     def _range(self, msg):
         valid = (self._source_fresh(msg, self.nav.c.sensor_age_sec)
                  and all(math.isfinite(v) for v in (msg.range, msg.min_range, msg.max_range))
                  and 0 < msg.min_range < msg.max_range and msg.min_range <= msg.range <= msg.max_range)
-        self.nav.sensor('range', msg.range if valid else None)
+        self.nav.sensor('range', msg.range if valid else None, mapping_stamp=self._mapping_stamp(msg))
         if valid:
             self.nav.sensor('range_min', msg.min_range)
 
@@ -120,7 +127,7 @@ class NavigationNode(Node):
         joints = dict(zip(msg.name, (math.degrees(v) for v in msg.position)))
         valid = self._source_fresh(msg, self.nav.c.sensor_age_sec) and len(msg.name) == len(msg.position) and all(
             name in joints and math.isfinite(joints[name]) for name in ('neck', 'headLeftRight'))
-        self.nav.sensor('joints', joints if valid else None)
+        self.nav.sensor('joints', joints if valid else None, mapping_stamp=self._mapping_stamp(msg))
 
     def _image(self, msg):
         valid = (self._source_fresh(msg, self.nav.c.camera_age_sec) and msg.encoding in ('rgb8', 'bgr8') and msg.width > 0 and msg.height > 0
@@ -141,19 +148,16 @@ class NavigationNode(Node):
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         if msg.width > 640:
             frame = cv2.resize(frame, (640, max(1, round(msg.height * 640 / msg.width))))
-        if observation is not None:
-            from .observation_visual import annotate
-            frame = annotate(frame, observation)
         ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if not ok:
             raise ValueError('JPEG encoding failed')
         return CompressedImage(header=msg.header, format='jpeg', data=jpeg.tobytes())
 
-    def _distance_map(self, msg):
-        mapping = json_data(msg)
-        if mapping.get('frame') == 'startup_robot_pose' and 'boundary_paths' in mapping:
-            self.live_distance_map = mapping
-            self.live_distance_map_at = time.monotonic()
+    def _world_state(self, msg):
+        self.nav.update_simulation(json_data(msg))
+
+    def _publish_distance_map(self):
+        self.map_pub.publish(String(data=json.dumps(self.nav.map_snapshot(), allow_nan=False)))
 
     def _observation(self, request, response):
         obs = self.nav.observations.get(request.observation_id)
@@ -162,19 +166,15 @@ class NavigationNode(Node):
             response.result_json = json.dumps({'status': 'error', 'reason': 'observation_unavailable'})
             return response
         try:
-            if self.live_distance_map is not None and time.monotonic() - self.live_distance_map_at < 1.0:
-                obs = dict(obs, map=self.live_distance_map)
-            response.images = [self.encode(obs['frames'][0][1], obs)]
+            response.images = [self.encode(obs['frames'][0][1])]
             data = {key: value for key, value in obs.items()
                     if key not in ('frames', 'samples', 'created_at')}
+            data['map'] = self.nav.metric_map.compact(data['map'])
             data['observation_age_sec'] = round(self.nav.clock() - obs['created_at'], 2)
             data['polar_ranges_cm'] = [[round(s['relative_deg'], 1), round(s['range_m'] * 100, 1)]
                                        for s in obs['samples']]
             data['polar_format'] = '[robot_relative_degrees, sensor_distance_cm]; negative=left'
-            data['images'] = [dict(obs['frames'][0][0],
-                overlay='persistent top-down lidar map anchored at first robot pose',
-                map_up='initial_robot_forward', map_right='initial_robot_right',
-                max_display_range_cm=int(MAX_DISPLAY_RANGE_M * 100))]
+            data['images'] = [dict(obs['frames'][0][0], observation_id=obs['id'], overlay='none')]
             data['status'] = 'ok'
             response.result_json = json.dumps(data, allow_nan=False)
         except (ValueError, cv2.error) as error:
@@ -182,7 +182,7 @@ class NavigationNode(Node):
         return response
 
     def _goal(self, request):
-        if self.reserved or self.nav.step:
+        if self.reserved or self.nav.step or self.nav.route_request:
             return GoalResponse.REJECT
         # Admission only reserves the action slot. submit() checks authority
         # and task identity before any motion, returning a diagnostic result
@@ -191,6 +191,8 @@ class NavigationNode(Node):
         return GoalResponse.ACCEPT
 
     def _cancel(self, goal):
+        if self.nav.route_request and self.nav.route_request['request_id'] == goal.request.request_id:
+            self.nav.cancel_route()
         if self.nav.step and self.nav.step['request_id'] == goal.request.request_id:
             self.nav._finish('cancelled', 'action_cancelled')
         return CancelResponse.ACCEPT
@@ -215,7 +217,33 @@ class NavigationNode(Node):
             goal.abort()
         return NavigateStep.Result(result_json=json.dumps(result))
 
+    async def _execute_route(self, goal):
+        req = goal.request
+        result = (dict(status='cancelled', reason='action_cancelled') if goal.is_cancel_requested else
+                  dict(status='error', reason='invalid_waypoints') if any(p.z != 0. for p in req.waypoints) else
+                  self.nav.submit_route(dict(session_id=req.session_id, task_id=req.task_id,
+                      request_id=req.request_id, map_id=req.map_id, map_revision=req.map_revision,
+                      waypoints=[dict(x_m=p.x, y_m=p.y) for p in req.waypoints])))
+        if result is None:
+            # Publish the entire accepted route before the first motor tick.
+            self._publish_distance_map()
+            self.state_pub.publish(String(data=json.dumps(self.nav.status())))
+            future = Future()
+            self.pending[req.request_id] = (future, goal)
+            result = await future
+        self.reserved = False
+        if goal.is_cancel_requested:
+            goal.canceled()
+        elif result.get('status') == 'ok':
+            goal.succeed()
+        else:
+            goal.abort()
+        return FollowRoute.Result(result_json=json.dumps(result, allow_nan=False))
+
     def _tick(self):
+        for _, goal in self.pending.values():
+            if goal.is_cancel_requested:
+                self._cancel(goal)
         linear, angular = self.nav.tick()
         profile = ('manual' if self.nav.authority.get('mode') == 'remote'
                    else 'navigation' if self.nav.enabled and self.nav.c.calibrated else 'stop')
@@ -254,7 +282,7 @@ class NavigationNode(Node):
             result = self.nav.results.get(rid)
             # Session changes intentionally erase old results, but must still
             # settle the old ROS action so another task can be accepted.
-            if result is None and not self.nav.step:
+            if result is None and not self.nav.step and not self.nav.route_request:
                 result = {'status': 'cancelled', 'reason': 'session_ended'}
             if result is not None:
                 future.set_result(result)
@@ -268,13 +296,21 @@ class NavigationNode(Node):
                     if step.get('angle_deg'):
                         parts.append(min(1.0, abs(step.get('turned_deg', 0.0)) / abs(step['angle_deg'])))
                 progress = sum(parts) / len(parts) if parts else 0.0
-                goal.publish_feedback(NavigateStep.Feedback(state=self.nav.state, progress=progress))
+                if isinstance(goal.request, FollowRoute.Goal):
+                    plan = self.nav.route_plan
+                    count = plan['completed_count'] if plan else 0
+                    progress = count / len(plan['waypoints']) if plan else 0.
+                    goal.publish_feedback(FollowRoute.Feedback(state=self.nav.state, progress=progress,
+                                                              active_index=count))
+                else:
+                    goal.publish_feedback(NavigateStep.Feedback(state=self.nav.state, progress=progress))
 
     def destroy_node(self):
         self.drive_pub.publish(DriveCommand(profile='stop'))
         self.velocity_pub.publish(Twist())
         self.head_pub.publish(JointCommand(cancel_agent=True))
         self.motion_pub.publish(JointCommand(cancel_agent=True))
+        self.route_action.destroy()
         self.action.destroy()
         super().destroy_node()
 

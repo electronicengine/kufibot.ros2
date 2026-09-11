@@ -69,6 +69,8 @@ dialog p, dd { color: #bdd0f9; font-size: 13px; line-height: 1.7; }.address { pa
 dl { display: grid; grid-template-columns: 110px 1fr; gap: 9px; font-size: 12px; }dd { margin: 0; }dt { color: #d4e8f3; }
 noscript { position: fixed; inset: 45% 10% auto; padding: 20px; background: #4b2525; text-align: center; z-index: 5; }
 @media (max-height: 560px) and (min-width: 601px) {
+  .distance-map canvas { height: 110px; }
+  .top-center { gap: 4px; }.bottom-bar { padding-top: 4px; }
   :root { --stick: 126px; }.controller { padding: 10px 20px 6px; }.brand, .live-heading { height: 24px; }.sensor { padding: 6px 10px; }.sensor-group { gap: 5px; }.mode-switch button { padding: 10px 17px; }
   .head-direction { width: 58px; height: 58px; }.direction-arrow { inset: 11px 17px; }.direction-arrow::before { border-left-width: 7px; border-right-width: 7px; border-bottom-width: 23px; }.direction-arrow i { border-left-width: 5px; border-right-width: 5px; border-top-width: 14px; }.compass-ring b { font-size: 7px; }.direction-value { font-size: 8px; }
   .eye-control { margin-bottom: 5px; }.joystick-label { margin-bottom: 6px; }.arm-control { margin-top: 7px; }.bottom-center { padding-bottom: 3px; }.camera-tag { margin-bottom: 12px; }footer { margin-top: 6px; }

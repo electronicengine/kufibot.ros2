@@ -630,7 +630,7 @@ LLM yerine araçları kendiniz çağırabileceğiniz görsel navigasyon paneli:
 ```
 
 Araç seçip parametrelerini girin ve Çağır düğmesine basın. `read_sensor_values`
-anlık lidar/kamera görüntüsünü verir; `goto` ve `look_at` doğrudan çağrılabilir.
+temiz kamera görüntüsü ve sayısal harita verir; `follow_route` tüm waypoint’leri tek çağrıda otomatik takip eder. Rota web/mobil haritasında gösterilir. `goto` ve `look_at` düşük seviyeli tanılama için korunur. Ayrıntılar: [Waypoint navigasyonu](docs/waypoint-navigation.md).
 Ev planı, robotun yolu, canlı kamera, teslim edilen fotoğraflar ve tam JSON
 sonuçları aynı pencerede görünür. Yanıtınızı da yazıp kaydedebilirsiniz.
 Başlangıçta otomatik çağrı yapılmaz; hazır mutfak rotası için `--auto` ekleyin.

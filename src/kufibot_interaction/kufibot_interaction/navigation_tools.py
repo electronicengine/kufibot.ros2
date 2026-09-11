@@ -19,7 +19,7 @@ async def wait_ros(future, timeout=30.0):
 class NavigationTools:
     def __init__(self, node):
         from rclpy.action import ActionClient
-        from kufibot_interfaces.action import NavigateStep
+        from kufibot_interfaces.action import NavigateStep, FollowRoute
         from kufibot_interfaces.srv import NavigationTask, GetObservation
         from std_msgs.msg import String
         self.node = node
@@ -28,6 +28,8 @@ class NavigationTools:
         self.tasks = node.create_client(NavigationTask, 'navigation/task')
         self.observations = node.create_client(GetObservation, 'navigation/observation')
         self.steps = ActionClient(node, NavigateStep, 'navigation/step')
+        self.Route = FollowRoute
+        self.routes = ActionClient(node, FollowRoute, 'navigation/follow_route')
         self.publisher = node.create_publisher(String, 'navigation/session', 1)
         self.state = {}
         self.state_at = 0.0
@@ -101,17 +103,12 @@ class NavigationTools:
                 if index < self.delivered_images.get(delivery_key, 0):
                     continue
                 self.check(session)
-                prompt = json.dumps(dict(navigation_observation=observation,
-                    image_index=index, instruction=(
-                        'One camera image with a translucent top-down measured distance map. '
-                        'The images metadata gives camera_bearing_deg and relative_deg; look_at images '
-                        'face the requested direction, while full sweeps finish facing forward. '
-                        'Map up is robot forward, right is robot right; compass is absolute heading. '
-                        'Use guidance for front distance, estimated body gap and checked step limit. '
-                        'The scan is sequential, not simultaneous. Unknown sectors are not free. '
-                        'Choose a goto toward the target point (turn and/or drive together), or use '
-                        'look_at first to inspect a direction; ask for clarification if uncertain. '
-                        'Images from earlier observations are landmarks, not current obstacle clearance.')))
+                prompt = json.dumps(dict(navigation_observation=observation, image_index=index,
+                    instruction='Clean camera image; navigation_observation.map contains measured metric geometry. '
+                                'Use +x=startup right, +y=startup forward in metres, heading clockwise. '
+                                'Unknown cells are not free; boundaries are measured obstacles, not complete room walls. '
+                                'For a destination submit ALL waypoints in ONE follow_route call. '
+                                'For unexplored destinations plan to a measured safe frontier, then scan and replan.'))
                 await self.node._send_device_image(session, image_bytes=bytes(image.data), mime_type='image/jpeg',
                                          prompt=prompt, trigger_response=False, timeout=15,
                                          check=lambda: self.check(session))
@@ -150,7 +147,10 @@ class NavigationTools:
         except BaseException:
             handle.cancel_goal_async()
             raise
-        if result.get('observation_id') and result.get('status') in ('ok', 'blocked'):
+        # goto also snapshots a final position/camera view when it stops early
+        # (e.g. no_measured_progress, turn_could_not_converge), not just ok/blocked.
+        if result.get('observation_id') and (result.get('status') in ('ok', 'blocked')
+                or (operation == 'goto' and result.get('status') == 'error')):
             try:
                 result['observation'] = await self.deliver(session, task_id, result['observation_id'])
             except ImageRateLimitError as error:
@@ -159,6 +159,30 @@ class NavigationTools:
                         'Do not move: observation images have not all been delivered. '
                         'Retry read_sensor_values to deliver and acknowledge a fresh observation. '
                         'Do not move until an observation is delivered.'))
+        return result
+
+    async def follow(self, session, task_id, map_id, map_revision, waypoints):
+        from geometry_msgs.msg import Point
+        self.check(session)
+        if not self.routes.server_is_ready():
+            return dict(status='error', reason='navigation_action_unavailable')
+        goal = self.Route.Goal(session_id=self.session_id, task_id=task_id,
+            request_id=uuid.uuid4().hex, map_id=map_id, map_revision=map_revision,
+            waypoints=[Point(x=float(p['x_m']), y=float(p['y_m']), z=0.) for p in waypoints])
+        handle = await wait_ros(self.routes.send_goal_async(goal), 5)
+        if not handle.accepted:
+            return dict(status='error', reason='busy')
+        try:
+            result = json.loads((await wait_ros(handle.get_result_async(), 1820.)).result.result_json)
+        except BaseException:
+            handle.cancel_goal_async()
+            raise
+        if result.get('observation_id'):
+            try:
+                result['observation'] = await self.deliver(session, task_id, result['observation_id'])
+            except ImageRateLimitError as error:
+                return dict(result, status='error', reason='image_rate_limited', detail=str(error),
+                            recovery='Retry read_sensor_values before planning any new movement.')
         return result
 
     async def guarded(self, session, function):
@@ -222,10 +246,42 @@ class NavigationTools:
             return await self.guarded(session, run)
 
         @session.tool(description=(
+            'Navigate to a destination using ALL ordered waypoints in ONE call. Coordinates are absolute '
+            'metres in navigation_observation.map: +x=startup right, +y=startup forward; never camera pixels '
+            'or body-relative coordinates. Copy map_id and revision from the observation. The full route '
+            'is validated and displayed in web/mobile before automatic execution. Every swept segment '
+            'must be measured free including body clearance and braking room; unseen areas are unknown. '
+            'If needed first use read_sensor_values/look_at (and a safe in-place goto turn to scan behind). '
+            'For unknown destinations submit a full exploration route within measured space; the final '
+            'scan enables the next complete route. Stops on obstacles and returns a fresh scan. Inspect '
+            'the result and replan the whole remaining route; never send one call per waypoint.'),
+            parameters=schema({'map_id': {'type': 'string'},
+                'map_revision': {'type': 'integer', 'minimum': 0},
+                'waypoints': {'type': 'array', 'minItems': 1, 'maxItems': 64,
+                    'items': schema({'x_m': {'type': 'number'}, 'y_m': {'type': 'number'}}, ['x_m', 'y_m'])}},
+                ['map_id', 'map_revision', 'waypoints']))
+        async def follow_route(map_id, map_revision, waypoints):
+            async def run():
+                import math
+                if (not isinstance(map_id, str) or not map_id or isinstance(map_revision, bool)
+                        or not isinstance(map_revision, int) or not 0 <= map_revision < 2**64
+                        or not isinstance(waypoints, list) or not 1 <= len(waypoints) <= 64
+                        or any(not isinstance(p, dict) or set(p) != {'x_m', 'y_m'} or any(
+                            isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                            for v in p.values()) for p in waypoints)):
+                    return dict(status='error', reason='invalid_route_arguments')
+                started = await ensure_task()
+                if started.get('status') != 'ok':
+                    return started
+                return track(await self.follow(session, self.task_id, map_id, map_revision, waypoints))
+            return await self.guarded(session, run)
+
+        @session.tool(description=(
+            'Low-level movement; prefer follow_route with all waypoints for destination navigation. '
             'Move toward a point in one combined command: turn up to 180 degrees (positive '
             'clockwise/right, negative left) and/or drive forward up to about 3.5 metres. No '
             'observation_id needed. This command does not pan the head or capture an image before moving. '
-            'At its final position it returns one forward camera/range image with the cumulative lidar map. '
+            'At its final position it returns one clean forward camera image and the numeric cumulative lidar map. '
             'It keeps checking the forward range sensor while moving and stops immediately for an obstacle. '
             'Always inspect the returned result before issuing another command. No blind reversing.'),
             parameters=schema({'distance_m': {'type': 'number', 'minimum': 0, 'maximum': 3.5},

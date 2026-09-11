@@ -1,0 +1,12 @@
+string session_id
+string task_id
+string request_id
+string map_id
+uint64 map_revision
+geometry_msgs/Point[] waypoints
+---
+string result_json
+---
+string state
+float32 progress
+uint32 active_index

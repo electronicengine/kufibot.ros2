@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/VoiceState.msg"
   "msg/Transcript.msg"
   "action/NavigateStep.action"
+  "action/FollowRoute.action"
   "srv/NavigationTask.srv"
   "srv/GetObservation.srv"
   DEPENDENCIES geometry_msgs std_msgs sensor_msgs action_msgs

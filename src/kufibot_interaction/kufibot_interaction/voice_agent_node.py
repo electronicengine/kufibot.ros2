@@ -648,7 +648,7 @@ class VoiceAgentNode(Node):
             description=(
                 'Capture the robot camera now and let the multimodal LLM '
                 'inspect it. Use for explicit visual questions or when a new view is needed. '
-                'During navigation use the single annotated observation image; '
+                'During navigation use the clean observation image and its numeric map; '
                 'do not request redundant images. '
                 'Never guess visual details.'),
             parameters=vision_schema)

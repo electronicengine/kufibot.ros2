@@ -4,6 +4,9 @@ const $ = id => document.getElementById(id);
 const link = new RobotConnection();
 const menu = $('menu');
 const calibrationModal = $('calibration-modal');
+const aiTriggerModal = $('ai-trigger-modal');
+const AI_TRIGGER_UUID_KEY = 'kufibot.aiTriggerUuid';
+const AI_TRIGGER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let windowActive = true;
 let imageLoaded = false;
 const keys = new Set();
@@ -130,8 +133,10 @@ function renderCalibration(state) {
 
 function renderAiWorkflow(state) {
   const input = $('ai-trigger-uuid');
-  if (document.activeElement !== input && state?.aiTriggerUuid) input.value = state.aiTriggerUuid;
-  const valid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.value.trim());
+  if (document.activeElement !== input) {
+    input.value = state?.aiTriggerUuid || localStorage.getItem(AI_TRIGGER_UUID_KEY) || '';
+  }
+  const valid = AI_TRIGGER_UUID_PATTERN.test(input.value.trim());
   $('start-ai-workflow').disabled = !state?.owner || !valid;
   $('ai-trigger-info').textContent = state?.aiTriggerUuid
     ? `Seçili UUID: ${state.aiTriggerUuid}` : 'YZ iş akışı UUID bekleniyor';
@@ -179,7 +184,7 @@ function renderAiSettings(state) {
     !config ? 'Sesli ajan ayarları bekleniyor' : !saved ? 'Önce ayarları kaydedin.' : state.mode !== 'ai' ? 'Ayarlar kayıtlı. Ana ekrandan YZ modu seçildiğinde ajan başlar.' : ''].filter(Boolean).join(' · ');
 }
 
-function drawDistanceMap(canvas, mapping) {
+function drawDistanceMap(canvas, mapping, routePlan) {
   const ratio = devicePixelRatio || 1;
   const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
   const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
@@ -189,7 +194,13 @@ function drawDistanceMap(canvas, mapping) {
   ctx.fillStyle = '#101824d9'; ctx.fillRect(0, 0, width, height);
   const points = mapping?.obstacle_points || [];
   const robot = mapping?.robot_pose || [0, 0];
-  const extent = Math.max(2, ...points.flatMap(p => [Math.abs(p[0]), Math.abs(p[1])]),
+  const route = routePlan?.map_id === mapping?.map_id ? routePlan : null;
+  const routePoints = route ? [route.start_pose, ...route.waypoints.map(p => [p.x_m, p.y_m])] : [];
+  canvas.dataset.routeId = route?.route_id || '';
+  canvas.dataset.routeStatus = route?.status || '';
+  canvas.dataset.waypointCount = String(route?.waypoints.length || 0);
+  canvas.setAttribute('aria-label', route ? `Rota: ${route.status}, ${route.completed_count}/${route.waypoints.length} nokta` : 'Mesafe haritası');
+  const extent = Math.max(2, ...[...points, ...routePoints].flatMap(p => [Math.abs(p[0]), Math.abs(p[1])]),
                           Math.abs(robot[0]), Math.abs(robot[1])) * 1.15;
   const scale = Math.min(width, height) / (2 * extent);
   const origin = [width / 2, height / 2];
@@ -206,6 +217,21 @@ function drawDistanceMap(canvas, mapping) {
     for (const vertex of path.slice(1)) ctx.lineTo(...point(vertex));
     ctx.stroke();
   }
+  if (route) {
+    routePoints.slice(1).forEach((target, index) => {
+      const done = index < route.completed_count;
+      const active = index === route.active_index && route.status === 'following';
+      const color = done ? '#69d49a' : active ? '#ffd66e' : '#67d9ed';
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5 * ratio;
+      ctx.setLineDash(done ? [] : [5 * ratio, 3 * ratio]);
+      ctx.beginPath(); ctx.moveTo(...point(routePoints[index])); ctx.lineTo(...point(target)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(...point(target), (active ? 9 : 7) * ratio, 0, Math.PI * 2); ctx.fill();
+      ctx.font = `bold ${10 * ratio}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#101824'; ctx.fillText(String(index + 1), ...point(target));
+    });
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
   const p = point(robot), heading = (mapping?.robot_heading_deg || 0) * Math.PI / 180;
   ctx.fillStyle = '#ffd66e'; ctx.beginPath(); ctx.arc(...p, 4 * ratio, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#ffd66e'; ctx.lineWidth = 2 * ratio; ctx.beginPath();
@@ -219,6 +245,10 @@ function drawDistanceMap(canvas, mapping) {
   ctx.fillText(`${barMetres} m`, 10*ratio, height-20*ratio);
   const nearest = points.length ? Math.min(...points.map(q => Math.hypot(q[0]-robot[0], q[1]-robot[1]))) : null;
   ctx.fillText(nearest === null ? 'Sınır ölçümü bekleniyor' : `En yakın kayıtlı sınır ≈ ${nearest.toFixed(2)} m`, 8*ratio, 13*ratio);
+  if (route) {
+    const labels = {following: 'İlerliyor', completed: 'Tamamlandı', blocked: 'Engellendi', cancelled: 'İptal', error: 'Durdu'};
+    ctx.fillText(`Rota · ${labels[route.status] || route.status} · ${route.completed_count}/${route.waypoints.length}`, 8*ratio, 39*ratio);
+  }
   const liveRange = link.state?.sensors.distance;
   ctx.fillText(Number.isFinite(liveRange) ? `Lidar baktığı yön: ${liveRange.toFixed(2)} m` : 'Lidar: — m', 8*ratio, 26*ratio);
 }
@@ -257,12 +287,12 @@ function render() {
   // enabled after the user selects the mode avoids a dead-looking modal.
   $('tool-call').disabled = state?.mode !== 'tools' || !state?.owner;
   $('claim').hidden = !state || state.owner;
-  drawDistanceMap($('distance-map-canvas'), state?.distanceMap);
-  if ($('map-dialog').open) drawDistanceMap($('distance-map-full'), state?.distanceMap);
+  drawDistanceMap($('distance-map-canvas'), state?.distanceMap, state?.navigation?.route_plan);
+  if ($('map-dialog').open) drawDistanceMap($('distance-map-full'), state?.distanceMap, state?.navigation?.route_plan);
   const nav = state?.navigation;
   const navLabels = {disabled: 'Kapalı', idle: 'Komut bekleniyor', aligning: 'Kafa hizalanıyor',
     scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor',
-    waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'};
+    following_route: 'Rota izleniyor', waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'};
   const navToggle = $('navigation-toggle');
   navToggle.hidden = state?.mode !== 'ai';
   navToggle.disabled = !state?.owner || state?.aiConfig?.settings?.provider !== 'verasist' ||
@@ -319,7 +349,38 @@ $('camera').addEventListener('timeupdate', () => {
 });
 $('camera').addEventListener('error', () => { imageLoaded = false; camera(); });
 
+function openAiTriggerModal() {
+  const input = $('ai-trigger-modal-input');
+  input.value = localStorage.getItem(AI_TRIGGER_UUID_KEY) || $('ai-trigger-uuid').value.trim();
+  $('ai-trigger-modal-error').hidden = true;
+  aiTriggerModal.showModal();
+  input.focus();
+  input.select();
+}
+function confirmAiTrigger() {
+  const input = $('ai-trigger-modal-input');
+  const value = input.value.trim();
+  if (!AI_TRIGGER_UUID_PATTERN.test(value)) {
+    $('ai-trigger-modal-error').hidden = false;
+    return;
+  }
+  localStorage.setItem(AI_TRIGGER_UUID_KEY, value);
+  $('ai-trigger-uuid').value = value;
+  link.startAiWorkflow(value);
+  aiTriggerModal.close();
+}
+$('ai-trigger-cancel').addEventListener('click', () => aiTriggerModal.close());
+$('ai-trigger-confirm').addEventListener('click', confirmAiTrigger);
+$('ai-trigger-modal-input').addEventListener('keydown', event => {
+  if (event.key === 'Enter') { event.preventDefault(); confirmAiTrigger(); }
+});
+$('ai-trigger-modal-input').addEventListener('input', () => { $('ai-trigger-modal-error').hidden = true; });
+
 for (const mode of ['remote', 'ai', 'tools']) $(`mode-${mode}`).addEventListener('click', () => {
+  if (mode === 'ai' && link.state?.aiConfig?.settings?.provider === 'verasist') {
+    openAiTriggerModal();
+    return;
+  }
   link.setMode(mode);
   if (mode === 'tools') $('tool-modal').showModal();
 });
@@ -331,6 +392,8 @@ function configureTool(reset = false) {
     $('tool-sweep').value = '180';
   }
   $('tool-distance-label').hidden = name !== 'goto';
+  $('tool-route-label').hidden = name !== 'follow_route';
+  $('tool-angle').parentElement.hidden = name === 'follow_route';
   $('tool-sweep-label').hidden = !scanning;
   const sweep = Number($('tool-sweep').value);
   const limit = name === 'goto' ? 180 : scanning ? Math.max(0, 90 - sweep / 2) : 90;
@@ -346,10 +409,21 @@ $('tool-call').addEventListener('click', () => {
   if (link.state?.mode !== 'tools') return;
   const name = $('tool-name').value;
   const angle = Number($('tool-angle').value);
-  const toolArguments = name === 'goto' ? {distance_m: Number($('tool-distance').value), angle_deg: angle}
+  let toolArguments = name === 'goto' ? {distance_m: Number($('tool-distance').value), angle_deg: angle}
     : name === 'look_at' ? {angle_deg: angle}
       : {angle_deg: angle, sweep_deg: Number($('tool-sweep').value)};
-  const fields = ['tool-angle', ...(name === 'goto' ? ['tool-distance'] :
+  if (name === 'follow_route') {
+    try {
+      const map = link.state?.distanceMap;
+      const waypoints = JSON.parse($('tool-route').value);
+      if (!map?.map_id || !Array.isArray(waypoints) || !waypoints.length) throw new Error();
+      toolArguments = {map_id: map.map_id, map_revision: map.revision, waypoints};
+    } catch {
+      $('tool-result').textContent = 'Güncel harita ve geçerli bir waypoint JSON listesi gerekli.';
+      return;
+    }
+  }
+  const fields = name === 'follow_route' ? [] : ['tool-angle', ...(name === 'goto' ? ['tool-distance'] :
     name === 'read_sensor_values' ? ['tool-sweep'] : [])];
   for (const id of fields) {
     const input = $(id);
@@ -395,7 +469,9 @@ menu.addEventListener('close', render);
 $('reconnect').addEventListener('click', () => { menu.close(); link.connect(); });
 $('ai-trigger-uuid').addEventListener('input', () => renderAiWorkflow(link.state));
 $('start-ai-workflow').addEventListener('click', () => {
-  link.startAiWorkflow($('ai-trigger-uuid').value.trim());
+  const value = $('ai-trigger-uuid').value.trim();
+  localStorage.setItem(AI_TRIGGER_UUID_KEY, value);
+  link.startAiWorkflow(value);
   menu.close();
 });
 $('calibrate-compass').addEventListener('click', () => {
@@ -407,7 +483,7 @@ $('calibration-close').addEventListener('click', () => calibrationModal.close())
 $('endpoint').textContent = location.host;
 $('menu-address').textContent = location.origin;
 $('distance-map').addEventListener('click', () => {
-  $('map-dialog').showModal(); drawDistanceMap($('distance-map-full'), link.state?.distanceMap);
+  $('map-dialog').showModal(); drawDistanceMap($('distance-map-full'), link.state?.distanceMap, link.state?.navigation?.route_plan);
 });
 $('map-close').addEventListener('click', () => $('map-dialog').close());
 

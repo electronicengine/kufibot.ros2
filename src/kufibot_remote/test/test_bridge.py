@@ -129,19 +129,15 @@ def test_navigation_telemetry_loss_reports_reason_and_keeps_stop_gate():
     assert node.control.navigation_epoch != epoch
 
 
-def test_simulator_map_is_fixed_to_start_pose_and_accumulates_boundaries():
+def test_remote_forwards_navigation_map_without_a_second_coordinate_frame():
     import json
     from std_msgs.msg import String
+    from kufibot_navigation.metric_map import MetricMap
 
     node = bridge()
-    node._world_state(String(data=json.dumps({
-        'pose': {'x': 1., 'y': 2., 'theta_deg': 0.},
-        'lidar_pose': {'x': 1.03, 'y': 2., 'bearing_deg': 0.},
-        'lidar_range_m': 1., 'lidar_hit': True})))
-    node._world_state(String(data=json.dumps({
-        'pose': {'x': 1., 'y': 2.5, 'theta_deg': 0.},
-        'lidar_pose': {'x': 1.03, 'y': 2.5, 'bearing_deg': 0.},
-        'lidar_range_m': 1., 'lidar_hit': True})))
-    mapping = node._distance_map()
-    assert mapping['robot_pose'] == [0., .5]
-    assert mapping['obstacle_points'] == [[0., 1.], [0., 1.5]]
+    mapping = MetricMap().snapshot([1., .5], 30., 'simulation')
+    node._receive_distance_map(String(data=json.dumps(mapping)))
+    assert node._distance_map() == mapping
+    assert node.status()['distanceMap'] == mapping
+    node._receive_distance_map(String(data='invalid'))
+    assert node._distance_map() == mapping

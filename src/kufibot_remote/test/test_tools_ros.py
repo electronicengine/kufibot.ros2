@@ -16,7 +16,10 @@ from kufibot_simulation.sim_dc_motor_node import SimDcMotorNode
 async def main():
  ns='/verify_'+uuid.uuid4().hex[:8]
  config=yaml.safe_load((Path(__file__).resolve().parents[2] / 'kufibot_simulation/config/simulation.yaml').open())
- config['world_node']['ros__parameters'].update(camera_width=320, camera_height=240)
+ # This test checks protocol/observation delivery, not noisy motion convergence.
+ # Headless rendering and deterministic sensors avoid timing-dependent range jumps.
+ config['world_node']['ros__parameters'].update(camera_width=320, camera_height=240,
+  camera_renderer='schematic', lidar_noise_stddev_m=0., compass_noise_stddev_deg=0.)
  with tempfile.NamedTemporaryFile(mode='w',suffix='.yaml') as f:
   yaml.safe_dump({ns+'/'+k:v for k,v in config.items()},f);f.flush()
   rclpy.init(args=['--ros-args','-r','__ns:='+ns,'--params-file',f.name])

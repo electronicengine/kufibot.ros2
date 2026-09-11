@@ -27,9 +27,9 @@ def bridge_and_session():
     return bridge, session
 
 
-def test_only_direct_navigation_tools_are_exposed():
+def test_route_and_low_level_navigation_tools_are_exposed():
     _, session = bridge_and_session()
-    assert set(session.handlers) == {'goto', 'look_at', 'read_sensor_values'}
+    assert set(session.handlers) == {'follow_route', 'goto', 'look_at', 'read_sensor_values'}
     assert set(session.tools_meta['goto']['parameters']['properties']) == {'distance_m', 'angle_deg'}
     assert set(session.tools_meta['look_at']['parameters']['properties']) == {'angle_deg'}
     assert set(session.tools_meta['read_sensor_values']['parameters']['properties']) == {
@@ -78,4 +78,30 @@ def test_failed_internal_start_does_not_call_action():
         result = await session.handlers['goto'](distance_m=.2)
         assert result['reason'] == 'not_authorized'
         bridge.step.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_follow_route_sends_all_points_in_one_call_and_reuses_internal_task():
+    async def run():
+        bridge, session = bridge_and_session()
+        bridge.task = AsyncMock(return_value={'status': 'ok', 'task_id': 'internal-task'})
+        bridge.follow = AsyncMock(return_value={'status': 'ok'})
+        points = [{'x_m': 0., 'y_m': 1.}, {'x_m': 1., 'y_m': 1.}]
+        result = await session.handlers['follow_route']('map', 7, points)
+        assert result['status'] == 'ok'
+        bridge.follow.assert_awaited_once_with(session, 'internal-task', 'map', 7, points)
+        assert set(session.tools_meta['follow_route']['parameters']['required']) == {
+            'map_id', 'map_revision', 'waypoints'}
+    asyncio.run(run())
+
+
+def test_bad_route_arguments_do_not_fault_session_or_start_task():
+    async def run():
+        bridge, session = bridge_and_session()
+        bridge.task = AsyncMock()
+        for points in ([], [{'x_m': True, 'y_m': 0}], [{'x_m': float('inf'), 'y_m': 0}]):
+            result = await session.handlers['follow_route']('map', 1, points)
+            assert result['reason'] == 'invalid_route_arguments'
+        assert not bridge.faulted
+        bridge.task.assert_not_awaited()
     asyncio.run(run())

@@ -17,7 +17,6 @@ from geometry_msgs.msg import Twist
 
 from kufibot_interfaces.msg import VoiceState
 from .control import Control
-from .boundary_map import boundary_paths
 from .server import Discovery, Server
 from .video import LatestCameraTrack
 from kufibot_interaction.navigation_tools import NavigationTools
@@ -71,12 +70,7 @@ class RemoteController(Node):
         self.ai_config = None
         self.voice_status = None
         self.local_compute_active = False
-        # Simulator map: fixed to the first received robot pose and updated
-        # from every lidar sample, regardless of who drives the robot.
-        self.map_anchor = None
-        self.map_cells = OrderedDict()
-        self.map_pose = [0.0, 0.0]
-        self.map_heading = 0.0
+        self.distance_map = None
         self.ai_settings_pub = self.create_publisher(String, 'voice_session/set_ai_settings', 10)
         self.create_subscription(String, 'voice_session/ai_settings', self._ai_settings, 10)
         self.create_subscription(VoiceState, 'voice_session/state', self._voice_state, 10)
@@ -85,8 +79,7 @@ class RemoteController(Node):
         self.drive_pub = self.create_publisher(Twist, 'drive/manual_cmd', 1)
         self.navigation = None
         self.navigation_at = 0.0
-        self.map_pub = self.create_publisher(String, 'navigation/distance_map', 1)
-        self.create_timer(.1, self._publish_distance_map)
+        self.create_subscription(String, 'navigation/distance_map', self._receive_distance_map, 1)
         self.navigation_pub = self.create_publisher(String, 'navigation/authority', 1)
         self.create_subscription(String, 'navigation/state', self._navigation_state, 1)
         self.calibration_pub = self.create_publisher(String, 'compass/calibration_command', 10)
@@ -107,7 +100,6 @@ class RemoteController(Node):
                                  self._calibration_status, 10)
         self.create_subscription(String, 'voice_session/trigger_uuid',
                                  self._ai_trigger_uuid, 10)
-        self.create_subscription(String, 'simulation/world_state', self._world_state, 10)
         self.tools = NavigationTools(self)
         self.tools.register(self.session)
         self.tools.connected = True
@@ -162,57 +154,16 @@ class RemoteController(Node):
         if not hasattr(self, '_control_timer'):
             self._control_timer = self.create_timer(period_sec, lambda: self.tick(period_sec))
 
-    def _world_state(self, msg):
-        """Integrate simulator lidar into one startup-anchored metric map."""
+    def _receive_distance_map(self, msg):
         try:
-            state = json.loads(msg.data)
-            pose, lidar = state['pose'], state['lidar_pose']
-            x, y, heading = (float(pose[key]) for key in ('x', 'y', 'theta_deg'))
-            lx, ly, bearing = (float(lidar[key]) for key in ('x', 'y', 'bearing_deg'))
-            distance = float(state['lidar_range_m'])
-            if not all(math.isfinite(value) for value in (x, y, heading, lx, ly, bearing, distance)):
-                return
-        except (KeyError, TypeError, ValueError):
-            return
-        if self.map_anchor is None:
-            self.map_anchor = (x, y, heading)
-        ax, ay, ah = self.map_anchor
-        anchor_rad = math.radians(ah)
-
-        def local(world_x, world_y):
-            dx, dy = world_x-ax, world_y-ay
-            return (dx * math.cos(anchor_rad) - dy * math.sin(anchor_rad),
-                    dx * math.sin(anchor_rad) + dy * math.cos(anchor_rad))
-
-        self.map_pose = list(local(x, y))
-        self.map_heading = (heading-ah) % 360.0
-        if state.get('lidar_hit') and distance > 0:
-            hit_x = lx + math.sin(math.radians(bearing)) * min(distance, 8.0)
-            hit_y = ly + math.cos(math.radians(bearing)) * min(distance, 8.0)
-            point = local(hit_x, hit_y)
-            key = (round(point[0] / .1), round(point[1] / .1))
-            self.map_cells[key] = [round(key[0] * .1, 2), round(key[1] * .1, 2)]
-            self.map_cells.move_to_end(key)
-            while len(self.map_cells) > 1024:
-                self.map_cells.popitem(last=False)
-
-    def _publish_distance_map(self):
-        mapping = self._distance_map()
-        if mapping is not None:
-            self.map_pub.publish(String(data=json.dumps(mapping)))
+            data = json.loads(msg.data)
+            if isinstance(data, dict) and data.get('frame') == 'startup_robot_pose' and data.get('map_id'):
+                self.distance_map = data
+        except (ValueError, TypeError):
+            pass
 
     def _distance_map(self):
-        if self.map_anchor is None:
-            return None
-        points = list(self.map_cells.values())
-        signature = tuple(sorted(self.map_cells))
-        if signature != getattr(self, '_boundary_signature', None):
-            self._boundary_paths = boundary_paths(points)
-            self._boundary_signature = signature
-        return {'frame': 'startup_robot_pose', 'units': 'm', 'origin': [0.0, 0.0],
-                'robot_pose': [round(value, 3) for value in self.map_pose],
-                'robot_heading_deg': round(self.map_heading, 1),
-                'obstacle_points': points, 'boundary_paths': self._boundary_paths}
+        return getattr(self, 'distance_map', None)
 
     def _navigation_state(self, msg):
         try:

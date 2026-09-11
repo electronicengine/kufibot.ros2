@@ -101,7 +101,7 @@ batarya ölçümünü ve donanıma özel ifade kataloğunu bütünüyle taklit e
 
 ## Navigasyon iptal edilirse
 
-`goto`, `look_at` veya `read_sensor_values` ilk çağrıda gerekli iç görevi
+`follow_route`, `goto`, `look_at` veya `read_sensor_values` ilk çağrıda gerekli iç görevi
 kendiliğinden oluşturur; model görev veya istek kimliği vermez. Tarama iptal
 olursa sonuç `ok` değil `cancelled`/`error` olur. Yetki kaybında `authority_reason` alanı
 `stop_requested`, `owner_heartbeat_timeout`, `navigation_state_stale` gibi
@@ -117,7 +117,7 @@ bağlantı veya heartbeat kaybı navigasyonu durdurmaya devam eder.
 
 Görüntü aktarımında `Rate limited` yanıtı alınırsa kamera ve navigasyon aynı
 sıralı gönderim kuyruğunu kullanır (en az iki saniye ara, sınırlı artan beklemeli
-tekrar). Bu açık sunucu reddi tek başına serbest gezinmeyi kapatmaz. Birleşik tarama
+tekrar). Bu açık sunucu reddi tek başına serbest gezinmeyi kapatmaz. Temiz tarama
 görüntüsü kabul edilmeden gözlem hareket için onaylanmaz. Tekrarlar da
 reddedilirse araç `image_rate_limited` ile iç görev/gözlem kimliklerini
 korur; asistan yeniden `read_sensor_values` çağırarak güncel aktarımı
@@ -125,27 +125,29 @@ tamamlayabilir. Başarılı iletilmiş görüntüler tekrar gönderilmez.
 Belirsiz ROS zaman aşımı, gerçek bağlantı kaybı ve DUR komutu korumaları sürer.
 
 
-## Karar başına tek birleşik görüntü
+## Temiz kamera ve sayısal harita
 
-Navigasyon, 180° kafa taramasıyla mesafeleri toplar; tarama bitince kamerayı
-öne çevirip güncel tek kare alır. Kareye yarı saydam, tepeden görünüşlü bir
-mesafe haritası işlenir. Harita 8 metreye kadar ölçümleri, 2/4/6/8 metre ölçek halkalarıyla gösterir. Haritada yukarı robotun önü, sağ robotun sağıdır;
-pusula açısı ayrıca yazılır. Kırmızı noktalar ölçülen engellerdir; sarı halkalar
-haritanın 800 cm görüntüleme sınırının ötesindeki ölçümlerdir. Ölçülmeyen
-boşluklar serbest kabul edilmez. Bu bir metrik haritadır, kamera piksellerine
-hizalanmış bir derinlik görüntüsü değildir.
+Navigasyon gözlemi tek, üzerinde harita çizilmemiş JPEG ve aynı gözleme ait
+sayısal harita döndürür. Navigasyon düğümü `navigation/distance_map` kanalının
+tek üreticisidir; web/mobil ve rota denetimi aynı başlangıç koordinatlarını kullanır.
+Görev veya sesli oturum değişmesi haritanın başlangıcını değiştirmez.
 
-LLM'ye bir JPEG ve kısa ölçüm açıklaması gönderilir: ön sensör mesafesi,
-sensörün gövdeye göre konumundan hesaplanan tahmini gövde boşluğu, gerekli
-durma payı ve aynı navigasyon denetiminin kabul ettiği en büyük sınırlı ileri
-adım. Tek ışındaki gövde boşluğu “bu kadar ilerlersen kesin çarparsın” anlamına
-gelmez; robot genişliği, ölçülmeyen alanlar ve hareketli engeller önemlidir.
-Ölçümler tarama boyunca sırayla alınır; tarama süresi ve görüntü yönü de
-aktarılır. RPi kalibrasyon kilidi ve canlı sensör denetimleri korunur.
+`map` içinde metre cinsinden robot konumu, saat yönünde yön açısı, 10 cm hücre
+çözünürlüğü, engel koordinatları, ölçülmüş sınır çizgileri ve serbest hücreler
+bulunur. LLM'ye serbest hücreler kayıpsız `[y, x_ilk, x_son]` satır aralıklarıyla
+aktarılır. `+x` başlangıç sağı, `+y` başlangıç önü demektir. Ölçülmemiş hücreler
+bilinmeyendir; çizgiler odanın kesin dış duvarları olarak yorumlanmaz.
 
-Varsayılan olarak her konuşma turunda fotoğraf gönderilmez. Hareket sonrası
-yeniden planlama veya açık `read_sensor_values` isteği bir
-birleşik görüntü üretir. Navigasyon dışında görsel soru için `analyze_camera`
-kullanılır. Aynı gözlem tekrar istendiğinde başarıyla gönderilmiş JPEG yeniden
-gönderilmez. Eski davranışı özellikle isteyen kurulumlar
-`camera_attach_to_every_user_turn: true` ayarını açabilir.
+Hedefe gitmek için `follow_route(map_id, map_revision, waypoints)` çağrısında
+bütün noktalar tek liste olarak gönderilir. Robot rotayı denetler, tamamını
+uygulamalara yayınlar ve noktaları otomatik takip eder. Ara noktalarda LLM'den
+yeni çağrı beklenmez. Sonunda veya engelde durduğunda 180° tarama ve tek temiz
+kamera görüntüsü döner. Engel sonrası kalan yol otomatik sürdürülmez; yeni rota
+toplu olarak gönderilir. Bilinmeyen hedef için önce ölçülmüş alanda keşif rotası
+oluşturulur; son tarama sonraki rotaya veri sağlar.
+
+Varsayılan olarak her konuşma turunda fotoğraf gönderilmez. Navigasyon dışında
+`analyze_camera` kullanılır. Aynı gözleme ait başarıyla gönderilmiş JPEG tekrar
+gönderilmez. Görüntü aktarım sınırlamaları ve fiziksel robot kalibrasyon kilidi korunur.
+
+Sözleşme, örnek çağrı ve doğrulama adımları: [Waypoint navigasyonu](waypoint-navigation.md).

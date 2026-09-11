@@ -24,15 +24,18 @@ kareyle `blocked` sonucu verir. Daha geniş çevre ölçümü gerektiğinde aç�
 `read_sensor_values` çağırın. `look_at` da seçilen yöndeki son kamera/lidar
 kareyi ve aynı birikmiş haritayı sonucunda paylaşır.
 
-Her açık sensör taramasının fotoğrafındaki mesafe haritası görevin ilk robot
-konumuna sabitlenir. Robotun pusulayla ölçülen yönü ve lidar mesafesi değişiminden
-ölçülen ilerlemesiyle sonraki taramaların engel noktaları bu ortak haritaya eklenir.
-Aktif görev boyunca yeni gelen ön lidar ölçümleri de, ayrı bir araç çağrısı
-gerekmeden, aynı haritaya sürekli eklenir.
-Turkuaz nokta başlangıcı, sarı robotu, kırmızı noktalar birikmiş lidar engellerini
-gösterir. Noktalar 10 cm'lik ortak dünya hücrelerinde tutulur: aynı sınır tekrar
-ölçülürse yeni bir harita veya kopya nokta oluşmaz, o hücre güncellenir. Harita
-ölçüm tabanlı tahmindir; çarpışma güvenliği yine canlı lidar denetimiyle yapılır.
+Fotoğrafların üzerine mesafe haritası çizilmez. Sayısal gözlem haritası robotun
+başlangıç konumuna sabittir; görev ve oturum değişikliklerinde korunur.
+Navigasyon düğümü simülasyonda konum ve lidar ölçümlerini, fiziksel robotta
+sensör/ilerleme tahminini bu ortak haritaya ekler. Web ve mobil aynı haritayı gösterir.
+Ölçülen serbest hücreler ile engeller ayrı tutulur; aradaki bilinmeyen boşluklar doldurulmaz.
+
+Web araç panelindeki `follow_route` seçeneğine tüm `{x_m, y_m}` noktalarını
+tek JSON listesi olarak yazın. Panel güncel `map_id` ve `revision` değerlerini
+otomatik ekler. Rota hareketten önce numaralı noktalarla küçük/büyük haritada
+görünür ve robot otomatik takip eder. Yeni rota veya oturum kapanışına kadar kalır.
+Pygame panelindeki mevcut düşük seviyeli araçlar tanılama için korunur.
+Tam sözleşme ve LLM yönergesi: [Waypoint navigasyonu](waypoint-navigation.md).
 
 `read_sensor_values` kafa önce sektörün başlangıcına geldikten sonra `-90°`den
 `+90°`ye tek, sürekli bir servo hareketiyle tarar; 10° değeri durak noktası değil,
@@ -129,9 +132,9 @@ ROS_LOG_DIR=/tmp/kufibot-test-logs .venv/bin/python -m pytest \
   src/kufibot_interaction/test/test_navigation_tools.py -q
 ```
 
-Testler kayıtlı `read_sensor_values`, `goto` ve `look_at` araçlarını çağırır.
+Testler kayıtlı `read_sensor_values`, `goto`, `look_at` ve `follow_route` araçlarını doğrular.
 Araç köprüsü gerçek ROS servislerini
-ve NavigateStep action sunucusunu kullanır. Navigasyon çıktıları gerçek motor
+ve NavigateStep/FollowRoute action sunucularını kullanır. Navigasyon çıktıları gerçek motor
 sürücüsünün simülasyon uyarlamasından geçer; servo limitleri ve hareket hızı
 ServoNode üzerinden uygulanır. Dünya simülatörü ev planında konumu entegre
 eder, lidar mesafelerini raycast ile ve kamera görüntülerini renderer ile üretir.

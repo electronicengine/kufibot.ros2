@@ -7,44 +7,10 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { discover, Robot } from './src/discovery';
 import { Joystick } from './src/Joystick';
 import { useRobot } from './src/useRobot';
+import { DistanceMap } from './src/DistanceMap';
 import { MimicEditor } from './src/MimicEditor';
 import { AiSettingsPanel } from './src/AiSettingsPanel';
 
-function DistanceMap({map, large = false, distance}: {map: any; large?: boolean; distance?: number | null}) {
-  const size = large ? 320 : 150;
-  const points = map?.obstacle_points ?? [];
-  const robot = map?.robot_pose ?? [0, 0];
-  const extent = Math.max(2, ...points.flatMap((p: number[]) => [Math.abs(p[0]), Math.abs(p[1])]),
-    Math.abs(robot[0]), Math.abs(robot[1])) * 1.15;
-  const point = (p: number[]) => ({left: size / 2 + p[0] / extent * size / 2,
-    top: size / 2 - p[1] / extent * size / 2});
-  const r = point(robot);
-  const nearest = points.length ? Math.min(...points.map((p: number[]) => Math.hypot(p[0]-robot[0], p[1]-robot[1]))) : null;
-  const barMetres = Math.max(1, Math.ceil(50 / (size / (2*extent))));
-  return <View style={[styles.mapSurface, {width: size, height: size}]}>
-    {[.5, 1].map(f => <View key={f} style={[styles.mapRing, {width: size * f, height: size * f,
-      borderRadius: size * f / 2, left: size * (1-f) / 2, top: size * (1-f) / 2}]}/>) }
-    {(map?.boundary_paths ?? []).flatMap((path: number[][], pi: number) =>
-      path.slice(1).map((p: number[], i: number) => {
-        const a = point(path[i]), b = point(p);
-        const length = Math.hypot(b.left-a.left, b.top-a.top);
-        const angle = Math.atan2(b.top-a.top, b.left-a.left);
-        return <View key={`${pi}-${i}`} style={{position: 'absolute',
-          left: (a.left+b.left-length)/2, top: (a.top+b.top)/2-1,
-          width: length, height: 2, backgroundColor: '#ff9981',
-          transform: [{rotate: `${angle}rad`}]}}/>;
-      }))}
-    <View style={[styles.mapStart, {left: size/2-3, top: size/2-3}]}/>
-    <View style={[styles.mapRobot, {left: r.left-4, top: r.top-4}]}/>
-    <Text style={{position: 'absolute', top: 3, left: 3, color: '#fff', fontSize: 9}}>
-      {nearest === null ? 'Sınır ölçümü bekleniyor' : `Kayıtlı sınır ≈ ${nearest.toFixed(2)} m`}{'\n'}
-      {typeof distance === 'number' && Number.isFinite(distance) ? `Lidar yönü: ${distance.toFixed(2)} m` : 'Lidar: — m'}
-    </Text>
-    <View style={{position: 'absolute', bottom: 8, left: 8, width: barMetres*size/(2*extent), borderBottomWidth: 2, borderColor: '#fff'}}>
-      <Text style={{color: '#fff', fontSize: 10}}>{barMetres} m</Text>
-    </View>
-  </View>;
-}
 
 function Controller() {
   useKeepAwake();
@@ -138,7 +104,7 @@ function Controller() {
               : !s.navigation ? 'Gezinme düğümü bekleniyor'
               : (({disabled: 'Kapalı', idle: 'Komut bekleniyor', aligning: 'Kafa hizalanıyor',
                   scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor',
-                  waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'} as Record<string, string>)[s.navigation.state] || s.navigation.state)
+                  following_route: 'Rota izleniyor', waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'} as Record<string, string>)[s.navigation.state] || s.navigation.state)
                 + (!s.navigation.calibrated ? ' · Hareket kalibrasyonu gerekli' : '')}</Text>
           </>}
           <View style={styles.headDirection} accessibilityLabel={headDirection === null ? 'Kafanın pusulaya göre baktığı yön bilinmiyor' : `Kafanın pusulaya göre baktığı yön ${Math.round(headDirection)} derece`}>
@@ -175,7 +141,7 @@ function Controller() {
         </View>
         <View style={styles.centerBottom}>
           <Pressable onPress={() => setMapOpen(true)} accessibilityLabel="Mesafe haritasını büyüt" style={styles.mapCard}>
-            <DistanceMap map={s?.distanceMap} distance={s?.sensors.distance}/><Text style={styles.mapLabel}>CANLI MESAFE HARİTASI</Text>
+            <DistanceMap map={s?.distanceMap} routePlan={s?.navigation?.route_plan} distance={s?.sensors.distance}/><Text style={styles.mapLabel}>CANLI MESAFE HARİTASI</Text>
           </Pressable>
         </View>
         <View style={styles.controls}>
@@ -230,7 +196,7 @@ function Controller() {
       send={link.send} onClose={() => {link.send({type: 'stopMimic'}); setMimicsOpen(false);}}/>}
     <Modal visible={mapOpen} transparent animationType="fade" onRequestClose={() => setMapOpen(false)}>
       <Pressable style={styles.mapModal} onPress={() => setMapOpen(false)}><View style={styles.mapLargeCard}>
-        <Text style={styles.panelTitle}>Mesafe haritası</Text><DistanceMap map={s?.distanceMap} distance={s?.sensors.distance} large/>
+        <Text style={styles.panelTitle}>Mesafe haritası</Text><DistanceMap map={s?.distanceMap} routePlan={s?.navigation?.route_plan} distance={s?.sensors.distance} large/>
         <Text style={styles.hint}>Turkuaz: başlangıç · sarı: robot · kırmızı: engel sınırı</Text>
       </View></Pressable>
     </Modal>
@@ -267,7 +233,7 @@ const styles = StyleSheet.create({
   warning: {color: '#7d9ef0', fontSize: 11, marginTop: 4},
   bottom: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end'}, controls: {width: 170, alignItems: 'center'},
   eye: {flexDirection: 'row', alignItems: 'center', height: 32, marginBottom: 4}, small: {color: '#bdd0f9', fontSize: 10, letterSpacing: 1}, slider: {width: 170, height: 26},
-  centerBottom: {alignItems: 'center', flex: 1, marginBottom: 22}, mapCard: {padding: 5, borderColor: '#4d70d388', borderWidth: 1, borderRadius: 8, backgroundColor: '#111319aa'}, mapSurface: {overflow: 'hidden', backgroundColor: '#101824cc', borderRadius: 5}, mapRing: {position: 'absolute', borderColor: '#78919e55', borderWidth: 1}, mapDot: {position: 'absolute', width: 2, height: 2, backgroundColor: '#ff695f'}, mapStart: {position: 'absolute', width: 6, height: 6, borderRadius: 3, backgroundColor: '#67d9ed'}, mapRobot: {position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: '#ffd66e'}, mapLabel: {fontSize: 8, letterSpacing: 1, color: '#bdd0f9', textAlign: 'center', paddingTop: 3}, mapModal: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#03040add'}, mapLargeCard: {alignItems: 'center', backgroundColor: '#111319', borderColor: '#4d70d3', borderWidth: 1, borderRadius: 12, padding: 20}, stop: {borderColor: '#fb7777', borderWidth: 1, borderRadius: 12, backgroundColor: '#6a2025dd', paddingHorizontal: 28, paddingVertical: 13},
+  centerBottom: {alignItems: 'center', flex: 1, marginBottom: 22}, mapCard: {padding: 5, borderColor: '#4d70d388', borderWidth: 1, borderRadius: 8, backgroundColor: '#111319aa'}, mapLabel: {fontSize: 8, letterSpacing: 1, color: '#bdd0f9', textAlign: 'center', paddingTop: 3}, mapModal: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#03040add'}, mapLargeCard: {alignItems: 'center', backgroundColor: '#111319', borderColor: '#4d70d3', borderWidth: 1, borderRadius: 12, padding: 20}, stop: {borderColor: '#fb7777', borderWidth: 1, borderRadius: 12, backgroundColor: '#6a2025dd', paddingHorizontal: 28, paddingVertical: 13},
   stopText: {fontWeight: '700', letterSpacing: 3, color: '#fff'}, hint: {fontSize: 10, color: '#bdd0f9', marginTop: 10, textAlign: 'center'},
   connectButton: {position: 'absolute', alignSelf: 'center', top: '48%', padding: 14, backgroundColor: '#4b6fd4', borderRadius: 8},
   scrim: {flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#03040acc'}, panel: {width: '75%', maxWidth: 560, maxHeight: '90%', borderRadius: 16, padding: 22, backgroundColor: '#111319'},

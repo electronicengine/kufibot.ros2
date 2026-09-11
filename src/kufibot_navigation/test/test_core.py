@@ -187,6 +187,12 @@ def test_motion_stops_on_bad_feedback(failure):
         r.nav.sensor('range', None)
         drive = r.nav.tick()
     assert drive == (0., 0.)
+    if failure != 'stale':
+        # jump/heading/head stop mid-move but still capture a final snapshot.
+        for _ in range(200):
+            r.tick()
+            if r.nav.step is None:
+                break
     assert r.nav.results['move']['status'] == 'error'
 
 

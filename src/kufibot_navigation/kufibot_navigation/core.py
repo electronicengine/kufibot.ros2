@@ -9,6 +9,9 @@ import time
 import uuid
 from collections import OrderedDict
 
+from .metric_map import MetricMap
+from .map_geometry import SensorHistory, rotate_offset, sensor_origin
+
 
 def delta(target, current):
     return (target - current + 180.0) % 360.0 - 180.0
@@ -16,6 +19,9 @@ def delta(target, current):
 
 @dataclass
 class Config:
+    map_sensor_skew_sec: float = .10
+    waypoint_tolerance_m: float = .15
+    route_timeout_sec: float = 1800.0
     calibrated: bool = False
     circular_footprint: bool = False
     body_radius_m: float = 0.20
@@ -63,7 +69,7 @@ class Config:
         for key, value in vars(self).items():
             if not isinstance(value, bool) and not math.isfinite(value):
                 raise ValueError(f'{key} must be finite')
-        for key in ('body_radius_m', 'stopping_distance_m', 'clearance_m',
+        for key in ('map_sensor_skew_sec', 'waypoint_tolerance_m', 'route_timeout_sec', 'body_radius_m', 'stopping_distance_m', 'clearance_m',
                     'linear_speed', 'linear_speed_min_mps', 'linear_speed_max_mps',
                     'angular_speed_min_rad_s', 'angular_speed_max_rad_s', 'goto_fine_angle_deg',
                     'max_burst_sec', 'max_goto_distance_m', 'max_goto_turn_deg',
@@ -115,14 +121,27 @@ class Navigator:
         self.observations = OrderedDict()
         self.latest_observation = ''
         self.route = []
-        # A task-local metric map is anchored at the robot pose when its
-        # hidden navigation task starts. Coordinates are metres: +y is the
-        # robot's original forward direction and +x is its original right.
+        self.metric_map = MetricMap(clock)
+        self.route_plan = None
+        self.route_request = None
+        self.sim_anchor = None
+        self.sim_origin_pose = [0., 0.]
+        self.sim_origin_heading = 0.
+        self.map_heading = None
+        self.map_history = SensorHistory()
+        self.range_mapping_stamp = -math.inf
+        self.map_skipped_samples = 0
+        self.map_skip_reason = ""
+        self.map_turn_settle_until = -math.inf
+        self.sim_at = -math.inf
+        self.pose_source = "estimated_range_and_heading"
+        self.pose_valid = True
+        # One startup-fixed map survives task and voice-session changes.
         self.map_anchor_heading = None
         self.map_pose = [0.0, 0.0]
         # Occupied boundary cells in a 10 cm metric grid. Re-observing the
         # same wall updates its cell instead of growing a separate map.
-        self.map_cells = OrderedDict()
+        self.map_cells = self.metric_map.occupied
         self.map_range_stamp = -math.inf
         self.last_activity = self.clock()
         self.head_target = None
@@ -131,9 +150,17 @@ class Navigator:
         self.manual_at = -math.inf
         self.applied_mode = ''
         self.applied_at = -math.inf
+        self.last_tick_at = self.clock()
+        self.map_manual_drive = (0., 0.)
 
-    def sensor(self, name, value, stamp=None):
-        self.sensors[name] = (value, self.clock() if stamp is None else stamp)
+    def sensor(self, name, value, stamp=None, *, mapping_stamp=None, mapping_value=None):
+        stamp = self.clock() if stamp is None else stamp
+        self.sensors[name] = (value, stamp)
+        aligned_stamp = stamp if mapping_stamp is None else mapping_stamp
+        if name in ('heading', 'joints'):
+            self.map_history.add(name, aligned_stamp, value if mapping_value is None else mapping_value)
+        if name == 'range':
+            self.range_mapping_stamp = aligned_stamp
 
     def fresh(self, name, max_age=None):
         value, stamp = self.sensors.get(name, (None, -math.inf))
@@ -170,14 +197,12 @@ class Navigator:
             self.latest_observation = ''
             self.used_requests.clear()
             self.results.clear()
-            self.map_anchor_heading = None
-            self.map_pose = [0.0, 0.0]
-            self.map_cells.clear()
-            self.map_range_stamp = -math.inf
+            self.route_plan = None
         self.session_id = session_id
         self.session_at = self.clock() if connected and session_id else -math.inf
         if not connected:
             self.revoke('session_disconnected')
+            self.route_plan = None
 
     def allowed(self):
         a = self.authority
@@ -190,6 +215,8 @@ class Navigator:
                 and a.get('epoch') != self.blocked_epoch)
 
     def revoke(self, reason, latch=True):
+        if self.route_request:
+            self._finish_route('cancelled', reason)
         if self.step:
             self._finish('cancelled', reason)
         self.drive = (0.0, 0.0)
@@ -204,7 +231,7 @@ class Navigator:
         return dict(enabled=self.enabled, state=self.state, reason=self.reason,
                     task_id=self.task_id, session_id=self.session_id,
                     calibrated=self.c.calibrated, observation_id=self.latest_observation,
-                    route=list(self.route), label=self.label,
+                    route=list(self.route), route_plan=self.route_plan, label=self.label,
                     authority_reason=self.authority.get('reason', ''))
 
     def task(self, operation, session_id, task_id='', request_id='', label=''):
@@ -227,10 +254,8 @@ class Navigator:
             self.used_requests.add(request_id)
             self.task_id = uuid.uuid4().hex
             self.label = str(label)[:500]
-            self.map_anchor_heading = self.body_heading() if self.fresh('heading') else 0.0
-            self.map_pose = [0.0, 0.0]
-            self.map_cells.clear()
-            self.map_range_stamp = -math.inf
+            if self.map_anchor_heading is None and self.fresh('heading'):
+                self.map_anchor_heading = self.body_heading()
             self.state, self.reason = 'waiting_llm', ''
             self.last_activity = self.clock()
             return {'status': 'ok', 'task_id': self.task_id, 'initial_scan_required': True,
@@ -251,7 +276,7 @@ class Navigator:
             self.route = self.route[-16:]
             return {'status': 'ok'}
         if operation == 'finish':
-            if self.step:
+            if self.step or self.route_request:
                 return {'status': 'error', 'reason': 'busy'}
             if self.latest_observation:
                 self.route.append(dict(observation_id=self.latest_observation,
@@ -275,7 +300,7 @@ class Navigator:
             return {'status': 'error', 'reason': 'invalid_task'}
         if not rid or rid in self.used_requests:
             return {'status': 'error', 'reason': 'duplicate_request'}
-        if self.step:
+        if self.step or (self.route_request and not r.get('_route_internal')):
             return {'status': 'error', 'reason': 'busy'}
         op = r.get('operation')
         if op not in ('observe', 'goto'):
@@ -313,6 +338,161 @@ class Navigator:
         self.reason = ''
         self.last_activity = self.clock()
         return None
+
+    def submit_route(self, request):
+        if not self.allowed() or request.get('session_id') != self.session_id:
+            return dict(status='error', reason='not_authorized')
+        if not self.task_id or request.get('task_id') != self.task_id:
+            return dict(status='error', reason='invalid_task')
+        if self.step or self.route_request:
+            return dict(status='error', reason='busy')
+        rid = request.get('request_id')
+        if not rid or rid in self.used_requests:
+            return dict(status='error', reason='duplicate_request')
+        if not self.c.calibrated:
+            return dict(status='error', reason='calibration_required')
+        if not self.pose_valid or (self.pose_source == 'simulation' and self.clock()-self.sim_at > self.c.sensor_age_sec):
+            return dict(status='error', reason='pose_unavailable')
+        if not all(self.fresh(k) for k in ('range', 'heading', 'joints')):
+            return dict(status='error', reason='sensor_stale_or_invalid')
+        revision = request.get('map_revision')
+        if (request.get('map_id') != self.metric_map.id or isinstance(revision, bool)
+                or not isinstance(revision, int) or not 0 <= revision <= self.metric_map.revision):
+            return dict(status='error', reason='invalid_map')
+        points = request.get('waypoints')
+        if not isinstance(points, list) or not 1 <= len(points) <= 64:
+            return dict(status='error', reason='invalid_waypoints')
+        for p in points:
+            if (not isinstance(p, dict) or set(p) != {'x_m', 'y_m'} or any(
+                    isinstance(v, bool) or not isinstance(v, (float, int)) or not math.isfinite(v)
+                    for v in p.values())):
+                return dict(status='error', reason='invalid_waypoints')
+        points = [dict(p) for p in points]
+        reason = self._check_route_path(points)
+        if reason:
+            return dict(status='error', reason=reason,
+                        recovery='Scan unknown areas, then submit the complete replacement route.')
+        self.used_requests.add(rid)
+        self.route_plan = dict(route_id=rid, map_id=self.metric_map.id,
+            map_revision=self.metric_map.revision, start_pose=self.current_pose(),
+            waypoints=points, active_index=0, completed_count=0, status='following', reason='')
+        self.route_request = dict(request, started=self.clock(), child=None, final_scan=False,
+                                  completion_status='ok', completion_reason='', legs=0)
+        self.state = 'following_route'
+        self.last_activity = self.clock()
+        return None
+
+    def _check_route_path(self, points):
+        start = self.current_pose()
+        initial = list(start)
+        radius = self.c.body_radius_m + self.c.clearance_m
+        stopping = self.c.stopping_distance_m + self.c.linear_speed*self.c.latency_margin_sec
+        for point in points:
+            end = [point['x_m'], point['y_m']]
+            if not self.metric_map.segment_clear(start, end, radius, stopping,
+                                                  initial, self.c.body_radius_m):
+                return 'route_not_measured_clear'
+            start = end
+        return ''
+
+    def _finish_route(self, status, reason='', observation_id=None):
+        request = self.route_request
+        if request is None:
+            return
+        self.route_plan.update(status='completed' if status == 'ok' else status, reason=reason)
+        result = dict(status=status, reason=reason, task_id=self.task_id,
+                      route_plan=dict(self.route_plan), robot_pose=self.current_pose())
+        if observation_id:
+            result['observation_id'] = observation_id
+        self.results[request['request_id']] = result
+        while len(self.results) > 256:
+            self.results.popitem(last=False)
+        self.route_request = None
+        self.drive = (0., 0.)
+        self.state = 'completed' if status == 'ok' else 'blocked'
+        self.last_activity = self.clock()
+
+    def cancel_route(self, reason='action_cancelled'):
+        if self.step and self.step.get('_route_internal'):
+            self._finish('cancelled', reason)
+        self._finish_route('cancelled', reason)
+
+    def _route_tick(self, start_next=True):
+        r = self.route_request
+        if not self.allowed():
+            self.cancel_route('authority_or_connection_lost')
+            return
+        if not self.c.calibrated:
+            self.cancel_route('calibration_required')
+            return
+        if self.clock()-r['started'] > self.c.route_timeout_sec:
+            self.cancel_route('route_timeout')
+            return
+        if self.pose_source == 'simulation' and self.clock()-self.sim_at > self.c.sensor_age_sec:
+            self.cancel_route('pose_stale')
+            return
+        if r['child']:
+            result = self.results.get(r['child'])
+            if result is None:
+                # Revalidate the full remaining corridor during motion, not just admission.
+                if (self.step and self.step['operation'] == 'goto' and
+                        self._check_route_path(self.route_plan['waypoints'][self.route_plan['active_index']:])):
+                    self.finish_goto_with_snapshot('blocked', 'route_invalidated')
+                return
+            r['child'] = None
+            if r['final_scan']:
+                status, reason = r['completion_status'], r['completion_reason']
+                if status == 'ok' and result['status'] != 'ok':
+                    status, reason = result['status'], result.get('reason', '')
+                self._finish_route(status, reason, result.get('observation_id'))
+                return
+            if result['status'] != 'ok':
+                r.update(final_scan=True, completion_status=result['status'],
+                         completion_reason=result.get('reason', ''))
+                self.route_plan.update(status=result['status'], reason=result.get('reason', ''))
+        if not start_next:
+            return
+        if not all(self.fresh(k) for k in ('range', 'heading', 'joints')):
+            self._finish_route('error', 'sensor_stale_or_invalid')
+            return
+        plan = self.route_plan
+        while not r['final_scan'] and plan['active_index'] < len(plan['waypoints']):
+            p = plan['waypoints'][plan['active_index']]
+            pose = self.current_pose()
+            if math.hypot(p['x_m']-pose[0], p['y_m']-pose[1]) > self.c.waypoint_tolerance_m:
+                break
+            plan['completed_count'] += 1
+            plan['active_index'] += 1
+        if plan['active_index'] == len(plan['waypoints']):
+            r['final_scan'] = True
+        child = uuid.uuid4().hex
+        command = dict(session_id=self.session_id, task_id=self.task_id, request_id=child,
+                       _route_internal=True)
+        if r['final_scan']:
+            command.update(operation='observe', sweep_deg=180.)
+        else:
+            reason = self._check_route_path(plan['waypoints'][plan['active_index']:])
+            if reason:
+                r.update(final_scan=True, completion_status='blocked', completion_reason=reason)
+                plan.update(status='blocked', reason=reason)
+                return
+            if r['legs'] >= 256:
+                self._finish_route('error', 'route_progress_limit')
+                return
+            p, pose = plan['waypoints'][plan['active_index']], self.current_pose()
+            dx, dy = p['x_m']-pose[0], p['y_m']-pose[1]
+            heading = delta(self.body_heading(), self.map_anchor_heading or 0.)
+            angle = delta(math.degrees(math.atan2(dx, dy)), heading)
+            turn_only = abs(angle) > self.c.max_goto_turn_deg
+            command.update(operation='goto',
+                distance_m=0. if turn_only else min(math.hypot(dx, dy), self.c.max_goto_distance_m),
+                angle_deg=max(-self.c.max_goto_turn_deg, min(self.c.max_goto_turn_deg, angle)))
+            r['legs'] += 1
+        result = self.submit(command)
+        if result is not None:
+            self._finish_route(result['status'], result.get('reason', ''))
+        else:
+            r['child'] = child
 
     def scan_angles(self, center, sweep):
         if not 0 <= sweep <= 180:
@@ -390,14 +570,34 @@ class Navigator:
                  'Checked step includes sampled corridor coverage and configured stopping margins. '
                  'Unknown sectors are not clear. Fresh sensors and navigation validation still govern movement.')
 
-    def update_map_pose(self, step):
-        """Integrate measured forward travel in the task's initial frame."""
-        if not step['moved_m'] or self.map_anchor_heading is None:
+    def _accumulate_map_progress(self, step):
+        """Integrate each measured increment once; never rotate previous travel."""
+        if self.pose_source == 'simulation' or self.map_anchor_heading is None or step.get('map_pose_committed'):
             return
-        heading = self.body_heading() if self.fresh('heading') else step['origin_heading']
-        relative = math.radians(delta(heading, self.map_anchor_heading))
-        self.map_pose[0] += math.sin(relative) * step['moved_m']
-        self.map_pose[1] += math.cos(relative) * step['moved_m']
+        measured = step['moved_m']
+        previous = step.get('map_integrated_m', 0.)
+        if measured <= previous:
+            return  # A noisy range increase must not move the map backwards.
+        heading = step.get('origin_heading')
+        if heading is None:
+            self.pose_valid = False
+            return
+        # The leg's settled compass direction is the stable reference. New legs
+        # get new headings; late compass samples cannot rotate an old leg.
+        offset = rotate_offset(0., measured-previous, delta(heading, self.map_anchor_heading))
+        displacement = step.setdefault('map_displacement', [0., 0.])
+        displacement[0] += offset[0]
+        displacement[1] += offset[1]
+        step['map_integrated_m'] = measured
+
+    def update_map_pose(self, step):
+        if self.pose_source == 'simulation' or step.get('map_pose_committed'):
+            return
+        self._accumulate_map_progress(step)
+        offset = step.get('map_displacement', [0., 0.])
+        self.map_pose[0] += offset[0]
+        self.map_pose[1] += offset[1]
+        step['map_pose_committed'] = True
 
     def finish_goto_with_snapshot(self, status, reason=''):
         """Capture one forward final view after a direct movement command."""
@@ -405,68 +605,134 @@ class Navigator:
         if not step.get('map_pose_committed'):
             self.update_map_pose(step)
             step['map_pose_committed'] = True
+        if step.get('_route_internal'):
+            self._finish(status, reason)
+            return
         step['completion_status'], step['completion_reason'] = status, reason
         # No sweep: goto must not look around before or during its movement.
         # This is one final camera/range view at the reached position.
         self._begin_scan('goto_complete', center=0.0, sweep=0.0)
 
-    def map_snapshot(self, samples):
-        anchor = self.map_anchor_heading if self.map_anchor_heading is not None else 0.0
-        for sample in samples:
-            heading = sample['body_heading_deg']
-            ray = math.radians(delta(sample['bearing_deg'], anchor))
-            body = math.radians(delta(heading, anchor))
-            forward, lateral = self.c.lidar_forward_offset_m, self.c.lidar_lateral_offset_m
-            sensor_x = self.map_pose[0] + math.sin(body) * forward + math.cos(body) * lateral
-            sensor_y = self.map_pose[1] + math.cos(body) * forward - math.sin(body) * lateral
-            distance = min(sample['range_m'], 8.0)
-            self.record_map_boundary(sensor_x + math.sin(ray) * distance,
-                                     sensor_y + math.cos(ray) * distance)
-        return dict(frame='initial_robot_pose', units='m', origin=[0.0, 0.0],
-                    robot_pose=[round(value, 3) for value in self.map_pose],
-                    robot_heading_deg=round(delta(self.body_heading(), anchor), 1),
-                    obstacle_points=list(self.map_cells.values()))
+    def current_pose(self):
+        pose = list(self.map_pose)
+        s = self.step
+        if self.pose_source != 'simulation' and s and s['operation'] == 'goto' and not s.get('map_pose_committed'):
+            self._accumulate_map_progress(s)
+            offset = s.get('map_displacement', [0., 0.])
+            pose[0] += offset[0]
+            pose[1] += offset[1]
+        return pose
 
-    def record_map_boundary(self, x, y):
-        """Update one world-fixed occupied cell, rather than append a point cloud."""
-        resolution = .1
-        key = (round(x / resolution), round(y / resolution))
-        self.map_cells[key] = [round(key[0] * resolution, 2), round(key[1] * resolution, 2)]
-        self.map_cells.move_to_end(key)
-        while len(self.map_cells) > 4096:
-            self.map_cells.popitem(last=False)
+    def map_snapshot(self, samples=()):
+        if self.map_anchor_heading is None and self.fresh('heading'):
+            self.map_anchor_heading = self.body_heading()
+        anchor = self.map_anchor_heading or 0.
+        heading = self.map_heading
+        if self.pose_source != 'simulation' and self.fresh('heading'):
+            live_heading = self.map_history.at('heading', self.clock(), self.c.map_sensor_skew_sec)
+            heading = delta(self.body_heading() if live_heading is None else live_heading, anchor)
+        if heading is None:
+            heading = 0.
+        data = self.metric_map.snapshot(self.current_pose(), heading, self.pose_source)
+        data['pose_valid'] = self.pose_valid
+        data['mapping_status'] = dict(skipped_samples=self.map_skipped_samples, reason=self.map_skip_reason)
+        data['pose_fresh'] = (self.clock()-self.sim_at <= self.c.sensor_age_sec if self.pose_source == 'simulation'
+                              else self.fresh('heading'))
+        data['planning'] = dict(body_radius_m=self.c.body_radius_m,
+            clearance_m=self.c.clearance_m, stopping_distance_m=self.c.stopping_distance_m,
+            latency_margin_m=self.c.linear_speed*self.c.latency_margin_sec,
+            waypoint_tolerance_m=self.c.waypoint_tolerance_m)
+        return data
+
+    def update_simulation(self, data):
+        """Use only simulator pose and measured lidar, never hidden room geometry."""
+        try:
+            pose, lidar = data['pose'], data['lidar_pose']
+            x, y, heading = (float(pose[k]) for k in ('x', 'y', 'theta_deg'))
+            lx, ly, bearing = (float(lidar[k]) for k in ('x', 'y', 'bearing_deg'))
+            distance = float(data['lidar_range_m'])
+            if not all(math.isfinite(v) for v in (x, y, heading, lx, ly, bearing, distance)):
+                return
+        except (KeyError, ValueError, TypeError):
+            return
+        if distance <= 0:
+            return
+        if self.sim_anchor is None:
+            # Attach a late simulator source to the existing startup frame.
+            # Do not erase hardware measurements, reset the id, or rebase a route.
+            self.sim_origin_pose = self.current_pose()
+            if self.map_anchor_heading is None:
+                self.map_anchor_heading = heading
+                self.sim_origin_heading = 0.
+            else:
+                self.sim_origin_heading = (delta(self.body_heading(), self.map_anchor_heading)
+                    if self.fresh('heading') else self.map_heading or 0.)
+            self.sim_anchor = (x, y, heading)
+        ax, ay, ah = self.sim_anchor
+        def local(px, py):
+            offset = rotate_offset(px-ax, py-ay, self.sim_origin_heading-ah)
+            return [self.sim_origin_pose[0]+offset[0], self.sim_origin_pose[1]+offset[1]]
+        self.pose_source = 'simulation'
+        self.pose_valid = True
+        self.sim_at = self.clock()
+        self.map_pose = local(x, y)
+        self.map_heading = (self.sim_origin_heading+delta(heading, ah)) % 360.
+        self.metric_map.ray(local(lx, ly), self.sim_origin_heading+delta(bearing, ah),
+                            distance, bool(data.get('lidar_hit')), measured_at=self.sim_at)
 
     def record_live_map_point(self, step=None):
-        """Add each new forward lidar sample, including samples during goto."""
-        if (self.map_anchor_heading is None or not self.fresh('range')
-                or not self.fresh('heading')):
+        if self.pose_source == 'simulation':
             return
-        distance, stamp = self.sensors['range']
+        if not all(self.fresh(name) for name in ('range', 'heading', 'joints')):
+            return
+        distance = self.sensors['range'][0]
+        stamp = self.range_mapping_stamp
         if stamp <= self.map_range_stamp:
             return
+        if not self.pose_valid:
+            self.map_skip_reason = 'pose_unavailable'
+            return
+        heading = self.map_history.at('heading', stamp, self.c.map_sensor_skew_sec)
+        joints = self.map_history.at('joints', stamp, self.c.map_sensor_skew_sec)
+        if heading is None or joints is None:
+            self.map_skipped_samples += 1
+            self.map_skip_reason = 'sensor_time_mismatch'
+            return
+        # During a powered turn the magnetometer can be disturbed. Keep the
+        # existing wall map and resume measurement once the turn has settled.
+        s = self.step
+        if (self.clock() < self.map_turn_settle_until or (s and s.get('stage') == 'turn' and s.get('turn_state') in ('bursting', 'settling'))
+                or abs(self.drive[1]) > 1e-6):
+            self.map_skip_reason = 'turn_unsettled'
+            return
+        if self.map_anchor_heading is None:
+            self.map_anchor_heading = heading
         self.map_range_stamp = stamp
-        heading = self.body_heading()
-        relative = math.radians(delta(heading, self.map_anchor_heading))
-        travelled = step['moved_m'] if step and step['operation'] == 'goto' else 0.0
-        x = self.map_pose[0] + math.sin(relative) * travelled
-        y = self.map_pose[1] + math.cos(relative) * travelled
-        forward, lateral = self.c.lidar_forward_offset_m, self.c.lidar_lateral_offset_m
-        sensor_x = x + math.sin(relative) * forward + math.cos(relative) * lateral
-        sensor_y = y + math.cos(relative) * forward - math.sin(relative) * lateral
-        self.record_map_boundary(sensor_x + math.sin(relative) * min(distance, 8.0),
-                                 sensor_y + math.cos(relative) * min(distance, 8.0))
+        self.map_heading = delta(heading, self.map_anchor_heading)
+        pose = self.current_pose()
+        # Motion samples are projected only after progress has been integrated;
+        # never combine a delayed ray with a newer translated pose.
+        moving = (s and s.get('phase') == 'move' and s.get('stage') == 'advance') or abs(self.drive[0]) > 1e-6
+        if moving and self.clock()-stamp > self.c.map_sensor_skew_sec:
+            self.map_skipped_samples += 1
+            self.map_skip_reason = 'pose_time_mismatch'
+            return
+        origin = sensor_origin(pose, self.map_heading, self.c.lidar_forward_offset_m, self.c.lidar_lateral_offset_m)
+        bearing = self.map_heading + self.c.head_sign*(joints['headLeftRight']-self.c.head_center_deg) + self.c.lidar_yaw_offset_deg
+        self.metric_map.ray(origin, bearing, distance, measured_at=stamp)
+        self.map_skip_reason = ''
 
     def _finish(self, status, reason=''):
         s = self.step
         if s:
-            if (s['operation'] == 'goto' and status in ('ok', 'blocked')
+            if (s['operation'] == 'goto'
                     and not s.get('map_pose_committed')):
                 self.update_map_pose(s)
             self.results[s['request_id']] = dict(status=status, reason=reason,
                 task_id=s['task_id'], moved_m=s['moved_m'], turned_deg=s['turned_deg'],
                 confidence='estimated' if status == 'ok' else 'uncertain')
-            if s['operation'] == 'observe' or s.get('after_scan') == 'goto_complete':
-                self.results[s['request_id']]['observation_id'] = self.latest_observation
+            if s.get('completed_observation_id'):
+                self.results[s['request_id']]['observation_id'] = s['completed_observation_id']
             if reason == 'authority_changed':
                 self.results[s['request_id']]['authority_reason'] = self.authority.get('reason', '')
             while len(self.results) > 256:
@@ -500,13 +766,45 @@ class Navigator:
         return self.clock() - s['stable_since'] >= self.c.settle_sec
 
     def tick(self):
+        if abs(self.drive[1]) > 1e-6 or abs(self.map_manual_drive[1]) > 1e-6:
+            self.map_turn_settle_until = self.clock()+self.c.settle_sec
+        # Record stationary scans as well as motion. Progress samples are added
+        # by _move_tick after its measured travel update, avoiding double drift.
+        if (not self.step or self.step.get('phase') in ('scan', 'scan_front')) and self.authority.get('mode') != 'remote':
+            self.record_live_map_point()
+        if self.route_request:
+            self._route_tick()
+        self._motion_tick()
+        if self.route_request:
+            self._route_tick(start_next=False)
+        if self.clock()-self.session_at >= .5:
+            self.route_plan = None
+        return self.drive
+
+    def _motion_tick(self):
+        previous_manual = self.map_manual_drive
+        self.map_manual_drive = (0., 0.)
         self.drive = (0.0, 0.0)
         now = self.clock()
+        elapsed = min(.1, max(0., now-self.last_tick_at))
+        self.last_tick_at = now
         a = self.authority
+        if self.pose_source != 'simulation' and abs(previous_manual[0]) > 1e-6:
+            heading = self.map_history.at('heading', now-elapsed/2, self.c.map_sensor_skew_sec)
+            if heading is not None and self.map_anchor_heading is not None:
+                offset = rotate_offset(0., previous_manual[0]*elapsed, delta(heading, self.map_anchor_heading))
+                self.map_pose[0] += offset[0]
+                self.map_pose[1] += offset[1]
+                self.pose_source = 'estimated_range_command_and_heading'
+            else:
+                self.pose_valid = False
         if (now-self.authority_at < .5 and a.get('owner') and a.get('mode') == 'remote'
                 and self.applied_mode == 'remote' and now-self.applied_at < .5):
+            # Project after the previous interval's displacement was integrated.
+            self.record_live_map_point()
             if now-self.manual_at < .3:
                 self.drive = self.manual
+                self.map_manual_drive = self.drive
             return self.drive
         if not self.allowed():
             if self.enabled or self.task_id:
@@ -516,7 +814,7 @@ class Navigator:
         if self.state == 'disabled':
             self.state = 'idle'
         if not self.step:
-            if self.task_id and now-self.last_activity > self.c.llm_timeout_sec:
+            if self.task_id and not self.route_request and now-self.last_activity > self.c.llm_timeout_sec:
                 self.revoke('llm_timeout')
             elif self.task_id:
                 self.record_live_map_point()
@@ -529,7 +827,7 @@ class Navigator:
         if not all(self.fresh(n) for n in ('range', 'heading', 'joints')):
             self._finish('error', 'sensor_stale_or_invalid')
             return self.drive
-        if s['operation'] == 'observe' and not self.fresh('image', self.c.camera_age_sec):
+        if (s['operation'] == 'observe' or s['phase'] in ('scan', 'scan_front')) and not self.fresh('image', self.c.camera_age_sec):
             self._finish('error', 'camera_stale_or_invalid')
             return self.drive
         if s['phase'] == 'scan':
@@ -655,6 +953,7 @@ class Navigator:
             delivered=False, servo_feedback='command_estimate', unknown_space='occupied_for_planning',
             guidance=self.observation_guidance(s['samples']), map=self.map_snapshot(s['samples']))
         self.latest_observation = oid
+        s['completed_observation_id'] = oid
         first = not any(r.get('task_id') == self.task_id for r in self.route)
         self.route.append(dict(task_id=self.task_id, observation_id=oid,
                                label=self.label + (' / başlangıç' if first else ' / geçiş')))
@@ -673,7 +972,7 @@ class Navigator:
         forward_head = self.c.head_center_deg - self.c.lidar_yaw_offset_deg/self.c.head_sign
         if (abs(joints['headLeftRight']-forward_head) > 1.5
                 or abs(joints['neck']-self.c.neck_horizontal_deg) > 1.5):
-            self._finish('error', 'head_alignment_lost')
+            self.finish_goto_with_snapshot('error', 'head_alignment_lost')
             return
         distance = self.sensors['range'][0]
         threshold = self.turn_stop_distance() if s['stage'] == 'turn' else self.stop_distance()
@@ -688,19 +987,20 @@ class Navigator:
             self._turn_tick()
             return
         if self.clock() - s['progress_at'] > self.c.no_progress_sec:
-            self._finish('error', 'no_measured_progress')
+            self.finish_goto_with_snapshot('error', 'no_measured_progress')
             return
         self.state = 'advancing'
         if abs(delta(self.body_heading(), s['origin_heading'])) > self.c.heading_tolerance_deg:
-            self._finish('error', 'heading_deviation')
+            self.finish_goto_with_snapshot('error', 'heading_deviation')
             return
         if self.sensors['range'][1] != s['range_at']:
             difference = s['previous_range'] - distance
             if abs(difference) > self.c.reference_jump_m or distance > s['base_range'] + .03:
-                self._finish('error', 'range_reference_changed')
+                self.finish_goto_with_snapshot('error', 'range_reference_changed')
                 return
             s['previous_range'], s['range_at'] = distance, self.sensors['range'][1]
-            s['moved_m'] = s['leg_offset_m'] + max(0.0, s['base_range']-distance)
+            s['moved_m'] = max(s['moved_m'], s['leg_offset_m'] + max(0.0, s['base_range']-distance))
+            self._accumulate_map_progress(s)
             if s['progress_range'] - distance >= .005:
                 s['progress_at'], s['progress_range'] = self.clock(), distance
         self.record_live_map_point(s)
@@ -745,7 +1045,7 @@ class Navigator:
             return
         s['turn_burst_count'] = s.get('turn_burst_count', 0) + 1
         if s['turn_burst_count'] > self.c.max_turn_bursts:
-            self._finish('error', 'turn_could_not_converge')
+            self.finish_goto_with_snapshot('error', 'turn_could_not_converge')
             return
         speed = (self.c.angular_speed_max_rad_s if abs(error) > self.c.goto_fine_angle_deg
                  else self.c.angular_speed_min_rad_s)

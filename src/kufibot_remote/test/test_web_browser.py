@@ -41,8 +41,12 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
         cv2.putText(pixels, 'TEST CAMERA', (180, 245), cv2.FONT_HERSHEY_SIMPLEX,
                     .9, (200, 230, 240), 2)
 
+        mapping = dict(map_id='map', revision=1, robot_pose=[0, 0], robot_heading_deg=0,
+                       obstacle_points=[[-1, -1], [2, 2]], boundary_paths=[[[-1, -1], [-1, 2], [2, 2]]])
+
         def status():
-            return {'aiConfig': ai_config, 'version': 1, 'mode': control.mode, 'appliedMode': control.mode,
+            return {'distanceMap': mapping, 'navigation': dict(enabled=False, state='idle', calibrated=True,
+                        route_plan=values.get('route')), 'aiConfig': ai_config, 'version': 1, 'mode': control.mode, 'appliedMode': control.mode,
                     'camera': values['camera'], 'driveAvailable': values['driveAvailable'],
                     'sensors': {'voltage': values['voltage'], 'current': .8,
                                 'heading': 123.4, 'distance': 1.5}, 'joints': current}
@@ -82,6 +86,19 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     await page.screenshot(path='/tmp/kufibot-web-desktop.png')
                     await page.locator('#distance-map').click()
                     await playwright.expect(page.locator('#map-dialog')).to_be_visible()
+                    await page.locator('#map-close').click()
+                    values['route'] = dict(route_id='r1', map_id='map', start_pose=[0, 0],
+                        waypoints=[dict(x_m=0, y_m=1), dict(x_m=1, y_m=1)],
+                        completed_count=0, active_index=0, status='following')
+                    await playwright.expect(page.locator('#distance-map-canvas')).to_have_attribute('data-waypoint-count', '2')
+                    await page.locator('#distance-map').click()
+                    await playwright.expect(page.locator('#distance-map-full')).to_have_attribute('data-route-id', 'r1')
+                    await page.screenshot(path='/tmp/kufibot-waypoint-route.png')
+                    values['route']['status'] = 'completed'
+                    values['route']['completed_count'] = 2
+                    await playwright.expect(page.locator('#distance-map-full')).to_have_attribute('data-route-status', 'completed')
+                    values['route'] = None
+                    await playwright.expect(page.locator('#distance-map-full')).to_have_attribute('data-waypoint-count', '0')
                     await page.locator('#map-close').click()
 
                     # The UI saves installed model IDs and keeps drafts across telemetry.
@@ -170,7 +187,12 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     await cdp.send('Emulation.setTouchEmulationEnabled', {'enabled': False})
                     await cdp.detach()
 
+                    # Verasist requires a trigger UUID; the modal remembers the last one entered.
                     await page.locator('#mode-ai').click()
+                    await playwright.expect(page.locator('#ai-trigger-modal')).to_be_visible()
+                    await page.locator('#ai-trigger-modal-input').fill(
+                        'b2ec9f54-9260-4d0a-b305-0401eb7694d7')
+                    await page.locator('#ai-trigger-confirm').click()
                     await playwright.expect(page.locator('#mode-ai')).to_have_attribute('aria-pressed', 'true')
                     await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'true')
                     await page.keyboard.press('ArrowLeft')
@@ -192,10 +214,11 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     # Mobile browser sizing retains every control in the viewport.
                     for width, height, name in [(852, 393, 'landscape'), (390, 844, 'portrait')]:
                         await page.set_viewport_size({'width': width, 'height': height})
+                        await page.screenshot(path=f'/tmp/kufibot-route-{name}-layout.png')
                         for selector in ['#head-stick', '#drive-stick', '#rightArm', '#distance-map']:
                             rect = await page.locator(selector).bounding_box()
                             assert 0 <= rect['x'] and rect['x'] + rect['width'] <= width
-                            assert 0 <= rect['y'] and rect['y'] + rect['height'] <= height
+                            assert 0 <= rect['y'] and rect['y'] + rect['height'] <= height, (selector, rect)
                         await page.screenshot(path=f'/tmp/kufibot-web-{name}.png')
                     await page.set_viewport_size({'width': 1280, 'height': 800})
 

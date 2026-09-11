@@ -91,7 +91,8 @@
   </dialog>
   <dialog id="tool-modal" aria-labelledby="tool-title">
     <div class="dialog-header"><h2 id="tool-title">Araç çağrısı</h2><button id="tool-close">✕</button></div>
-    <label>Araç <select id="tool-name" class="trigger-input"><option value="goto">goto</option><option value="look_at">look_at</option><option value="read_sensor_values">read_sensor_values</option></select></label>
+    <label>Araç <select id="tool-name" class="trigger-input"><option value="goto">goto</option><option value="follow_route">follow_route</option><option value="look_at">look_at</option><option value="read_sensor_values">read_sensor_values</option></select></label>
+    <label id="tool-route-label" hidden>Waypoint listesi (metre)<textarea id="tool-route" class="trigger-input" rows="4">[{"x_m":0,"y_m":1},{"x_m":1,"y_m":1}]</textarea></label>
     <label id="tool-distance-label">Mesafe (m)<input id="tool-distance" class="trigger-input" type="number" min="0" max="3.5" step="0.05" value="0.3"></label>
     <label>Açı (°)<input id="tool-angle" class="trigger-input" type="number" min="-180" max="180" step="1" value="0"></label>
     <label id="tool-sweep-label">Tarama (°)<input id="tool-sweep" class="trigger-input" type="number" min="0" max="180" step="10" value="180"></label>
@@ -135,6 +136,13 @@
     <dl><dt>W A S D</dt><dd>İleri, sol, geri, sağ</dd><dt>Yön tuşları</dt><dd>Kafayı çevir</dd><dt>Boşluk / DUR</dt><dd>Kumanda joysticklerini sıfırla</dd></dl>
     <p>Kumanda modunda YZ hareketleri engellenir. YZ modunda mevcut takip ve sesli asistan hareketleri açılır. DUR, YZ hareketlerini iptal eden bir acil durdurma değildir.</p>
     <p>Sekme arka plana geçtiğinde bağlantı ve kontrol sahipliği bırakılır. Başka bir telefon veya tarayıcı kontrol ediyorsa izleyici olarak bağlanırsın.</p>
+  </dialog>
+  <dialog id="ai-trigger-modal" aria-labelledby="ai-trigger-title">
+    <div class="dialog-header"><h2 id="ai-trigger-title">Verasist trigger UUID</h2><button id="ai-trigger-cancel" aria-label="İptal">✕</button></div>
+    <p>YZ moduna geçmek için Verasist iş akışının trigger UUID değerini girin.</p>
+    <input id="ai-trigger-modal-input" class="trigger-input" type="text" autocomplete="off" spellcheck="false" placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" aria-label="Verasist trigger UUID">
+    <p id="ai-trigger-modal-error" class="error" role="alert" hidden>Geçerli bir trigger UUID girin</p>
+    <button id="ai-trigger-confirm" class="secondary">Bağlan</button>
   </dialog>
   <dialog id="calibration-modal" aria-labelledby="calibration-title">
     <div class="dialog-header"><h2 id="calibration-title">HMC Pusula Kalibrasyonu</h2><button id="calibration-close" aria-label="Kalibrasyon penceresini kapat">✕</button></div>

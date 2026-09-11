@@ -80,7 +80,11 @@ def test_ros_action_result_observation_cancellation_and_manual_arbitration():
         assert metadata['status'] == 'ok'
         assert len(metadata['polar_ranges_cm']) >= 19
         assert len(metadata['images']) == 1
-        assert metadata['images'][0]['max_display_range_cm'] == 800
+        assert metadata['images'][0]['overlay'] == 'none'
+        assert metadata['images'][0]['observation_id'] == scanned['observation_id']
+        assert metadata['map']['boundary_paths']
+        assert metadata['map']['free_cell_runs']
+        assert metadata['map']['map_id'] == nav.metric_map.id
         assert 'guidance' in metadata
         assert len(obs.images) == 1 and bytes(obs.images[0].data).startswith(b'\xff\xd8')
         assert outputs and all(m.twist.linear.x == 0 and m.twist.angular.z == 0 for m in outputs)
