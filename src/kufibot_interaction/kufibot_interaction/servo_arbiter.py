@@ -20,6 +20,7 @@ class ServoArbiter(Node):
     """Give valid, temporary agent commands priority over visual tracking."""
 
     TRACKING_JOINTS = {'neck', 'headLeftRight'}
+    NAVIGATION_JOINTS = {'neck', 'headLeftRight', 'eyeLeft', 'eyeRight'}
     MOTION_JOINTS = {'leftArm', 'rightArm'}
 
     def __init__(self):
@@ -97,7 +98,7 @@ class ServoArbiter(Node):
                 self._navigation_until = 0.0
                 return
             targets = self._validated(msg)
-            if targets is None or set(targets) != self.TRACKING_JOINTS:
+            if targets is None or set(targets) != self.NAVIGATION_JOINTS:
                 return
             if not math.isfinite(msg.hold_sec) or msg.hold_sec <= 0:
                 return

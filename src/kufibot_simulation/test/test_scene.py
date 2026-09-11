@@ -44,3 +44,33 @@ def test_wheels_forward_reverse_and_turn():
     assert all(min(abs(w.getP()), abs(w.getP()-360)) < .001 for w in robot.wheels)
     robot.animate_wheels(0, 1, .2, .1)
     assert robot.wheels[0].getP() != pytest.approx(robot.wheels[4].getP())
+
+
+def test_physical_servo_reference_poses():
+    from panda3d.core import Vec3
+
+    robot = Robot(NodePath('scene'))
+    robot.apply_joints(dict(neck=0, headLeftRight=90, eyeLeft=0, eyeRight=170,
+                           leftArm=170, rightArm=10))
+    # Forward is +Y and up is +Z in Panda. The head looks level at neck=0.
+    forward = robot.joints['neck'].getQuat().xform(Vec3(0, 1, 0))
+    assert forward.z == pytest.approx(0, abs=1e-6)
+    for name in ('leftArm', 'rightArm'):
+        forward = robot.joints[name].getQuat().xform(Vec3(0, 1, 0))
+        assert math.degrees(math.atan2(forward.z, forward.y)) == pytest.approx(-37.5)
+    robot.apply_joints(dict(neck=120, eyeLeft=40, eyeRight=140))
+    assert robot.joints['neck'].getQuat().xform(Vec3(0, 1, 0)).z > 0
+    # Each eye's outer edge moves downward, with opposite servo directions.
+    assert robot.joints['eyeLeft'].getQuat().xform(Vec3(-1, 0, 0)).z < 0
+    assert robot.joints['eyeRight'].getQuat().xform(Vec3(1, 0, 0)).z < 0
+
+
+def test_model_startup_matches_hardware_defaults():
+    from kufibot_interaction.joint_limits import NEUTRAL_ANGLES
+
+    expected = dict(rightArm=15, leftArm=170, neck=10, headLeftRight=90,
+                    eyeRight=170, eyeLeft=0)
+    robot = Robot(NodePath('scene'))
+    assert NEUTRAL_ANGLES == expected
+    assert {name: spec['neutral_deg'] for name, spec in robot.rig['joints'].items()} == expected
+    assert robot.joints['neck'].getP() == pytest.approx(3.5)

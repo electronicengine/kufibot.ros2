@@ -33,8 +33,8 @@ class DcMotorNode(Node):
         # Both motors were running opposite to the requested goal direction.
         # Flip the complete drivetrain polarity while keeping the left/right
         # differential-drive relationship unchanged.
-        self.declare_parameter('invert_left', False)
-        self.declare_parameter('invert_right', True)
+        self.declare_parameter('invert_left', True)
+        self.declare_parameter('invert_right', False)
         self.declare_parameter('cmd_timeout_sec', 0.5)
         self.declare_parameter('navigation_calibrated', False)
         self.declare_parameter('navigation_max_linear', 0.08)

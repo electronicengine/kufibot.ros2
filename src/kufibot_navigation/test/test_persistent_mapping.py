@@ -93,8 +93,8 @@ def test_time_alignment_interpolates_through_north_and_rejects_stale_angles():
     h.add('heading', 1., 359.)
     h.add('heading', 1.1, 1.)
     assert h.at('heading', 1.05, .1) == pytest.approx(0.)
-    h.add('joints', 1., {'headLeftRight': 60., 'neck': 60.})
-    h.add('joints', 1.1, {'headLeftRight': 80., 'neck': 60.})
+    h.add('joints', 1., {'headLeftRight': 60., 'neck': 10., 'eyeLeft': 0., 'eyeRight': 170.})
+    h.add('joints', 1.1, {'headLeftRight': 80., 'neck': 10., 'eyeLeft': 0., 'eyeRight': 170.})
     assert h.at('joints', 1.05, .1)['headLeftRight'] == pytest.approx(70.)
     assert h.at('heading', 1.4, .1) is None
     h.add('heading', 1.05, 90.)  # out-of-order packet
@@ -104,7 +104,7 @@ def test_time_alignment_interpolates_through_north_and_rejects_stale_angles():
 def nav_at_start():
     n = Navigator(Config(calibrated=True), lambda: 10.)
     n.sensor('heading', 0.)
-    n.sensor('joints', dict(headLeftRight=90., neck=60.))
+    n.sensor('joints', dict(headLeftRight=90., neck=10., eyeLeft=0., eyeRight=170.))
     n.sensor('range', 2.)
     n.record_live_map_point()
     return n
@@ -132,7 +132,7 @@ def test_sensor_offset_rotates_with_body_but_existing_wall_stays_world_fixed():
     n.c.lidar_lateral_offset_m = .1
     n.map_pose = [1., 1.]
     n.sensor('heading', 90.)
-    n.sensor('joints', dict(headLeftRight=0., neck=60.))  # head looks south
+    n.sensor('joints', dict(headLeftRight=0., neck=10., eyeLeft=0., eyeRight=170.))  # head looks south
     n.sensor('range', 1., stamp=10.01)
     n.clock = lambda: 10.02
     n.record_live_map_point()
@@ -144,13 +144,41 @@ def test_stale_head_angle_cannot_smear_a_map_with_a_new_range():
     now = [10.]
     n = Navigator(clock=lambda: now[0])
     n.sensor('heading', 0.)
-    n.sensor('joints', dict(headLeftRight=90., neck=60.))
+    n.sensor('joints', dict(headLeftRight=90., neck=10., eyeLeft=0., eyeRight=170.))
     now[0] = 10.2
     n.sensor('heading', 0.)
     n.sensor('range', 2.)
     n.record_live_map_point()
     assert not n.metric_map.occupied
     assert n.map_skip_reason == 'sensor_time_mismatch'
+
+
+def test_tilted_neck_or_eyes_never_change_the_map():
+    n = nav_at_start()
+    n.clock = lambda: 10.1
+    revision = n.metric_map.revision
+    for posture in (
+            dict(headLeftRight=90., neck=20., eyeLeft=0., eyeRight=170.),
+            dict(headLeftRight=90., neck=10., eyeLeft=20., eyeRight=170.),
+            dict(headLeftRight=90., neck=10., eyeLeft=0., eyeRight=150.)):
+        n.sensor('heading', 0.)
+        n.sensor('joints', posture)
+        n.sensor('range', 1.)
+        n.record_live_map_point()
+    assert n.metric_map.revision == revision
+    assert n.map_skip_reason == 'sensor_posture_unaligned'
+
+
+def test_simulation_rejects_a_ray_until_its_sensor_pose_is_level():
+    n = Navigator(Config(), lambda: 10.)
+    sample = dict(pose=dict(x=0., y=0., theta_deg=0.),
+                  lidar_pose=dict(x=0., y=0., bearing_deg=0.),
+                  lidar_range_m=1., lidar_hit=True)
+    n.update_simulation(sample)
+    assert not n.metric_map.occupied
+    assert n.map_skip_reason == 'sensor_posture_unaligned'
+    n.update_simulation({**sample, 'mapping_pose_valid': True})
+    assert n.metric_map.occupied
 
 
 def test_late_simulator_source_preserves_map_id_geometry_and_startup_offset():
@@ -160,7 +188,8 @@ def test_late_simulator_source_preserves_map_id_geometry_and_startup_offset():
     n.sensor('heading', 90.)
     def sample(x):
         n.update_simulation(dict(pose=dict(x=x, y=20., theta_deg=90.),
-            lidar_pose=dict(x=x, y=20., bearing_deg=90.), lidar_range_m=1., lidar_hit=True))
+            lidar_pose=dict(x=x, y=20., bearing_deg=90.), lidar_range_m=1., lidar_hit=True,
+            mapping_pose_valid=True))
     sample(10.)
     assert n.metric_map.id == mid and (0, 20) in n.metric_map.occupied
     assert n.map_pose == pytest.approx([1., 2.])
@@ -172,7 +201,7 @@ def test_late_simulator_source_preserves_map_id_geometry_and_startup_offset():
 def test_raw_time_aligned_compass_is_used_for_map_not_lagged_control_filter():
     n = nav_at_start()
     n.sensor('heading', 45., stamp=10.01, mapping_value=90.)
-    n.sensor('joints', dict(headLeftRight=90., neck=60.), stamp=10.01)
+    n.sensor('joints', dict(headLeftRight=90., neck=10., eyeLeft=0., eyeRight=170.), stamp=10.01)
     n.sensor('range', 1., stamp=10.01)
     n.clock = lambda: 10.02
     n.record_live_map_point()
@@ -187,7 +216,7 @@ def test_observing_same_wall_after_forward_travel_keeps_its_world_coordinates():
         for angle in range(-45, 46, 5):
             now[0] += .02
             n.sensor('heading', 0.)
-            n.sensor('joints', dict(headLeftRight=90.-angle, neck=60.))
+            n.sensor('joints', dict(headLeftRight=90.-angle, neck=10., eyeLeft=0., eyeRight=170.))
             distance = (2.-n.current_pose()[1])/math.cos(math.radians(angle))
             n.sensor('range', distance)
             n.record_live_map_point()
@@ -210,7 +239,7 @@ def test_manual_motion_is_integrated_before_its_lidar_ray_and_only_once():
         n.applied_mode, n.applied_at = 'remote', now[0]
         n.manual, n.manual_at = (.25, 0.), now[0]
         n.sensor('heading', 0.)
-        n.sensor('joints', dict(headLeftRight=90., neck=60.))
+        n.sensor('joints', dict(headLeftRight=90., neck=10., eyeLeft=0., eyeRight=170.))
         n.sensor('range', distance)
     feed(2.)
     n.tick()
@@ -241,8 +270,8 @@ def test_only_occupied_changes_rebuild_wall_outlines(monkeypatch):
 
 def test_optional_servo_fields_do_not_break_lidar_head_interpolation():
     h = SensorHistory()
-    h.add('joints', 1., dict(headLeftRight=60., neck=60., leftArm=90.))
-    h.add('joints', 1.1, dict(headLeftRight=80., neck=60.))
+    h.add('joints', 1., dict(headLeftRight=60., neck=10., eyeLeft=0., eyeRight=170., leftArm=90.))
+    h.add('joints', 1.1, dict(headLeftRight=80., neck=10., eyeLeft=0., eyeRight=170.))
     assert h.at('joints', 1.05, .1)['headLeftRight'] == pytest.approx(70.)
 
 

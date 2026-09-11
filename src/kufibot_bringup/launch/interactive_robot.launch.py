@@ -44,6 +44,8 @@ def generate_launch_description():
              name='usb_camera_node', parameters=[config], output='screen'),
         Node(package='kufibot_perception', executable='mediapipe_node',
              name='mediapipe_node', parameters=[config], output='screen'),
+        Node(package='kufibot_perception', executable='obstacle_detector_node',
+             name='obstacle_detector_node', parameters=[config], output='screen'),
         Node(package='kufibot_interaction', executable='voice_agent_node',
              name='voice_agent_node', parameters=[config], output='screen'),
     ])

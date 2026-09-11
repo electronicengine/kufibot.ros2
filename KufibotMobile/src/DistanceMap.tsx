@@ -18,7 +18,7 @@ export function DistanceMap({map, routePlan, large = false, distance}: {map?: Di
   return <View accessibilityLabel={route ? `Rota: ${route.status}, ${route.completed_count}/${route.waypoints.length} nokta` : 'Mesafe haritası'} style={[styles.mapSurface, {width: size, height: size}]}>
     {[.5, 1].map(f => <View key={f} style={[styles.mapRing, {width: size * f, height: size * f,
       borderRadius: size * f / 2, left: size * (1-f) / 2, top: size * (1-f) / 2}]}/>) }
-    {(map?.boundary_paths ?? []).flatMap((path: number[][], pi: number) =>
+    {(map?.wall_paths ?? map?.boundary_paths ?? []).flatMap((path: number[][], pi: number) =>
       path.slice(1).map((p: number[], i: number) => {
         const a = point(path[i]), b = point(p);
         const length = Math.hypot(b.left-a.left, b.top-a.top);
@@ -33,7 +33,7 @@ export function DistanceMap({map, routePlan, large = false, distance}: {map?: Di
       const length = Math.hypot(b.left-a.left, b.top-a.top);
       const angle = Math.atan2(b.top-a.top, b.left-a.left);
       const done = index < route.completed_count;
-      const active = index === route.active_index && route.status === 'following';
+      const active = index === route.active_index && ['following', 'waiting_obstacle'].includes(route.status);
       const color = done ? '#69d49a' : active ? '#ffd66e' : '#67d9ed';
       const radius = active ? 9 : 7;
       return <React.Fragment key={`${route.route_id}-${index}`}>
@@ -49,9 +49,10 @@ export function DistanceMap({map, routePlan, large = false, distance}: {map?: Di
     })}
     <View style={[styles.mapStart, {left: size/2-3, top: size/2-3}]}/>
     <View style={[styles.mapRobot, {left: r.left-4, top: r.top-4}]}/>
+    {(map?.dynamic_obstacle_points || []).map((p, i) => <View key={`dynamic-${i}`} style={{position: 'absolute', ...point(p), marginLeft: -3, marginTop: -3, width: 6, height: 6, borderRadius: 3, backgroundColor: '#ff5454'}}/>)}
     <Text style={{position: 'absolute', top: 3, left: 3, color: '#fff', fontSize: 9}}>
       {nearest === null ? 'Sınır ölçümü bekleniyor' : `Kayıtlı sınır ≈ ${nearest.toFixed(2)} m`}{'\n'}
-      {route ? `Rota · ${{following: 'İlerliyor', completed: 'Tamamlandı', blocked: 'Engellendi', cancelled: 'İptal', error: 'Durdu'}[route.status]} · ${route.completed_count}/${route.waypoints.length}\n` : ''}
+      {route ? `Rota · ${{waiting_obstacle: 'Engel', following: 'İlerliyor', completed: 'Tamamlandı', blocked: 'Engellendi', cancelled: 'İptal', error: 'Durdu'}[route.status]}${route.status === 'waiting_obstacle' ? ` (${Math.ceil(route.obstacle_wait_remaining_sec || 0)} sn)` : ''} · ${route.completed_count}/${route.waypoints.length}\n` : ''}
       {typeof distance === 'number' && Number.isFinite(distance) ? `Lidar yönü: ${distance.toFixed(2)} m` : 'Lidar: — m'}
     </Text>
     <View style={{position: 'absolute', bottom: 8, left: 8, width: barMetres*size/(2*extent), borderBottomWidth: 2, borderColor: '#fff'}}>

@@ -1,4 +1,5 @@
 from setuptools import find_packages, setup
+from glob import glob
 
 setup(
     name='kufibot_perception', version='0.1.0',
@@ -7,6 +8,7 @@ setup(
         ('share/ament_index/resource_index/packages',
          ['resource/kufibot_perception']),
         ('share/kufibot_perception', ['package.xml']),
+        ('share/kufibot_perception/models', glob('models/*')),
     ],
     install_requires=['setuptools'], zip_safe=True,
     maintainer='kufi', maintainer_email='y.bulbul@hotmail.com',
@@ -15,5 +17,6 @@ setup(
     entry_points={'console_scripts': [
         'usb_camera_node = kufibot_perception.camera_node:main',
         'mediapipe_node = kufibot_perception.mediapipe_node:main',
+        'obstacle_detector_node = kufibot_perception.obstacle_node:main',
     ]},
 )

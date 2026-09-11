@@ -26,7 +26,10 @@ def build(source, destination):
     parents = {'body': 'world', 'neck':'body', 'headLeftRight':'neck',
                'eyeLeft':'headLeftRight','eyeRight':'headLeftRight',
                'leftArm':'body','rightArm':'body'}
-    neutral = dict(rightArm=15, leftArm=170, neck=60, headLeftRight=90, eyeLeft=30, eyeRight=150)
+    neutral = dict(rightArm=15, leftArm=170, neck=10, headLeftRight=90, eyeLeft=0, eyeRight=170)
+    # Assembly arms point forward; lower them 37.5 degrees at L=170/R=10.
+    # Neck and eyes use the physical level references, independent of startup.
+    assembly = dict(rightArm=47.5, leftArm=132.5, neck=0, headLeftRight=90, eyeLeft=0, eyeRight=170)
     limits = dict(rightArm=[10,72],leftArm=[109,180],neck=[0,120],headLeftRight=[0,180],eyeLeft=[0,40],eyeRight=[140,170])
     axes = dict(rightArm=[1,0,0],leftArm=[1,0,0],neck=[1,0,0],headLeftRight=[0,1,0],eyeLeft=[0,0,1],eyeRight=[0,0,1])
     wheel_specs = {}
@@ -85,7 +88,7 @@ def build(source, destination):
         scene.add_geometry(geometry,node_name=name+'_mesh',geom_name=name+'_geometry',parent_node_name=name)
         if name in neutral:
             rig['joints'][name]=dict(parent=parent,pivot_m=(origin-parent_origin).tolist(),axis=axes[name],
-                neutral_deg=neutral[name],assembly_deg=neutral[name],limits_deg=limits[name],
+                neutral_deg=neutral[name],assembly_deg=assembly[name],limits_deg=limits[name],
                 multiplier=-1 if name=='leftArm' else .35 if name=='neck' else 1)
     destination.mkdir(parents=True,exist_ok=True)
     def materials(tree):
@@ -95,6 +98,14 @@ def build(source, destination):
             for primitive in item['primitives']:
                 primitive['material'] = 0
     scene.export(destination/'robot.glb', tree_postprocessor=materials)
+    # Optical centres on the mesh front faces, 2 mm ahead of the surface.
+    rig['sensors'] = {}
+    for sensor, eye in [('camera', 'eyeRight'), ('lidar', 'eyeLeft')]:
+        vertices = scene.geometry[eye+'_geometry'].vertices
+        front = vertices[vertices[:, 2] < vertices[:, 2].min() + .004]
+        centre = (front.min(axis=0) + front.max(axis=0)) / 2
+        centre[2] = vertices[:, 2].min() - .002
+        rig['sensors'][sensor] = dict(parent=eye, position_m=centre.tolist())
     rig['wheels'] = wheel_specs
     rig['triangles']=sum(len(g.faces) for g in scene.geometry.values())
     (destination/'rig.json').write_text(json.dumps(rig,indent=2)+'\n')

@@ -32,6 +32,7 @@ def command(profile, linear=0.0, angular=0.0):
 
 def test_navigation_forward_reports_the_same_linear_speed(node):
     node.drive_callback(command('navigation', linear=0.1))
+    assert len(node.captured) == 1  # never publish the intermediate one-wheel turn
     assert node.captured[-1] == pytest.approx((0.1, 0.0), abs=1e-6)
 
 
@@ -61,5 +62,14 @@ def test_invalid_navigation_demand_stops(node):
 def test_watchdog_timeout_reports_stop(node):
     node.drive_callback(command('navigation', linear=0.1))
     node.last_cmd_time = time.monotonic() - 1.0
+    node.captured.clear()
     node.safety_check()
+    assert len(node.captured) == 1
     assert node.captured[-1] == pytest.approx((0.0, 0.0), abs=1e-6)
+
+
+def test_obstacle_stop_and_resume_never_emit_a_spurious_turn(node):
+    node.drive_callback(command('navigation', linear=.1))
+    node.drive_callback(command('stop'))
+    node.drive_callback(command('navigation', linear=.1))
+    assert node.captured == pytest.approx([(.1, 0.), (0., 0.), (.1, 0.)])

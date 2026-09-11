@@ -5,6 +5,7 @@ unmodified; only the PCA9685 tail is replaced so simulated wheel motion can be
 recovered from the same duty-cycle/level calls the real driver would receive.
 """
 import rclpy
+from contextlib import contextmanager
 from geometry_msgs.msg import Twist
 from kufibot_actuators import dc_motor_node as dc_motor_module
 from kufibot_actuators.dc_motor_node import DcMotorNode
@@ -36,6 +37,16 @@ class FakePCA9685:
         if self.on_change is not None:
             self.on_change()
 
+    @contextmanager
+    def transaction(self):
+        """Apply both wheels before publishing their combined chassis velocity."""
+        callback, self.on_change = self.on_change, None
+        try:
+            yield
+        finally:
+            self.on_change = callback
+            self._emit()
+
 
 class SimDcMotorNode(DcMotorNode):
     def __init__(self):
@@ -47,6 +58,18 @@ class SimDcMotorNode(DcMotorNode):
             dc_motor_module.PCA9685 = original
         self.twist_pub = self.create_publisher(Twist, 'simulation/applied_twist', 1)
         self.driver.on_change = self._publish_applied_twist
+
+    def _apply_speed(self, linear, angular):
+        with self.driver.transaction():
+            super()._apply_speed(linear, angular)
+
+    def _stop_motors(self):
+        with self.driver.transaction():
+            super()._stop_motors()
+
+    def safety_check(self):
+        with self.driver.transaction():
+            super().safety_check()
 
     def _wheel_speed_mps(self, pwm_channel, in2_channel, inverted):
         duty = self.driver.duties.get(pwm_channel, 0.0)

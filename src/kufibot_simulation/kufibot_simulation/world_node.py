@@ -15,8 +15,12 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Range, Image, JointState, BatteryState
 from std_msgs.msg import Float32, String
 
+from kufibot_interaction.joint_limits import NEUTRAL_ANGLES, mapping_sensor_pose_valid
+from kufibot_interaction.robot_model import load_rig
+
 from . import renderer
 from .floorplan import FloorPlan
+from .sensor_geometry import SensorWorld, sensor_pose
 
 DEFAULT_FLOORPLAN = str(Path(__file__).with_name('floorplans') / 'apartment_default.json')
 
@@ -28,11 +32,6 @@ class WorldNode(Node):
         self.declare_parameter('body_radius_m', 0.16)
         self.declare_parameter('robot_width_m', 0.32)
         self.declare_parameter('robot_height_m', 0.32)
-        self.declare_parameter('sensor_height_m', 0.285)
-        self.declare_parameter('lidar_lateral_offset_m', 0.03)
-        self.declare_parameter('camera_lateral_offset_m', -0.03)
-        self.declare_parameter('lidar_forward_offset_m', 0.0)
-        self.declare_parameter('camera_forward_offset_m', 0.0)
         self.declare_parameter('head_center_deg', 90.0)
         self.declare_parameter('head_sign', -1.0)
         self.declare_parameter('lidar_yaw_offset_deg', 0.0)
@@ -50,20 +49,17 @@ class WorldNode(Node):
         self.declare_parameter('camera_width', 640)
         self.declare_parameter('camera_height', 480)
         self.declare_parameter('camera_fov_deg', 60.0)
-        self.declare_parameter('neck_up_degrees_per_servo_degree', 0.35)
         self.declare_parameter('twist_timeout_sec', 0.5)
         self.declare_parameter('wheel_separation_m', 0.2)
 
         self.floorplan_file = str(self.get_parameter('floorplan_file').value)
         self.floorplan = FloorPlan.load(self.floorplan_file)
+        self.sensor_world = SensorWorld(self.floorplan)
+        self.rig = load_rig()
+        self.joints_deg = dict(NEUTRAL_ANGLES)
         self.body_radius = float(self.get_parameter('body_radius_m').value)
         self.robot_width = float(self.get_parameter('robot_width_m').value)
         self.robot_height = float(self.get_parameter('robot_height_m').value)
-        self.sensor_height = float(self.get_parameter('sensor_height_m').value)
-        self.lidar_lateral_offset = float(self.get_parameter('lidar_lateral_offset_m').value)
-        self.camera_lateral_offset = float(self.get_parameter('camera_lateral_offset_m').value)
-        self.lidar_forward_offset = float(self.get_parameter('lidar_forward_offset_m').value)
-        self.camera_forward_offset = float(self.get_parameter('camera_forward_offset_m').value)
         self.head_center_deg = float(self.get_parameter('head_center_deg').value)
         self.head_sign = float(self.get_parameter('head_sign').value)
         self.lidar_yaw_offset_deg = float(self.get_parameter('lidar_yaw_offset_deg').value)
@@ -77,8 +73,6 @@ class WorldNode(Node):
         self.camera_width = int(self.get_parameter('camera_width').value)
         self.camera_height = int(self.get_parameter('camera_height').value)
         self.camera_fov_deg = float(self.get_parameter('camera_fov_deg').value)
-        self.neck_up_degrees_per_servo_degree = float(
-            self.get_parameter('neck_up_degrees_per_servo_degree').value)
         self.twist_timeout = float(self.get_parameter('twist_timeout_sec').value)
         self.wheel_separation = float(self.get_parameter('wheel_separation_m').value)
 
@@ -86,7 +80,7 @@ class WorldNode(Node):
         self.x, self.y = float(pose['x']), float(pose['y'])
         self.theta = float(pose['theta_deg']) % 360.0
         self.head_deg = self.head_center_deg
-        self.neck_deg = 0.0
+        self.neck_deg = NEUTRAL_ANGLES['neck']
         self.linear, self.angular = 0.0, 0.0
         self.last_twist_at = time.monotonic()
         self.last_tick_at = time.monotonic()
@@ -111,6 +105,10 @@ class WorldNode(Node):
 
     def _joint_states(self, msg):
         for name, position in zip(msg.name, msg.position):
+            if not math.isfinite(position):
+                continue
+            if name in self.rig['joints']:
+                self.joints_deg[name] = math.degrees(position)
             if name == 'headLeftRight':
                 self.head_deg = math.degrees(position)
             elif name == 'neck':
@@ -120,12 +118,17 @@ class WorldNode(Node):
         return (self.theta + self.head_sign * (self.head_deg - self.head_center_deg)
                 + offset_deg) % 360.0
 
-    def _sensor_pose(self, lateral_m, forward_m, bearing_deg):
-        """Sensor centre in world metres; positive lateral is robot right."""
-        rad = math.radians(self.theta)
-        return (self.x + math.sin(rad) * forward_m + math.cos(rad) * lateral_m,
-                self.y + math.cos(rad) * forward_m - math.sin(rad) * lateral_m,
-                bearing_deg)
+    def _eye_pose(self, sensor):
+        angles = dict(self.joints_deg, neck=self.neck_deg, headLeftRight=self.head_deg)
+        pose = sensor_pose(angles, sensor, self.x, self.y, self.theta, self.rig)
+        offset = self.lidar_yaw_offset_deg if sensor == 'lidar' else self.camera_yaw_offset_deg
+        if offset:
+            c, s = math.cos(math.radians(offset)), math.sin(math.radians(offset))
+            for key in ('direction', 'up'):
+                x, y, z = pose[key]
+                pose[key] = [c*x+s*y, -s*x+c*y, z]
+            pose['bearing_deg'] = (pose['bearing_deg'] + offset) % 360
+        return pose
 
     def _noisy_lidar(self, distance):
         measured = distance + self.noise.gauss(0.0, self.lidar_noise_stddev)
@@ -156,11 +159,9 @@ class WorldNode(Node):
             self.theta = (self.theta - math.degrees(self.angular * step_dt)) % 360.0
 
         stamp = self.get_clock().now().to_msg()
-        lidar_bearing = self._look_bearing(self.lidar_yaw_offset_deg)
-        lidar_x, lidar_y, _ = self._sensor_pose(self.lidar_lateral_offset,
-                                                  self.lidar_forward_offset, lidar_bearing)
-        hit = self.floorplan.raycast(lidar_x, lidar_y, lidar_bearing,
-                                      max_range=self.lidar_max_range, min_range=self.lidar_min_range)
+        lidar_pose = self._eye_pose('lidar')
+        lidar_bearing = lidar_pose['bearing_deg']
+        hit = self.sensor_world.raycast(lidar_pose, self.lidar_max_range, self.lidar_min_range)
         range_msg = Range(radiation_type=Range.INFRARED, field_of_view=0.05,
                            min_range=self.lidar_min_range, max_range=self.lidar_max_range,
                            range=self._noisy_lidar(hit.distance_m))
@@ -176,10 +177,10 @@ class WorldNode(Node):
             'pose': {'x': self.x, 'y': self.y, 'theta_deg': self.theta},
             'robot_dimensions_m': {'width': self.robot_width, 'height': self.robot_height,
                                    'collision_radius': self.body_radius},
-            'lidar_pose': {'x': lidar_x, 'y': lidar_y, 'z': self.sensor_height,
-                           'bearing_deg': lidar_bearing},
+            'lidar_pose': lidar_pose,
             'camera_pose': self._camera_state(),
             'head_deg': self.head_deg, 'neck_deg': self.neck_deg,
+            'mapping_pose_valid': mapping_sensor_pose_valid(self.joints_deg),
             'compass_heading_deg': compass_heading,
             'lidar_bearing_deg': lidar_bearing,
             'lidar_range_m': range_msg.range, 'lidar_ground_truth_m': hit.distance_m,
@@ -187,16 +188,16 @@ class WorldNode(Node):
             'floorplan_file': self.floorplan_file})))
 
     def _publish_camera(self):
-        bearing = self._look_bearing(self.camera_yaw_offset_deg)
-        camera_x, camera_y, _ = self._sensor_pose(self.camera_lateral_offset,
-                                                    self.camera_forward_offset, bearing)
-        pitch = min(45.0, self.neck_deg * self.neck_up_degrees_per_servo_degree)
+        pose = self._camera_state()
+        camera_x, camera_y = pose['x'], pose['y']
+        bearing, pitch = pose['bearing_deg'], pose['pitch_deg']
         if self.get_parameter('camera_renderer').value == 'panda3d':
             if self.scene_camera is None:
                 from .scene_camera import SceneCamera
                 self.scene_camera = SceneCamera(self.floorplan, self.camera_width,
                                                 self.camera_height, self.camera_fov_deg)
-            frame = self.scene_camera.render(camera_x, camera_y, self.sensor_height, bearing, pitch)
+            frame = self.scene_camera.render(camera_x, camera_y, pose['z'], bearing, pitch,
+                                             direction=pose['direction'], up=pose['up'])
         else:
             frame = renderer.render(self.floorplan, camera_x, camera_y, bearing,
                                     width=self.camera_width, height=self.camera_height,
@@ -211,10 +212,7 @@ class WorldNode(Node):
         self.image_pub.publish(msg)
 
     def _camera_state(self):
-        bearing = self._look_bearing(self.camera_yaw_offset_deg)
-        x, y, _ = self._sensor_pose(self.camera_lateral_offset,
-                                    self.camera_forward_offset, bearing)
-        return {'x': x, 'y': y, 'z': self.sensor_height, 'bearing_deg': bearing}
+        return self._eye_pose('camera')
 
     def destroy_node(self):
         if self.scene_camera is not None:

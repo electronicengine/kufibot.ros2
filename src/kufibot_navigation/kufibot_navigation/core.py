@@ -19,6 +19,10 @@ def delta(target, current):
 
 @dataclass
 class Config:
+    obstacle_wait_sec: float = 30.0
+    obstacle_clear_sec: float = .75
+    visual_safety_required: bool = False
+    visual_age_sec: float = 1.0
     map_sensor_skew_sec: float = .10
     waypoint_tolerance_m: float = .15
     route_timeout_sec: float = 1800.0
@@ -52,7 +56,11 @@ class Config:
     step_timeout_sec: float = 25.0
     settle_sec: float = 0.25
     head_center_deg: float = 90.0
-    neck_horizontal_deg: float = 60.0
+    # Measured level optical pose. Do not map from a tilted sensor assembly.
+    neck_horizontal_deg: float = 10.0
+    mapping_eye_left_deg: float = 0.0
+    mapping_eye_right_deg: float = 170.0
+    mapping_posture_tolerance_deg: float = 1.0
     head_sign: float = -1.0
     compass_turn_sign: float = -1.0
     lidar_yaw_offset_deg: float = 0.0
@@ -69,7 +77,7 @@ class Config:
         for key, value in vars(self).items():
             if not isinstance(value, bool) and not math.isfinite(value):
                 raise ValueError(f'{key} must be finite')
-        for key in ('map_sensor_skew_sec', 'waypoint_tolerance_m', 'route_timeout_sec', 'body_radius_m', 'stopping_distance_m', 'clearance_m',
+        for key in ('obstacle_wait_sec', 'obstacle_clear_sec', 'visual_age_sec', 'map_sensor_skew_sec', 'waypoint_tolerance_m', 'route_timeout_sec', 'body_radius_m', 'stopping_distance_m', 'clearance_m',
                     'linear_speed', 'linear_speed_min_mps', 'linear_speed_max_mps',
                     'angular_speed_min_rad_s', 'angular_speed_max_rad_s', 'goto_fine_angle_deg',
                     'max_burst_sec', 'max_goto_distance_m', 'max_goto_turn_deg',
@@ -90,7 +98,10 @@ class Config:
         if (self.latency_margin_sec < 0 or self.heading_tolerance_deg <= 0
                 or self.scan_heading_tolerance_deg <= 0 or self.reference_jump_m <= 0):
             raise ValueError("invalid safety margins")
-        if not 0 <= self.head_center_deg <= 180 or not 0 <= self.neck_horizontal_deg <= 120:
+        if (not 0 <= self.head_center_deg <= 180 or not 0 <= self.neck_horizontal_deg <= 120
+                or not 0 <= self.mapping_eye_left_deg <= 40
+                or not 140 <= self.mapping_eye_right_deg <= 170
+                or self.mapping_posture_tolerance_deg <= 0):
             raise ValueError('invalid head calibration')
         if self.max_goto_turn_deg > 180 or self.max_goto_distance_m > 5 or self.scan_step_deg > 10:
             raise ValueError('step bounds exceed the supported indoor profile')
@@ -174,6 +185,17 @@ class Navigator:
         return (self.body_heading() + self.c.head_sign *
                 (head - self.c.head_center_deg) + offset) % 360
 
+    def mapping_posture_valid(self, joints):
+        """Reject scans while the neck or either eye is travelling/tilted."""
+        try:
+            return all(abs(float(joints[name]) - target) <= self.c.mapping_posture_tolerance_deg
+                       for name, target in (
+                           ('neck', self.c.neck_horizontal_deg),
+                           ('eyeLeft', self.c.mapping_eye_left_deg),
+                           ('eyeRight', self.c.mapping_eye_right_deg)))
+        except (KeyError, TypeError, ValueError):
+            return False
+
     def set_authority(self, data):
         previous = self.authority.get('epoch')
         self.authority, self.authority_at = dict(data), self.clock()
@@ -254,6 +276,9 @@ class Navigator:
             self.used_requests.add(request_id)
             self.task_id = uuid.uuid4().hex
             self.label = str(label)[:500]
+            # Ask for the fixed mapping posture before any observation or
+            # route request. Mapping stays paused until feedback confirms it.
+            self.head_target = (self.c.head_center_deg, self.c.neck_horizontal_deg)
             if self.map_anchor_heading is None and self.fresh('heading'):
                 self.map_anchor_heading = self.body_heading()
             self.state, self.reason = 'waiting_llm', ''
@@ -437,7 +462,9 @@ class Navigator:
                 # Revalidate the full remaining corridor during motion, not just admission.
                 if (self.step and self.step['operation'] == 'goto' and
                         self._check_route_path(self.route_plan['waypoints'][self.route_plan['active_index']:])):
-                    self.finish_goto_with_snapshot('blocked', 'route_invalidated')
+                    self.step['path_obstructed'] = True
+                elif self.step:
+                    self.step['path_obstructed'] = False
                 return
             r['child'] = None
             if r['final_scan']:
@@ -473,9 +500,26 @@ class Navigator:
         else:
             reason = self._check_route_path(plan['waypoints'][plan['active_index']:])
             if reason:
-                r.update(final_scan=True, completion_status='blocked', completion_reason=reason)
-                plan.update(status='blocked', reason=reason)
-                return
+                r.setdefault('boundary_wait_since', self.clock())
+                r.pop('boundary_clear_since', None)
+            if 'boundary_wait_since' in r:
+                remaining = self.c.obstacle_wait_sec-(self.clock()-r['boundary_wait_since'])
+                plan.update(status='waiting_obstacle', reason='route_not_measured_clear',
+                            obstacle_wait_remaining_sec=round(max(0., remaining), 1))
+                self.state = 'waiting_obstacle'
+                if remaining <= 0:
+                    r.update(final_scan=True, completion_status='blocked',
+                             completion_reason='obstacle_wait_timeout')
+                    plan.update(status='blocked', reason='obstacle_wait_timeout')
+                    return
+                if reason:
+                    return
+                clear = r.setdefault('boundary_clear_since', self.clock())
+                if self.clock()-clear < self.c.obstacle_clear_sec:
+                    return
+                r.pop('boundary_wait_since')
+                r.pop('boundary_clear_since')
+                plan.update(status='following', reason='', obstacle_wait_remaining_sec=0.)
             if r['legs'] >= 256:
                 self._finish_route('error', 'route_progress_limit')
                 return
@@ -635,6 +679,7 @@ class Navigator:
             heading = 0.
         data = self.metric_map.snapshot(self.current_pose(), heading, self.pose_source)
         data['pose_valid'] = self.pose_valid
+        data['visual_obstacles'] = self.sensors['visual'][0] if self.fresh('visual', self.c.visual_age_sec) else None
         data['mapping_status'] = dict(skipped_samples=self.map_skipped_samples, reason=self.map_skip_reason)
         data['pose_fresh'] = (self.clock()-self.sim_at <= self.c.sensor_age_sec if self.pose_source == 'simulation'
                               else self.fresh('heading'))
@@ -677,6 +722,10 @@ class Navigator:
         self.sim_at = self.clock()
         self.map_pose = local(x, y)
         self.map_heading = (self.sim_origin_heading+delta(heading, ah)) % 360.
+        if data.get('mapping_pose_valid') is not True:
+            self.map_skipped_samples += 1
+            self.map_skip_reason = 'sensor_posture_unaligned'
+            return
         self.metric_map.ray(local(lx, ly), self.sim_origin_heading+delta(bearing, ah),
                             distance, bool(data.get('lidar_hit')), measured_at=self.sim_at)
 
@@ -697,6 +746,10 @@ class Navigator:
         if heading is None or joints is None:
             self.map_skipped_samples += 1
             self.map_skip_reason = 'sensor_time_mismatch'
+            return
+        if not self.mapping_posture_valid(joints):
+            self.map_skipped_samples += 1
+            self.map_skip_reason = 'sensor_posture_unaligned'
             return
         # During a powered turn the magnetometer can be disturbed. Keep the
         # existing wall map and resume measurement once the turn has settled.
@@ -719,7 +772,10 @@ class Navigator:
             return
         origin = sensor_origin(pose, self.map_heading, self.c.lidar_forward_offset_m, self.c.lidar_lateral_offset_m)
         bearing = self.map_heading + self.c.head_sign*(joints['headLeftRight']-self.c.head_center_deg) + self.c.lidar_yaw_offset_deg
-        self.metric_map.ray(origin, bearing, distance, measured_at=stamp)
+        self.metric_map.ray(origin, bearing, distance, measured_at=stamp,
+                            dynamic=self.fresh('visual', self.c.visual_age_sec) and
+                            abs(stamp-self.sensors['visual'][1]) <= self.c.map_sensor_skew_sec and
+                            bool((self.sensors['visual'][0] or {}).get('lidar_dynamic', False)))
         self.map_skip_reason = ''
 
     def _finish(self, status, reason=''):
@@ -757,7 +813,7 @@ class Navigator:
         self.head_target = (target, self.c.neck_horizontal_deg)
         joints = self.sensors['joints'][0]
         matches = (abs(joints['headLeftRight']-target) <= 1.0 and
-                   abs(joints['neck']-self.c.neck_horizontal_deg) <= 1.0)
+                   self.mapping_posture_valid(joints))
         if not matches:
             s['stable_since'] = None
             return False
@@ -820,6 +876,9 @@ class Navigator:
                 self.record_live_map_point()
             return self.drive
         s = self.step
+        if s['operation'] == 'goto' and not self.c.calibrated:
+            self._finish('cancelled', 'calibration_required')
+            return self.drive
         timeout = self.c.goto_timeout_sec if s.get('operation') == 'goto' else self.c.step_timeout_sec
         if now-s['started'] > timeout:
             self._finish('error', 'step_timeout')
@@ -827,6 +886,17 @@ class Navigator:
         if not all(self.fresh(n) for n in ('range', 'heading', 'joints')):
             self._finish('error', 'sensor_stale_or_invalid')
             return self.drive
+        if (s['operation'] == 'goto' and s['phase'] == 'move'
+                and (self.c.visual_safety_required or 'visual' in self.sensors)
+                and not self.fresh('visual', self.c.visual_age_sec)):
+            # After a head sweep allow one inference window to acquire the
+            # forward view, with motors stopped. Loss after readiness is final.
+            since = s.setdefault('visual_wait_since', now)
+            if s.get('visual_ready') or now-since >= self.c.visual_age_sec:
+                self._finish('error', 'visual_safety_stale_or_invalid')
+            return self.drive
+        if s['operation'] == 'goto' and self.fresh('visual', self.c.visual_age_sec):
+            s['visual_ready'] = True
         if (s['operation'] == 'observe' or s['phase'] in ('scan', 'scan_front')) and not self.fresh('image', self.c.camera_age_sec):
             self._finish('error', 'camera_stale_or_invalid')
             return self.drive
@@ -971,16 +1041,22 @@ class Navigator:
         joints = self.sensors['joints'][0]
         forward_head = self.c.head_center_deg - self.c.lidar_yaw_offset_deg/self.c.head_sign
         if (abs(joints['headLeftRight']-forward_head) > 1.5
-                or abs(joints['neck']-self.c.neck_horizontal_deg) > 1.5):
+                or not self.mapping_posture_valid(joints)):
             self.finish_goto_with_snapshot('error', 'head_alignment_lost')
             return
         distance = self.sensors['range'][0]
         threshold = self.turn_stop_distance() if s['stage'] == 'turn' else self.stop_distance()
-        if distance <= threshold:
-            if s['stage'] == 'turn':
-                self.finish_goto_with_snapshot('blocked', 'obstacle')
-            else:
-                self.finish_goto_with_snapshot('blocked', 'obstacle')
+        visual = self.sensors.get('visual', ({}, 0))[0] or {}
+        camera_blocked = self.fresh('visual', self.c.visual_age_sec) and visual.get('blocked', False)
+        blocked = distance <= threshold or camera_blocked or s.get('path_obstructed', False)
+        # A sudden nearer return is an intruder, not measured robot displacement.
+        if (s['stage'] == 'advance' and 'wait_since' not in s
+                and s['previous_range'] - distance > self.c.reference_jump_m):
+            blocked = True
+            s['intruder_range'] = s['previous_range']
+        if 'intruder_range' in s:
+            blocked |= distance < s['intruder_range'] - self.c.reference_jump_m
+        if self._wait_for_obstacle(blocked, 'camera_obstacle' if camera_blocked else 'obstacle'):
             return
         if s['stage'] == 'turn':
             self.record_live_map_point(s)
@@ -1008,6 +1084,43 @@ class Navigator:
             self.finish_goto_with_snapshot('ok')
         else:
             self.drive = (self.c.linear_speed, 0.0)
+
+    def _wait_for_obstacle(self, blocked, reason):
+        s, now = self.step, self.clock()
+        if blocked:
+            if 'wait_since' not in s and s['stage'] == 'turn':
+                s['turn_state'] = 'measure'  # abandon the powered burst while stopped
+            s.setdefault('wait_since', now)
+            s.pop('clear_since', None)
+        if 'wait_since' not in s:
+            return False
+        self.drive = (0., 0.)
+        # Continue measuring from the held pose. Otherwise a map obstruction
+        # can never receive the clear rays needed to resume this route.
+        self.record_live_map_point(s)
+        self.state = 'waiting_obstacle'
+        if self.route_plan and self.route_request:
+            self.route_plan.update(status='waiting_obstacle', reason=reason,
+                obstacle_wait_remaining_sec=round(max(0., self.c.obstacle_wait_sec-(now-s['wait_since'])), 1))
+        if now-s['wait_since'] >= self.c.obstacle_wait_sec:
+            self.finish_goto_with_snapshot('blocked', 'obstacle_wait_timeout')
+            return True
+        if not blocked:
+            s.setdefault('clear_since', now)
+            if now-s['clear_since'] >= self.c.obstacle_clear_sec:
+                # Preserve travelled distance; the moving object is not an odometer.
+                s['started'] += now-s.pop('wait_since')
+                s.pop('clear_since', None)
+                s.pop('intruder_range', None)
+                distance = self.sensors['range'][0]
+                s.update(leg_offset_m=s['moved_m'], base_range=distance,
+                         previous_range=distance, range_at=self.sensors['range'][1],
+                         progress_at=now, progress_range=distance)
+                if s['stage'] == 'turn':
+                    s.update(turn_state='settling', turn_settle_until=now+self.c.settle_sec)
+                if self.route_plan and self.route_request:
+                    self.route_plan.update(status='following', reason='', obstacle_wait_remaining_sec=0.)
+        return True
 
     def _turn_tick(self):
         # Compass readings are only trusted once the motors are stopped and

@@ -15,14 +15,14 @@ from .pca9685 import PCA9685
 
 # Channels follow ServoMotorJoint in the original C++ controller.
 JOINT_CHANNELS = {
-    'rightArm': 0, 'leftArm': 1, 'neck': 2, 'headLeftRight': 3,
+    'rightArm': 1, 'leftArm': 0, 'neck': 2, 'headLeftRight': 3,
     'eyeRight': 4, 'eyeLeft': 5,
 }
 
 # Last-known startup assumptions from the C++ controller (no homing move).
 DEFAULT_ANGLES = {
-    'rightArm': 15.0, 'leftArm': 170.0, 'neck': 30.0,
-    'headLeftRight': 90.0, 'eyeRight': 160.0, 'eyeLeft': 20.0,
+    'rightArm': 15.0, 'leftArm': 170.0, 'neck': 10.0,
+    'headLeftRight': 90.0, 'eyeRight': 170.0, 'eyeLeft': 0.0,
 }
 
 

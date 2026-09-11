@@ -25,8 +25,9 @@ onayı beklemeden takip edilir. Her noktaya ayrı `goto` göndermeyin.
 
 Hedef ölçülmemiş alandaysa, bilinen serbest alan içinde bir keşif rotasının tüm
 noktalarını gönderin. Rota sonunda yapılan taramadan sonra kalan yolu yine tek
-liste halinde planlayın. Engelde robot durur ve yeniden planlama için gözlem
-döndürür; kalan waypoint’ler kendiliğinden devam etmez.
+liste halinde planlayın. Geçici engelde robot durur; taze ölçümlerle yolun
+açıldığı doğrulanınca aynı rotaya devam eder. Engel 30 saniye kalırsa kalan rota
+sonlandırılır ve yeni plan için fotoğraf/sayısal harita döner.
 
 ## Harita sözleşmesi
 
@@ -43,6 +44,10 @@ yeni harita yapıştırılmaz.
   ve manuel sürüşte komut integrasyonundan tahmin edilir. Bu SLAM/enkoder yerelleştirmesi değildir.
 - `resolution_m: 0.1`, `obstacle_points`, `boundary_paths`: ölçülmüş engel hücreleri ve konturları.
   `measured_bounds_m` gözlenen kapsamdır, kesin oda dış sınırı değildir.
+- `wall_paths`, `wall_segments`: ölçümlerden çıkarılan düzgün duvar çizgileri.
+  Web ve mobil bu çizimi kullanır; eski sunucularda `boundary_paths` kullanılmaya devam eder.
+  Çizgi başına destekleyen ölçüm sayısı, RMS hatası ve en büyük ölçüm aralığı verilir.
+  `source=inferred_from_measured_obstacles`: bunlar çıkarımdır, yeni ölçüm değildir.
 - `free_cells`: yalnızca sensör ışınlarının geçtiği hücre merkezleri.
   LLM gözleminde bu liste, kayıpsız `free_cell_runs` ile değiştirilir:
   `[y_index, x_first, x_last_inclusive]`; koordinat = indeks × çözünürlük.
@@ -51,11 +56,22 @@ yeni harita yapıştırılmaz.
   Gözlemde `observation_age_sec` ayrıca bulunur; monoton saat duvar saati değildir.
 - `planning`: robot yarıçapı, yan açıklık, fren/tepki payı ve waypoint toleransı.
 
-Duvar haritası kalıcı birikim kullanır: yeni serbest ışınlar kayıtlı engelleri
-silmez; eski engeller ışının arkasını serbest ilan etmesini de engeller.
+Duvar haritası zaman aşımıyla veya kamera görüşünden çıkınca silinmez.
+Önceden serbest ölçülmüş hücrede beliren engeller geçici katmana alınır;
+`dynamic_obstacle_points` bu hücreleri aynı sabit koordinatlarda verir.
+Kamera canlı yakın insan/hayvan gördüğünde eşleşen LiDAR dönüşü de geçici sayılır.
+Bu ilişkilendirme yalnızca kutu LiDAR'ın görüntüdeki konumunu
+(`lidar_image_x/y`, varsayılan 0.5/0.5) kapsıyor ve ölçüm zamanları 100 ms içinde
+eşleşiyorsa yapılır; yandaki kedi uzaktaki duvarın sınıfını değiştirmez.
+Geçici hücreyi temizlemek için en az üç yeni ışının en az 0.3 saniye boyunca
+hücrenin 25 cm ötesine geçmesi gerekir. Diğer engeller için eşik 20 ışın ve
+3 saniyedir. Tekrar engel dönüşü veya bir saniyeden uzun ölçüm boşluğu temizleme
+kanıtını sıfırlar. Tek kaçırılan ölçüm duvarı silmez; temizleme doğrulanana kadar
+engel arkasındaki alan serbest ilan edilmez. Sadece süre geçmesi alanı açmaz.
 Yakın hücre sınırındaki santimetrelik ölçüm dalgalanmaları mevcut en yakın
-engel hücresine sabitlenir. Taşınmış bir nesnenin kaydını kaldırmak için açık
-harita sıfırlaması (navigasyon düğümünün yeniden başlatılması) gerekir.
+engel hücresine sabitlenir. Geçici hücreler duvar konturuna bağlanmaz; web ve
+mobilde kırmızı noktalarla gösterilir. `obstacle_points` planlama için iki
+katmanın birleşimidir. Bu sınıflama nesnenin gerçekten hareket ettiğini kanıtlamaz.
 
 Harita bellekte her hücre sınıfı için en çok 16384 hücre tutar. Serbest hücre
 önbelleğinden çıkarılanlar bilinmeyen olur; engel hücreleri kapasite nedeniyle
@@ -65,6 +81,23 @@ Görev/oturum değişimi ve simülasyon konum kaynağının geç bağlanması ha
 yeniden başlatmak yeni harita kimliği oluşturur; eski kimlikli rotalar reddedilir.
 
 ### Ölçüm ve konum eşleştirmesi
+
+Duvar tamamlama önce komşu statik ölçümleri uzamsal bileşenlere ayırır.
+RANSAC aykırı noktaları ayıklar; ortogonal en küçük kareler çizgiyi yeniden
+hesaplayarak çapraz duvarlardaki hücre basamaklarını yumuşatır. En az dört
+ölçüm ve 45 cm destek gerekir; çizgiye dik hata toleransı 6.5 cm, ölçümler
+arasındaki en büyük tamamlanabilir aralık 35 cm'dir. Büyük boşluklarda ve
+ışının serbest olduğunu ölçtüğü hücrelerde çizgi bölünür. Uçlar son ölçümden
+öteye uzatılmaz. Geçici engeller ve desteksiz tek noktalar duvara dönüştürülmez.
+Köşeler/ayrı doğrultular ayrı çizgiler olarak çıkarılır; kalan nesnelerin ham
+konturları korunur. Bu yöntem büyük, hiç ölçülmemiş duvarları tahmin edemez.
+
+Çıkarım `obstacle_points` veya `free_cells` içine yazılmaz; navigasyonun serbest
+alan doğrulaması değişmez. Büyük haritalarda işlem motor/sensör ROS iş parçacığının
+dışında, tek çalışan ve tek bekleyen sonuçla yapılır. Sonuç yalnızca aynı ölçüm
+kümesi için kullanılır; güncelleme sırasında ham konturlar gösterilir.
+`wall_reconstruction.status` hazır (`ready`) veya güncelleniyor (`updating`) bilgisini verir.
+Yöntem referansı: https://pointclouds.org/documentation/group__sample__consensus.html
 
 Haritanın başlangıç koordinatları değişmez. Lidar uç noktası, sabit haritadaki
 robot konumuna gövde açısıyla döndürülmüş sensör ileri/yan ofseti ve
@@ -106,9 +139,52 @@ hareket adımı uygulanır. LLM köprüsü en çok 1820 s bekler; rota süresini
 denetimleri bütün rotayı durdurur. Taze tarama mümkün değilse hata sonucu döner,
 eski görüntü yeni gözlem gibi sunulmaz.
 
+### Hareketli engel ve konuşmayla müdahale
+
+`obstacle_wait_sec=30`, `obstacle_clear_sec=0.75`: LiDAR durma mesafesi,
+ani yaklaşan LiDAR dönüşü, kamera tehlikesi veya kalan koridorun kapanması
+motorları hemen sıfırlar. Yol, taze sensörler ve kamera ile 0.75 saniye açık
+kaldığında ilerleme korunarak mesafe referansı yeniden kurulur; hareketli
+nesnenin menzil değişimi robot hareketi sayılmaz. Beklemenin süresi dolarsa
+`blocked/obstacle_wait_timeout` ve yeni gözlem döner. DUR, yetki kaybı, sensör
+eskimesi veya kalibrasyon kaybından sonra otomatik devam edilmez.
+
+`cancel_navigation()` uzun hareket kilidini beklemeden ROS iptali gönderir ve
+sonuç gelene kadar bekler. Yeni `follow_route` önce eski action'ın durduğunu
+doğrular, sonra yeni listeyi normal harita doğrulamasından geçirir. Geçersiz
+JSON eski rotayı iptal etmez; geometrik olarak reddedilen yeni rotada robot
+durmuş kalır. Sıradan konuşma rotayı kendiliğinden iptal etmez; LLM kullanıcı
+isteğine göre iptal veya yeni rota aracını çağırır. SDK araç çağrılarını ayrı
+asenkron görevlerde yürüttüğünden ses oturumu rota boyunca açık kalır.
+
+### Kamera koruması
+
+`obstacle_detector_node`, MediaPipe Tasks ObjectDetector VIDEO API'si ve paketle
+gelen EfficientDet-Lite0 INT8 modeliyle varsayılan 5 FPS çalışır. Servo komutu
+üretmez ve kafa takibinin mod kilidine bağlı değildir. En yeni kare işlenir;
+kuyrukta eski görüntüler birikmez. `perception/navigation_obstacles` görüntünün
+ROS zamanını, sınıfları, kutuları ve tehlike durumunu taşır. Eski/tekrarlı sonuçlar
+kabul edilmez. Üretim başlatıcısında `visual_safety_required=true`: model
+yüklenmezse veya sonuç bir saniyeden eskiyse otonom hareket durur. Model çalışma
+anında ağdan indirilmez. Şematik simülasyon kamerası için bu zorunluluk varsayılan
+kapalıdır; kamera koruma testleri aynı ROS konusuna ölçüm gönderir.
+Simülatör motor adaptörü iki tekerlek güncellemesini tek hız yayını olarak
+uygular; dur–devam geçişindeki yarım PWM güncellemeleri sahte dönüş üretmez.
+
+Kamera tek başına metre mesafesi veya güvenilir nesne hızı üretmez. Yakınlık
+kuralı normalize görüntüde `corridor_left=0.25`, `corridor_right=0.75`,
+`near_bottom=0.70`, en az 0.12 kutu yüksekliğidir; sınıflama eşiği 0.45'tir.
+Kamera montajı ve gerçek robotla bu alanın doğrulanması gerekir. LiDAR her
+sınıf için mesafe korumasını sürdürür. Ham kare farkı, robotun kendi hareketini
+nesne hareketi sayacağı için kullanılmaz. Görsel sınıflar gözlem haritasının
+`visual_obstacles` alanına eklenir; derinliksiz kutulardan sahte harita engeli çizilmez.
+
+API: https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector/python
+
 `navigation.route_plan` rota kimliği, harita kimliği/sürümü, başlangıç, tüm
 noktalar, aktif indeks, tamamlanan sayı, durum ve neden içerir. Durumlar:
-`following`, `completed`, `blocked`, `cancelled`, `error`. Web/mobil küçük ve
+`following`, `waiting_obstacle`, `completed`, `blocked`, `cancelled`, `error`.
+Beklerken `obstacle_wait_remaining_sec` geri sayımı da yayınlanır. Web/mobil küçük ve
 büyük haritalarında yeşil tamamlanan yolu, sarı aktif hedefi, turkuaz kalan yolu
 gösterir. Bitiş/iptal sonrasında rota kalır; yeni kabul edilen rota eskisinin
 yerini alır. Oturum kapanışı veya harita kimliği değişimi çizimi temizler.

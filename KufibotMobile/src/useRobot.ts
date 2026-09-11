@@ -8,13 +8,16 @@ export type AiConfig = {settings: AiSettings; models: {id: string; label?: strin
 export type RoutePlan = {
   route_id: string; map_id: string; map_revision: number; start_pose: number[];
   waypoints: {x_m: number; y_m: number}[]; active_index: number; completed_count: number;
-  status: 'following' | 'completed' | 'blocked' | 'cancelled' | 'error'; reason: string;
+  obstacle_wait_remaining_sec?: number;
+  status: 'waiting_obstacle' | 'following' | 'completed' | 'blocked' | 'cancelled' | 'error'; reason: string;
 };
 export type DistanceMapData = {
   map_id: string; revision: number; frame: string; units: string; origin: number[];
   robot_pose: number[]; robot_heading_deg: number; pose_source: string; pose_valid: boolean;
   resolution_m: number; measured_at_monotonic_sec: number | null; measurement_age_sec: number | null;
-  obstacle_points: number[][]; free_cells: number[][]; boundary_paths: number[][][];
+  dynamic_obstacle_points?: number[][]; obstacle_points: number[][]; free_cells: number[][]; boundary_paths: number[][][];
+  wall_paths?: number[][][];
+  wall_segments?: {points: number[][]; support_count: number; rms_error_m: number; max_sample_gap_m: number; source: string}[];
   measured_bounds_m: number[] | null; boundary_meaning: string; unknown_space: string;
   wall_policy?: string; occupied_capacity_reached?: boolean; rejected_rays?: number;
   pose_fresh?: boolean; mapping_status?: {skipped_samples: number; reason: string};

@@ -31,13 +31,17 @@ function flatten(node) {
 }
 function renderWeb(route, size) {
   const texts = [];
-  const context = new Proxy({fillText: (text, x, y) => texts.push({text, x, y})}, {
+  const lines = [];
+  let from;
+  const context = new Proxy({fillText: (text, x, y) => texts.push({text, x, y}),
+    moveTo: (x, y) => { from = [x, y]; },
+    lineTo: (x, y) => { lines.push({from, to: [x, y], color: context.strokeStyle}); from = [x, y]; }}, {
     get: (target, name) => name in target ? target[name] : () => {},
   });
   const canvas = {clientWidth: size, clientHeight: size, width: size, height: size,
     dataset: {}, getContext: () => context, setAttribute: () => {}};
   scope.drawDistanceMap(canvas, map, route);
-  return {texts, canvas};
+  return {texts, canvas, lines};
 }
 for (const large of [false, true]) {
   const size = large ? 320 : 150;
@@ -60,7 +64,7 @@ for (const large of [false, true]) {
   assert.equal(markers[0].props.style.backgroundColor, '#69d49a');
   assert.equal(markers[1].props.style.backgroundColor, '#ffd66e');
 }
-for (const status of ['completed', 'cancelled', 'blocked']) {
+for (const status of ['completed', 'cancelled', 'blocked', 'waiting_obstacle']) {
   const route = {...plan, status};
   assert.equal(renderWeb(route, 150).canvas.dataset.routeStatus, status);
   assert(mobile.exports.DistanceMap({map, routePlan: route}).props.accessibilityLabel.includes(status));
@@ -70,4 +74,19 @@ for (const route of [null, {...plan, map_id: 'reset'}]) {
   assert.equal(mobile.exports.DistanceMap({map, routePlan: route}).props.accessibilityLabel, 'Mesafe haritası');
 }
 assert.equal(renderWeb({...plan, route_id: 'new'}, 150).canvas.dataset.routeId, 'new');
+map.boundary_paths = [[[0, 0], [.1, .1]]];
+map.wall_paths = [[[0, 1], [1, 1]], [[1.8, 1], [2, 1]]]; // doorway remains open
+for (const large of [false, true]) {
+  const size = large ? 320 : 150;
+  const walls = flatten(mobile.exports.DistanceMap({map, large})).filter(n =>
+    n.props.style?.backgroundColor === '#ff9981');
+  const web = renderWeb(null, size).lines.filter(l => l.color === '#ff9981');
+  assert.equal(walls.length, 2);
+  assert.equal(web.length, 2); // reconstructed paths replace raw fragments
+  walls.forEach((wall, i) => {
+    const style = wall.props.style;
+    assert(Math.abs(style.width - Math.hypot(web[i].to[0]-web[i].from[0], web[i].to[1]-web[i].from[1])) < 1e-8);
+    assert.equal(style.top+1, (web[i].from[1]+web[i].to[1])/2);
+  });
+}
 console.log('Web/mobile route coordinates, numbering, progress, retention, replacement and reset passed.');

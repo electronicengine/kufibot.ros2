@@ -39,6 +39,8 @@ def test_ros_whole_route_feedback_clean_image_and_cancellation():
     applied = [0., 0.]
     previous = [time.monotonic()]
     states, moving_states = [], []
+    camera_blocked = [False]
+    visual_pub = client.create_publisher(String, 'perception/navigation_obstacles', 1)
     client.create_subscription(String, 'navigation/state', lambda m: states.append(json.loads(m.data)), 10)
 
     def drive(msg):
@@ -51,7 +53,7 @@ def test_ros_whole_route_feedback_clean_image_and_cancellation():
         hit = room.raycast(pose[0], pose[1], bearing)
         nav.update_simulation(dict(pose=dict(x=pose[0], y=pose[1], theta_deg=pose[2]),
             lidar_pose=dict(x=pose[0], y=pose[1], bearing_deg=bearing),
-            lidar_range_m=hit.distance_m, lidar_hit=hit.hit))
+            lidar_range_m=hit.distance_m, lidar_hit=hit.hit, mapping_pose_valid=True))
         return hit.distance_m
 
     def feed():
@@ -63,13 +65,17 @@ def test_ros_whole_route_feedback_clean_image_and_cancellation():
         nav.set_authority(dict(epoch='e', enabled=True, owner=True, provider='verasist', mode='ai'))
         nav.set_session('s', True)
         nav.applied_mode, nav.applied_at = 'ai', now
-        target, neck = nav.head_target or (90., 60.)
+        target, neck = nav.head_target or (90., 10.)
         head[0] += max(-1.8, min(1.8, target-head[0]))
         nav.sensor('heading', pose[2])
-        nav.sensor('joints', dict(headLeftRight=head[0], neck=neck))
+        nav.sensor('joints', dict(headLeftRight=head[0], neck=neck,
+                                  eyeLeft=0., eyeRight=170.))
         nav.sensor('range', ray(pose[2]+90-head[0]))
         nav.sensor('image', Image(height=8, width=8, step=24, encoding='bgr8',
                                 data=np.full((8, 8, 3), 80, dtype=np.uint8).tobytes()))
+        visual_pub.publish(String(data=json.dumps(dict(
+            image_stamp_sec=client.get_clock().now().nanoseconds/1e9,
+            blocked=camera_blocked[0], dynamic=camera_blocked[0], objects=[]))))
     client.create_timer(.01, feed)
 
     def until(predicate, seconds=30):
@@ -97,6 +103,16 @@ def test_ros_whole_route_feedback_clean_image_and_cancellation():
         handle = result(action.send_goal_async(goal('route', [(0., .35), (.35, .35)]),
                                               feedback_callback=lambda m: feedback.append(m.feedback)))
         assert handle.accepted
+        until(lambda: applied[0] > 0)
+        camera_blocked[0] = True
+        until(lambda: nav.route_plan['status'] == 'waiting_obstacle')
+        assert nav.drive == (0., 0.)
+        stopped_pose = list(pose)
+        since = time.monotonic()
+        until(lambda: time.monotonic()-since > .2)
+        assert math.dist(pose[:2], stopped_pose[:2]) < .02
+        camera_blocked[0] = False
+        until(lambda: nav.route_plan['status'] == 'following' and applied[0] > 0)
         completed = json.loads(result(handle.get_result_async(), 45).result.result_json)
         assert completed['status'] == 'ok', completed
         assert completed['route_plan']['completed_count'] == 2

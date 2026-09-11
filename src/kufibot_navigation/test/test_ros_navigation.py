@@ -30,7 +30,7 @@ def test_ros_action_result_observation_cancellation_and_manual_arbitration():
     client.create_subscription(DriveCommand, 'drive/command', outputs.append, 10)
     nav = node.nav
     mode = ['ai']
-    servo = {'head': 90.0, 'neck': 60.0}
+    servo = {'head': 90.0, 'neck': 10.0}
 
     def feed():
         nav.set_authority(dict(epoch=mode[0], enabled=mode[0] == 'ai', owner=True,
@@ -40,12 +40,13 @@ def test_ros_action_result_observation_cancellation_and_manual_arbitration():
         nav.c.calibrated = True
         nav.sensor('heading', 0.)
         nav.sensor('range', 2.)
-        head, neck = nav.head_target or (90., 60.)
+        head, neck = nav.head_target or (90., 10.)
         # A continuous scan must receive samples while the physical head is
         # moving; do not teleport the feedback to each target position.
         servo['head'] += max(-3.0, min(3.0, head-servo['head']))
         servo['neck'] += max(-3.0, min(3.0, neck-servo['neck']))
-        nav.sensor('joints', dict(headLeftRight=servo['head'], neck=servo['neck']))
+        nav.sensor('joints', dict(headLeftRight=servo['head'], neck=servo['neck'],
+                                  eyeLeft=0., eyeRight=170.))
         image = Image(height=4, width=4, step=12, encoding='bgr8',
                       data=np.zeros((4, 4, 3), np.uint8).tobytes())
         image.header.stamp = client.get_clock().now().to_msg()

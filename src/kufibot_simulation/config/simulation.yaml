@@ -7,13 +7,13 @@ navigation_node:
     calibrated: true
     circular_footprint: true
     body_radius_m: 0.16
-    lidar_forward_offset_m: 0.0
-    lidar_lateral_offset_m: 0.03
+    lidar_forward_offset_m: 0.085494
+    lidar_lateral_offset_m: -0.036755
     stopping_distance_m: 0.15
     clearance_m: 0.10
     latency_margin_sec: 0.15
     head_center_deg: 90.0
-    neck_horizontal_deg: 60.0
+    neck_horizontal_deg: 10.0
     head_sign: -1.0
     compass_turn_sign: -1.0
     compass_filter_window: 5
@@ -72,16 +72,10 @@ remote_controller:
 
 world_node:
   ros__parameters:
-    # Drawing reference: 32 cm outer envelope; camera left / lidar right,
-    # 6 cm centre spacing; sensor centres 28.5 cm from the floor.
+    # Camera on eyeRight, lidar on eyeLeft; poses follow model/rig.json.
     body_radius_m: 0.16
     robot_width_m: 0.32
     robot_height_m: 0.32
-    sensor_height_m: 0.285
-    camera_lateral_offset_m: -0.03
-    lidar_lateral_offset_m: 0.03
-    camera_forward_offset_m: 0.0
-    lidar_forward_offset_m: 0.0
     head_center_deg: 90.0
     head_sign: -1.0
     lidar_yaw_offset_deg: 0.0

@@ -14,11 +14,33 @@ JOINT_LIMITS = {
 NEUTRAL_ANGLES = {
     'rightArm': 15.0,
     'leftArm': 170.0,
-    'neck': 60.0,
+    'neck': 10.0,
     'headLeftRight': 90.0,
-    'eyeRight': 150.0,
-    'eyeLeft': 30.0,
+    # Level optical pose. Navigation and mapping may only use sensor samples
+    # captured at this posture.
+    'eyeRight': 170.0,
+    'eyeLeft': 0.0,
 }
+
+MAPPING_SENSOR_ANGLES = {
+    'neck': 10.0,
+    'eyeLeft': 0.0,
+    'eyeRight': 170.0,
+}
+
+MAPPING_SENSOR_TOLERANCE_DEG = 1.0
+
+
+def mapping_sensor_pose_valid(angles, tolerance_deg=MAPPING_SENSOR_TOLERANCE_DEG):
+    """Whether a joint feedback sample is safe to use for mapping."""
+    if not isinstance(angles, dict) or not math.isfinite(tolerance_deg) or tolerance_deg < 0:
+        return False
+    try:
+        return all(math.isfinite(float(angles[name])) and
+                   abs(float(angles[name]) - target) <= tolerance_deg
+                   for name, target in MAPPING_SENSOR_ANGLES.items())
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def validate_joint_targets(names, angles):

@@ -211,16 +211,20 @@ function drawDistanceMap(canvas, mapping, routePlan) {
   }
   ctx.strokeStyle = '#ff9981'; ctx.fillStyle = '#ff695f30';
   ctx.lineWidth = 1.5 * ratio; ctx.lineJoin = 'round';
-  for (const path of mapping?.boundary_paths || []) {
+  for (const path of mapping?.wall_paths ?? mapping?.boundary_paths ?? []) {
     if (path.length < 2) continue;
     ctx.beginPath(); ctx.moveTo(...point(path[0]));
     for (const vertex of path.slice(1)) ctx.lineTo(...point(vertex));
     ctx.stroke();
   }
+  ctx.fillStyle = '#ff5454';
+  for (const obstacle of mapping?.dynamic_obstacle_points || []) {
+    ctx.beginPath(); ctx.arc(...point(obstacle), 4 * ratio, 0, Math.PI * 2); ctx.fill();
+  }
   if (route) {
     routePoints.slice(1).forEach((target, index) => {
       const done = index < route.completed_count;
-      const active = index === route.active_index && route.status === 'following';
+      const active = index === route.active_index && ['following', 'waiting_obstacle'].includes(route.status);
       const color = done ? '#69d49a' : active ? '#ffd66e' : '#67d9ed';
       ctx.strokeStyle = color; ctx.lineWidth = 2.5 * ratio;
       ctx.setLineDash(done ? [] : [5 * ratio, 3 * ratio]);
@@ -246,8 +250,8 @@ function drawDistanceMap(canvas, mapping, routePlan) {
   const nearest = points.length ? Math.min(...points.map(q => Math.hypot(q[0]-robot[0], q[1]-robot[1]))) : null;
   ctx.fillText(nearest === null ? 'Sınır ölçümü bekleniyor' : `En yakın kayıtlı sınır ≈ ${nearest.toFixed(2)} m`, 8*ratio, 13*ratio);
   if (route) {
-    const labels = {following: 'İlerliyor', completed: 'Tamamlandı', blocked: 'Engellendi', cancelled: 'İptal', error: 'Durdu'};
-    ctx.fillText(`Rota · ${labels[route.status] || route.status} · ${route.completed_count}/${route.waypoints.length}`, 8*ratio, 39*ratio);
+    const labels = {waiting_obstacle: 'Engel', following: 'İlerliyor', completed: 'Tamamlandı', blocked: 'Engellendi', cancelled: 'İptal', error: 'Durdu'};
+    ctx.fillText(`Rota · ${labels[route.status] || route.status}${route.status === 'waiting_obstacle' ? ` (${Math.ceil(route.obstacle_wait_remaining_sec || 0)} sn)` : ''} · ${route.completed_count}/${route.waypoints.length}`, 8*ratio, 39*ratio);
   }
   const liveRange = link.state?.sensors.distance;
   ctx.fillText(Number.isFinite(liveRange) ? `Lidar baktığı yön: ${liveRange.toFixed(2)} m` : 'Lidar: — m', 8*ratio, 26*ratio);
@@ -291,7 +295,7 @@ function render() {
   if ($('map-dialog').open) drawDistanceMap($('distance-map-full'), state?.distanceMap, state?.navigation?.route_plan);
   const nav = state?.navigation;
   const navLabels = {disabled: 'Kapalı', idle: 'Komut bekleniyor', aligning: 'Kafa hizalanıyor',
-    scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor',
+    scanning: 'Taranıyor', advancing: 'İlerleniyor', turning: 'Dönülüyor', waiting_obstacle: 'Engelin kalkması bekleniyor',
     following_route: 'Rota izleniyor', waiting_llm: 'LLM bekleniyor', blocked: 'Engellendi', completed: 'Tamamlandı'};
   const navToggle = $('navigation-toggle');
   navToggle.hidden = state?.mode !== 'ai';

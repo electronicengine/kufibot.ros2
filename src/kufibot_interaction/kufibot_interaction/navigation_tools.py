@@ -134,6 +134,7 @@ class NavigationTools:
             request_id=request_id, operation=operation, observation_id=observation_id,
             distance_m=float(distance_m), angle_deg=float(angle_deg), sweep_deg=float(sweep_deg))
         handle = await wait_ros(self.steps.send_goal_async(goal), 5)
+        self.active_handle = handle if handle.accepted else None
         if not handle.accepted:
             state = await self.task(session, 'status')
             if state.get('status') == 'error':
@@ -170,6 +171,7 @@ class NavigationTools:
             request_id=uuid.uuid4().hex, map_id=map_id, map_revision=map_revision,
             waypoints=[Point(x=float(p['x_m']), y=float(p['y_m']), z=0.) for p in waypoints])
         handle = await wait_ros(self.routes.send_goal_async(goal), 5)
+        self.active_handle = handle if handle.accepted else None
         if not handle.accepted:
             return dict(status='error', reason='busy')
         try:
@@ -177,7 +179,7 @@ class NavigationTools:
         except BaseException:
             handle.cancel_goal_async()
             raise
-        if result.get('observation_id'):
+        if result.get('observation_id') and result.get('status') != 'cancelled':
             try:
                 result['observation'] = await self.deliver(session, task_id, result['observation_id'])
             except ImageRateLimitError as error:
@@ -185,12 +187,42 @@ class NavigationTools:
                             recovery='Retry read_sensor_values before planning any new movement.')
         return result
 
-    async def guarded(self, session, function):
+    async def cancel_active(self, session):
+        """Bypass the action lock, but await confirmed ROS completion."""
+        self.check(session)
+        operation = self.active_operation
+        if operation is None or operation.done():
+            return dict(status='ok', reason='no_active_navigation')
+        deadline = time.monotonic() + 7.
+        while not operation.done() and self.active_handle is None:
+            if time.monotonic() >= deadline:
+                raise TimeoutError('navigation acceptance did not settle')
+            await asyncio.sleep(.02)
+        handle = self.active_handle
+        if handle is not None and not operation.done():
+            await wait_ros(handle.cancel_goal_async(), 5.)
+        await asyncio.wait_for(asyncio.shield(operation), 8.)
+        return dict(status='ok', reason='navigation_cancelled')
+
+    async def guarded(self, session, function, replace=False):
+        if replace:
+            async with self.command_lock:
+                try:
+                    await self.cancel_active(session)
+                except Exception as error:
+                    self.faulted = True
+                    self.heartbeat()
+                    return dict(status='error', reason=str(error))
+                operation = asyncio.create_task(self.guarded(session, function))
+                await asyncio.sleep(0)  # establish ownership before another replacement
+            return await operation
         if self.lock.locked():
             return {'status': 'error', 'reason': 'busy'}
         async with self.lock:
             try:
                 self.check(session)
+                self.active_operation = asyncio.current_task()
+                self.active_handle = None
                 return await function()
             except ImageRateLimitError as error:
                 return {'status': 'error', 'reason': 'image_rate_limited',
@@ -202,12 +234,19 @@ class NavigationTools:
                     self.faulted = True
                     self.heartbeat()
                 return {'status': 'error', 'reason': str(error)}
+            finally:
+                if self.active_operation is asyncio.current_task():
+                    self.active_operation = None
+                    self.active_handle = None
 
     def register(self, session):
         self.session, self.session_id = session, uuid.uuid4().hex
         self.connected, self.faulted = False, False
         self.delivered_images = {}
         self.task_id = ''
+        self.active_operation = None
+        self.active_handle = None
+        self.command_lock = asyncio.Lock()
         def schema(properties, required):
             return {'type': 'object', 'properties': properties, 'required': required,
                     'additionalProperties': False}
@@ -228,6 +267,20 @@ class NavigationTools:
             if result.get('status') == 'ok':
                 self.task_id = result['task_id']
             return result
+
+        @session.tool(description=(
+            'Cancel active navigation and wait for the robot to stop, including all remaining waypoints. '
+            'Use when the user says stop, changes their mind or abandons a destination. '
+            'Conversation alone does not cancel motion. A new follow_route safely replaces the old route.'),
+            parameters=schema({}, []))
+        async def cancel_navigation():
+            try:
+                async with self.command_lock:
+                    return await self.cancel_active(session)
+            except Exception as error:
+                self.faulted = True
+                self.heartbeat()
+                return dict(status='error', reason=str(error))
 
         @session.tool(description=(
             'Read current sensor values and capture a chosen body-relative camera/lidar view. '
@@ -253,7 +306,9 @@ class NavigationTools:
             'must be measured free including body clearance and braking room; unseen areas are unknown. '
             'If needed first use read_sensor_values/look_at (and a safe in-place goto turn to scan behind). '
             'For unknown destinations submit a full exploration route within measured space; the final '
-            'scan enables the next complete route. Stops on obstacles and returns a fresh scan. Inspect '
+            'scan enables the next complete route. Stops for lidar/camera obstacles, resumes after verified '
+            'clearance, and returns a fresh scan after 30 seconds blocked. A new call safely replaces active '
+            'navigation; use cancel_navigation to abandon it. Remain responsive to user conversation. Inspect '
             'the result and replan the whole remaining route; never send one call per waypoint.'),
             parameters=schema({'map_id': {'type': 'string'},
                 'map_revision': {'type': 'integer', 'minimum': 0},
@@ -261,20 +316,20 @@ class NavigationTools:
                     'items': schema({'x_m': {'type': 'number'}, 'y_m': {'type': 'number'}}, ['x_m', 'y_m'])}},
                 ['map_id', 'map_revision', 'waypoints']))
         async def follow_route(map_id, map_revision, waypoints):
+            import math
+            if (not isinstance(map_id, str) or not map_id or isinstance(map_revision, bool)
+                    or not isinstance(map_revision, int) or not 0 <= map_revision < 2**64
+                    or not isinstance(waypoints, list) or not 1 <= len(waypoints) <= 64
+                    or any(not isinstance(p, dict) or set(p) != {'x_m', 'y_m'} or any(
+                        isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                        for v in p.values()) for p in waypoints)):
+                return dict(status='error', reason='invalid_route_arguments')
             async def run():
-                import math
-                if (not isinstance(map_id, str) or not map_id or isinstance(map_revision, bool)
-                        or not isinstance(map_revision, int) or not 0 <= map_revision < 2**64
-                        or not isinstance(waypoints, list) or not 1 <= len(waypoints) <= 64
-                        or any(not isinstance(p, dict) or set(p) != {'x_m', 'y_m'} or any(
-                            isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
-                            for v in p.values()) for p in waypoints)):
-                    return dict(status='error', reason='invalid_route_arguments')
                 started = await ensure_task()
                 if started.get('status') != 'ok':
                     return started
                 return track(await self.follow(session, self.task_id, map_id, map_revision, waypoints))
-            return await self.guarded(session, run)
+            return await self.guarded(session, run, replace=True)
 
         @session.tool(description=(
             'Low-level movement; prefer follow_route with all waypoints for destination navigation. '

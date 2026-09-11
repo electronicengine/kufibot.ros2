@@ -4,7 +4,7 @@ import time
 import uuid
 
 from kufibot_interaction.ai_settings import validate
-from kufibot_interaction.joint_limits import JOINT_LIMITS
+from kufibot_interaction.joint_limits import JOINT_LIMITS, MAPPING_SENSOR_ANGLES
 from kufibot_interaction.mimics import evaluate
 
 
@@ -189,7 +189,12 @@ class Control:
                 low, high = JOINT_LIMITS[name]
                 self.targets[name] = max(low, min(high, self.targets[name] +
                     sign * self.axes[axis] * 45.0 * min(dt, 0.1)))
-        return (-(self.axes['drive_y'] * self.DRIVE_MAX_LINEAR_MPS),
+        drive = (-(self.axes['drive_y'] * self.DRIVE_MAX_LINEAR_MPS),
                 # UI +x is the operator's right. Positive ROS yaw turns left,
                 # so the drivetrain command must use the opposite sign.
                 -self.axes['drive_x'] * self.DRIVE_MAX_ANGULAR_RPS)
+        if abs(drive[0]) > 1e-6 or abs(drive[1]) > 1e-6:
+            # Mapping is invalid while these servos travel. Keep asking for
+            # the level optical posture for every manually driven tick.
+            self.targets.update(MAPPING_SENSOR_ANGLES)
+        return drive

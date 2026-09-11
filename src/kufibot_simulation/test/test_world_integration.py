@@ -100,13 +100,14 @@ def test_head_yaw_from_joint_states_changes_the_look_bearing(node):
 
 def test_camera_and_lidar_use_the_drawn_eye_centres(node):
     node.x, node.y, node.theta = 1.0, 2.0, 0.0
-    lidar = node._sensor_pose(node.lidar_lateral_offset, node.lidar_forward_offset, 0.0)
-    camera = node._sensor_pose(node.camera_lateral_offset, node.camera_forward_offset, 0.0)
-    assert lidar[:2] == pytest.approx((1.03, 2.0))
-    assert camera[:2] == pytest.approx((.97, 2.0))
-    assert math.dist(lidar[:2], camera[:2]) == pytest.approx(.06)
-    assert node.sensor_height == pytest.approx(.285)
-    assert node.body_radius == pytest.approx(.16)
+    lidar = node._eye_pose('lidar')
+    camera = node._camera_state()
+    assert lidar['x'] < node.x < camera['x']
+    assert lidar['y'] > node.y and camera['y'] > node.y
+    assert lidar['z'] > .3 and camera['z'] > .3
+    assert node.neck_deg == 10
+    assert lidar['pitch_deg'] == pytest.approx(3.5)
+    assert camera['pitch_deg'] == pytest.approx(3.5)
 
 
 def test_neck_bottom_is_level_and_only_looks_up(node):
@@ -158,8 +159,26 @@ def test_motor_telemetry_stops_with_watchdog(node):
     assert states[-1]['wheel_separation_m'] == .2
     assert states[-1]['robot_dimensions_m'] == {
         'width': .32, 'height': .32, 'collision_radius': .16}
-    assert states[-1]['lidar_pose']['x'] == pytest.approx(node.x + .03)
-    assert states[-1]['camera_pose']['x'] == pytest.approx(node.x - .03)
+    assert states[-1]['lidar_pose'] == node._eye_pose('lidar')
+    assert states[-1]['camera_pose'] == node._camera_state()
     node.last_twist_at -= 10
     node._tick()
     assert states[-1]['applied_twist'] == {'linear_mps': 0, 'angular_rps': 0}
+
+
+def test_neck_changes_published_lidar_ray_and_camera_pose(node):
+    import json
+    states = []
+    node.world_state_pub.publish = lambda msg: states.append(json.loads(msg.data))
+    for angle in (0, 120):
+        node._joint_states(JointState(name=['neck'], position=[math.radians(angle)]))
+        node._tick()
+    level, raised = states
+    for sensor in ('lidar_pose', 'camera_pose'):
+        assert level[sensor]['pitch_deg'] == pytest.approx(0)
+        assert raised[sensor]['pitch_deg'] == pytest.approx(42)
+        assert raised[sensor]['z'] > level[sensor]['z']
+    for state in states:
+        pose = state['lidar_pose']
+        hit = node.sensor_world.raycast(pose, node.lidar_max_range, node.lidar_min_range)
+        assert state['lidar_ground_truth_m'] == pytest.approx(hit.distance_m)

@@ -117,3 +117,16 @@ Fiziksel robotla her eklemin nötrü, hareket yönü, güvenli minimum/maksimumu
 komutuna karşı gerçek açısı ayrıca doğrulanmalıdır. Gerçek Android cihazındaki
 WebView/dokunma akışı ve mekanik hareket doğruluğu masaüstü tarayıcı testiyle
 kanıtlanmış sayılmaz.
+
+Servo/model referansları: başlangıç pozu sağ kol 15°, sol kol 170°, boyun
+10°, baş dönüşü 90°, sağ göz 170°, sol göz 0° olarak kullanılır.
+`neutral_deg` başlangıç açısıdır; `assembly_deg` ise STL'nin dönüş uygulanmamış
+pozuna karşılık gelen servo açısıdır. Boyun 0° karşıya bakar; mevcut 0,35
+boyun mekanizma oranı korunmuştur (kesin fiziksel oran henüz ölçülmedi).
+Baş dönüşü 90° merkezli ±90°'dir. Sol göz 0° ve sağ göz 170° düz;
+sol göz 40° ve sağ göz 140° aşağı inik konumdadır.
+STL'nin ileri uzanan kolları, sol 170° / sağ 10° referansında yataydan
+37,5° aşağı döndürülür; bu, bildirilen 30–45° eğim aralığının yaklaşık
+orta değeridir. Bu yüzden kolların `assembly_deg` değerleri sol 132,5°,
+sağ 47,5°'dir. Bu eşleme fiziksel ölçümle doğrulanmış tam kalibrasyon değildir.
+Model tekrar üretilirken aynı değerler `tools/build_robot_model.py` ile korunur.

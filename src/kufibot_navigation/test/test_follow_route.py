@@ -32,10 +32,11 @@ class RouteRig:
         n.set_authority(dict(epoch='e', owner=True, enabled=True, mode='ai', provider='verasist'))
         n.set_session('s', True)
         n.applied_mode, n.applied_at = 'ai', self.now
-        target, neck = n.head_target or (90., 60.)
+        target, neck = n.head_target or (90., 10.)
         self.head += max(-3., min(3., target-self.head))
         n.sensor('heading', self.heading)
-        n.sensor('joints', dict(headLeftRight=self.head, neck=neck))
+        n.sensor('joints', dict(headLeftRight=self.head, neck=neck,
+                                eyeLeft=0., eyeRight=170.))
         n.sensor('range', self.distance)
         n.sensor('image', 'image')
 
@@ -139,6 +140,7 @@ def test_route_stops_without_advancing_remaining_points(failure):
     elif failure == 'map':
         r.nav.metric_map.occupied[(0, 10)] = [0., 1.]
         r.nav.metric_map.revision += 1
+        r.distance = 1.  # actual persistent return; clear rays would legitimately remove it
     elif failure == 'stop':
         r.nav.cancel_route()
     elif failure == 'disconnect':
@@ -177,10 +179,12 @@ def test_task_changes_keep_map_and_new_route_replaces_previous():
 def test_simulator_pose_and_rotated_anchor_match_numeric_map():
     r = RouteRig()
     r.nav.update_simulation(dict(pose=dict(x=1., y=2., theta_deg=90.),
-        lidar_pose=dict(x=1., y=2., bearing_deg=90.), lidar_range_m=1., lidar_hit=True))
+        lidar_pose=dict(x=1., y=2., bearing_deg=90.), lidar_range_m=1., lidar_hit=True,
+        mapping_pose_valid=True))
     mid = r.nav.metric_map.id
     r.nav.update_simulation(dict(pose=dict(x=1.5, y=2., theta_deg=90.),
-        lidar_pose=dict(x=1.5, y=2., bearing_deg=90.), lidar_range_m=.5, lidar_hit=True))
+        lidar_pose=dict(x=1.5, y=2., bearing_deg=90.), lidar_range_m=.5, lidar_hit=True,
+        mapping_pose_valid=True))
     assert r.nav.map_pose == pytest.approx([0., .5])
     assert r.nav.metric_map.id == mid
     assert [0., 1.] in r.nav.metric_map.occupied.values()
@@ -265,3 +269,127 @@ def test_session_heartbeat_loss_clears_route_and_calibration_loss_stops_it():
     r.now += 1.
     r.nav.tick()
     assert r.nav.route_plan is None
+
+
+def moving_route():
+    r = RouteRig()
+    assert r.submit([(0., .6), (.6, .6)]) is None
+    for _ in range(300):
+        if r.tick()[0]:
+            return r
+    pytest.fail('route did not start')
+
+
+def test_temporary_obstacle_requires_new_clear_rays_and_does_not_erase_walls():
+    now = [10.]
+    m = MetricMap(lambda: now[0])
+    m.ray([0., 0.], 0., 3.)
+    m.ray([0., 0.], 0., .6)  # newly occupied measured free cell
+    assert (0, 6) in m.transient
+    now[0] += 100.
+    assert [0., .6] in m.snapshot([0., 0.], 0., 'test')['dynamic_obstacle_points']
+    for _ in range(2):
+        m.ray([0., 0.], 0., 3.)
+        now[0] += .2
+        assert (0, 6) in m.occupied
+    m.ray([0., 0.], 0., 3.)
+    assert (0, 6) not in m.occupied and (0, 6) in m.free
+    assert (0, 30) in m.occupied
+
+
+def test_static_geometry_needs_sustained_contradiction_not_missing_frames():
+    now = [10.]
+    m = MetricMap(lambda: now[0])
+    m.ray([0., 0.], 0., 1.)
+    for _ in range(10):
+        now[0] += .1
+        m.ray([0., 0.], 0., 3.)
+    assert (0, 10) in m.occupied
+    m.ray([0., 0.], 0., 1.)  # confirming hit resets contradictory evidence
+    for _ in range(35):
+        now[0] += .1
+        m.ray([0., 0.], 0., 3.)
+    assert (0, 10) not in m.occupied and (0, 30) in m.occupied
+
+
+def test_later_camera_classification_does_not_drop_the_obstacle():
+    m = MetricMap()
+    m.ray([0., 0.], 0., 1.)
+    revision = m.revision
+    m.ray([0., 0.], 0., 1., dynamic=True)
+    assert (0, 10) in m.transient and (0, 10) in m.occupied
+    assert m.revision > revision
+
+
+@pytest.mark.parametrize('camera', [False, True])
+def test_crossing_object_stops_then_same_route_resumes(camera):
+    r = moving_route()
+    distance, pose = r.distance, r.nav.current_pose()
+    if not camera:
+        r.distance = .2
+    for _ in range(100):
+        if camera:
+            r.nav.sensor('visual', dict(blocked=True, dynamic=True))
+        assert r.tick() == (0., 0.)
+    assert r.nav.route_plan['status'] == 'waiting_obstacle'
+    assert r.nav.current_pose() == pose
+    assert r.nav.route_plan['completed_count'] == 0
+    if not camera:
+        assert r.nav.metric_map.transient  # still mapping while the motors wait
+    r.distance = distance
+    resumed = False
+    for _ in range(300):
+        if camera:
+            r.nav.sensor('visual', dict(blocked=False, dynamic=False))
+        if r.tick()[0]:
+            resumed = True
+            break
+    assert resumed
+    assert r.nav.route_plan['route_id'] == 'route'
+    assert r.nav.route_plan['status'] == 'following'
+    if not camera:
+        assert not r.nav.metric_map.transient  # cleared by new stationary rays
+    for _ in range(3000):
+        if camera:
+            r.nav.sensor('visual', dict(blocked=False, dynamic=False))
+        r.tick()
+        if not r.nav.route_request:
+            break
+    assert r.nav.results['route']['status'] == 'ok'
+    assert r.nav.results['route']['route_plan']['completed_count'] == 2
+
+
+def test_thirty_seconds_blocked_returns_new_observation_without_remaining_motion():
+    r = moving_route()
+    r.distance = .2
+    started = r.now
+    for _ in range(2900):
+        assert r.tick() == (0., 0.)
+        assert r.nav.route_request
+    result = r.finish()
+    assert r.now-started >= 30.
+    assert result['reason'] == 'obstacle_wait_timeout'
+    assert result['route_plan']['completed_count'] == 0
+    assert result['observation_id'] in r.nav.observations
+    for _ in range(10):
+        assert r.tick() == (0., 0.)
+
+
+@pytest.mark.parametrize('failure', ['cancel', 'disconnect', 'camera_stale', 'calibration'])
+def test_wait_never_resumes_after_safety_loss(failure):
+    r = moving_route()
+    r.nav.sensor('visual', dict(blocked=True, dynamic=True))
+    assert r.tick() == (0., 0.)
+    if failure == 'cancel':
+        r.nav.cancel_route()
+    elif failure == 'disconnect':
+        r.nav.set_session('s', False)
+    elif failure == 'calibration':
+        r.nav.c.calibrated = False
+    else:
+        r.now += 1.1
+    for _ in range(400):
+        assert r.tick() == (0., 0.)
+        if not r.nav.route_request:
+            break
+    assert r.nav.results['route']['status'] != 'ok'

@@ -140,10 +140,7 @@ class Robot:
     """STL-derived GLB, sharing servo pivots and calibration with the editor."""
     width_m = .32
     height_m = load_rig()['height_m']
-    sensor_height_m = .285
-    sensor_spacing_m = .06
     model_scale = 1.0
-    neck_up_degrees_per_servo_degree = .35
     wheel_radius = .10
 
     def __init__(self, parent):

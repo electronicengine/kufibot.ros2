@@ -29,7 +29,7 @@ def bridge_and_session():
 
 def test_route_and_low_level_navigation_tools_are_exposed():
     _, session = bridge_and_session()
-    assert set(session.handlers) == {'follow_route', 'goto', 'look_at', 'read_sensor_values'}
+    assert set(session.handlers) == {'follow_route', 'goto', 'look_at', 'read_sensor_values', 'cancel_navigation'}
     assert set(session.tools_meta['goto']['parameters']['properties']) == {'distance_m', 'angle_deg'}
     assert set(session.tools_meta['look_at']['parameters']['properties']) == {'angle_deg'}
     assert set(session.tools_meta['read_sensor_values']['parameters']['properties']) == {
@@ -104,4 +104,68 @@ def test_bad_route_arguments_do_not_fault_session_or_start_task():
             assert result['reason'] == 'invalid_route_arguments'
         assert not bridge.faulted
         bridge.task.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_conversation_cancel_bypasses_busy_action_and_waits_for_stop():
+    async def run():
+        bridge, session = bridge_and_session()
+        bridge.task = AsyncMock(return_value={'status': 'ok', 'task_id': 'task'})
+        moving, stopped = asyncio.Event(), asyncio.Event()
+        class Handle:
+            def cancel_goal_async(self):
+                stopped.set()
+                future = asyncio.get_running_loop().create_future()
+                future.set_result(None)
+                return future
+        async def follow(*args):
+            bridge.active_handle = Handle()
+            moving.set()
+            await stopped.wait()
+            return {'status': 'cancelled'}
+        bridge.follow = follow
+        operation = asyncio.create_task(session.handlers['follow_route']('m', 1, [{'x_m': 0, 'y_m': 1}]))
+        await moving.wait()
+        assert bridge.lock.locked()
+        result = await asyncio.wait_for(session.handlers['cancel_navigation'](), 1.)
+        assert result['reason'] == 'navigation_cancelled'
+        assert (await operation)['status'] == 'cancelled'
+        assert not bridge.lock.locked() and not bridge.faulted
+    asyncio.run(run())
+
+
+def test_new_route_cancels_previous_before_submitting_replacement():
+    async def run():
+        bridge, session = bridge_and_session()
+        bridge.task = AsyncMock(return_value={'status': 'ok', 'task_id': 'task'})
+        moving, stopped = asyncio.Event(), asyncio.Event()
+        calls = []
+        class Handle:
+            def cancel_goal_async(self):
+                calls.append('stop')
+                stopped.set()
+                future = asyncio.get_running_loop().create_future()
+                future.set_result(None)
+                return future
+        async def follow(*args):
+            if calls:
+                assert stopped.is_set()
+                calls.append('replacement')
+                return {'status': 'ok'}
+            calls.append('first')
+            bridge.active_handle = Handle()
+            moving.set()
+            await stopped.wait()
+            return {'status': 'cancelled'}
+        bridge.follow = follow
+        first = asyncio.create_task(session.handlers['follow_route']('m', 1, [{'x_m': 0, 'y_m': 1}]))
+        await moving.wait()
+        invalid = await session.handlers['follow_route']('m', 1, [])
+        assert invalid['reason'] == 'invalid_route_arguments' and not stopped.is_set()
+        replacement = await asyncio.wait_for(
+            session.handlers['follow_route']('m', 1, [{'x_m': 1, 'y_m': 0}]), 1.)
+        assert replacement['status'] == 'ok'
+        assert (await first)['status'] == 'cancelled'
+        assert calls == ['first', 'stop', 'replacement']
+        assert not bridge.faulted
     asyncio.run(run())

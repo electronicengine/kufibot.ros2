@@ -67,18 +67,30 @@ ayrı iş parçacığında çalışır; pencere ve araç beklemeleri heartbeat'i
 
 ## Robot fiziksel referansı
 
-Simülasyonun çarpışma ve sensör modeli `robot_teknik_olculer.svg` çizimindeki
-yaklaşık referansa göre ayarlıdır: dış genişlik 32 cm, toplam yükseklik 32 cm,
-sensör merkezi yerden 28,5 cm, iki göz merkezi arası 6 cm'dir. Kamera robotun
-sol gözünde (`-3 cm`), lidar sağ gözünde (`+3 cm`) bulunur. Dünya simülatörü
-raycast ve kamera görüntüsünü bu ayrı merkezlerden üretir; navigasyonun
-birikmiş haritası da lidarın sağ ofsetini hesaba katar.
+Kamera robotun **sağ gözünde**, lidar **sol gözünde** bulunur. Optik merkezler
+`model/rig.json` içindeki göz ön yüzlerine göre tanımlanır; gerçek donanımın
+milimetrik montaj ölçümü değildir. Dünya simülatörü, izleyiciyle aynı eklem
+hiyerarşisini kullanarak konumu, bakış yönünü ve kamera dönüşünü hesaplar.
+Boyun başlangıcı 10°; yatay bakış ve navigasyon taraması 0°'dir.
 
-Çizim derinlik ve kesin CAD geometrisi vermediği için 2B çarpışma modeli 32 cm
-çaplı dairesel bir zarf (`body_radius_m: 0.16`) kullanır. Bu varsayım
-`src/kufibot_simulation/config/simulation.yaml` dosyasında açıkça yer alır.
-Üç boyutlu izleyicide de aynı dış zarf, paletli gövde ve mavi kamera / turuncu
-lidar gözleri metre ölçeğinde çizilir.
+Haritalama yalnızca boyun 10°, sol göz 0° ve sağ göz 170° geri bildirimiyle
+üretilebilir. Boyun veya gözler bu hedeflere giderken ışınlar reddedilir ve
+mevcut harita korunur. Araç çağrısıyla gezinme, rota takibi ve kumanda ile
+hareket bu optik pozu otomatik ister; geri bildirim hedefe ulaşınca haritalama
+kendiliğinden sürer.
+
+Lidar, izleyicideki evin gerçek üçgenleri üzerinde üç boyutlu ışın testi yapar:
+zemin, duvarlar ve mobilyalar ışına çarpar; yukarı bakan ışın alçak nesneleri
+veya duvarın üstünü aşabilir. Mesafe, ışın boyunca ölçülür. `lidar_pose` ve
+`camera_pose` telemetrisi yükseklik, `pitch_deg`, `direction` ve `up` içerir;
+`lidar_hit` artık üç boyutlu çarpma noktasıdır. Panda3D kamera aynı sağ göz
+pozunu kullanır. Alternatif `schematic` kamera yaklaşık 2B çizim olarak kalır.
+
+2B gövde çarpışması 32 cm çaplı dairesel zarfı korur (`body_radius_m: 0.16`).
+Navigasyonun sabit lidar ofseti, sol gözün yatay ve merkezlenmiş baş pozuna
+göredir; baş döndükçe oluşan optik merkez hareketini haritalama modeli henüz
+ayrıca hesaplamaz. Simülasyon sensörünün gerçek konumu ise her eklem
+hareketinde güncellenir.
 
 Yerinde dönüş kontrolü kalibre edilmiş dairesel gövde için gövde yarıçapı,
 açıklık payı ve lidar montaj uzaklığını kullanır. İleri hareketin fren mesafesi

@@ -22,9 +22,10 @@ class Rig:
         n.sensor('heading', self.heading)
         n.sensor('range', self.distance)
         n.sensor('range_min', .2)
-        target, neck = n.head_target or (90., 60.)
+        target, neck = n.head_target or (90., 10.)
         self.head_joint += max(-3.0, min(3.0, target-self.head_joint))
-        n.sensor('joints', dict(headLeftRight=self.head_joint, neck=neck))
+        n.sensor('joints', dict(headLeftRight=self.head_joint, neck=neck,
+                                eyeLeft=0., eyeRight=170.))
         n.sensor('image', 'frame')
 
     def tick(self):
@@ -54,6 +55,13 @@ def test_bearing_and_wrap():
     assert delta(359, 1) == -2
     assert r.nav.bearing(80) == 9
     assert r.nav.bearing(90, 3) == 2
+
+
+def test_navigation_start_requests_level_sensor_posture_before_mapping():
+    r = Rig()
+    assert r.nav.head_target == (90., 10.)
+    assert r.nav.mapping_posture_valid(dict(neck=10., eyeLeft=0., eyeRight=170.))
+    assert not r.nav.mapping_posture_valid(dict(neck=10., eyeLeft=20., eyeRight=170.))
 
 
 def test_scan_waits_for_new_image_and_range_after_servo_settles():
@@ -181,12 +189,20 @@ def test_motion_stops_on_bad_feedback(failure):
         r.heading += 8
         drive = r.tick()
     elif failure == 'head':
-        r.nav.sensor('joints', dict(headLeftRight=30., neck=60.))
+        r.nav.sensor('joints', dict(headLeftRight=30., neck=10., eyeLeft=0., eyeRight=170.))
         drive = r.nav.tick()
     else:
         r.nav.sensor('range', None)
         drive = r.nav.tick()
     assert drive == (0., 0.)
+    if failure == 'jump':
+        assert r.nav.state == 'waiting_obstacle'
+        assert r.nav.step['moved_m'] == 0.
+        r.distance += .5
+        for _ in range(20):
+            r.tick()
+        assert r.nav.step is not None
+        return
     if failure != 'stale':
         # jump/heading/head stop mid-move but still capture a final snapshot.
         for _ in range(200):
@@ -259,13 +275,13 @@ def test_goto_stops_immediately_when_an_obstacle_appears():
             break
     r.distance = r.nav.stop_distance() - .01
     assert r.tick() == (0., 0.)
-    for _ in range(100):
+    for _ in range(800):
         r.tick()
         if r.nav.step is None:
             break
     result = r.nav.results['move']
     assert result['status'] == 'blocked'
-    assert result['reason'] == 'obstacle'
+    assert result['reason'] == 'obstacle_wait_timeout'
 
 
 def test_goto_does_not_scan_or_correct_after_an_obstacle():
@@ -277,13 +293,13 @@ def test_goto_does_not_scan_or_correct_after_an_obstacle():
             break
     r.distance = r.nav.stop_distance() - .01
     assert r.tick() == (0., 0.)
-    for _ in range(100):
+    for _ in range(800):
         r.tick()
         if r.nav.step is None:
             break
     result = r.nav.results['move']
     assert result['status'] == 'blocked'
-    assert result['reason'] == 'obstacle'
+    assert result['reason'] == 'obstacle_wait_timeout'
     assert result['moved_m'] < .2
 
 
@@ -399,11 +415,11 @@ def test_turn_monitors_actual_footprint_clearance_while_moving(distance, blocked
     drive = r.tick()
     if blocked:
         assert drive == (0., 0.)
-        for _ in range(100):
+        for _ in range(800):
             r.tick()
             if r.nav.step is None:
                 break
-        assert r.nav.results['turn']['reason'] == 'obstacle'
+        assert r.nav.results['turn']['reason'] == 'obstacle_wait_timeout'
     else:
         assert drive[1] != 0
         assert r.nav.step is not None

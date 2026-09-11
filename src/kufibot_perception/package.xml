@@ -8,6 +8,8 @@
   <buildtool_depend>ament_python</buildtool_depend>
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>ament_index_python</depend>
   <depend>kufibot_interfaces</depend>
   <exec_depend>python3-opencv</exec_depend>
   <test_depend>python3-pytest</test_depend>

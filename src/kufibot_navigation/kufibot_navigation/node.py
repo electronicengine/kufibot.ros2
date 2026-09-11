@@ -37,6 +37,7 @@ class NavigationNode(Node):
             self.declare_parameter(name, value)
             config[name] = self.get_parameter(name).value
         self.nav = Navigator(Config(**config))
+        self.nav.metric_map.enable_background_reconstruction()
         # Compass samples are noisy in both hardware and the simulation. Keep
         # a small circular moving average so a stationary robot does not look
         # as though it has rotated between two scan samples.
@@ -64,6 +65,8 @@ class NavigationNode(Node):
         self.create_subscription(Float32, 'compass/heading_deg', self._heading, qos_profile_sensor_data)
         self.create_subscription(JointState, 'servo/joint_states', self._joints, qos_profile_sensor_data)
         self.create_subscription(Image, 'camera/image_raw', self._image, qos_profile_sensor_data)
+        self.visual_stamp = -math.inf
+        self.create_subscription(String, 'perception/navigation_obstacles', self._visual, 1)
         self.create_service(NavigationTask, 'navigation/task', self._task)
         self.create_service(GetObservation, 'navigation/observation', self._observation)
         self.action = ActionServer(self, NavigateStep, 'navigation/step', self._execute,
@@ -126,13 +129,32 @@ class NavigationNode(Node):
     def _joints(self, msg):
         joints = dict(zip(msg.name, (math.degrees(v) for v in msg.position)))
         valid = self._source_fresh(msg, self.nav.c.sensor_age_sec) and len(msg.name) == len(msg.position) and all(
-            name in joints and math.isfinite(joints[name]) for name in ('neck', 'headLeftRight'))
+            name in joints and math.isfinite(joints[name])
+            for name in ('neck', 'headLeftRight', 'eyeLeft', 'eyeRight'))
         self.nav.sensor('joints', joints if valid else None, mapping_stamp=self._mapping_stamp(msg))
 
     def _image(self, msg):
         valid = (self._source_fresh(msg, self.nav.c.camera_age_sec) and msg.encoding in ('rgb8', 'bgr8') and msg.width > 0 and msg.height > 0
                  and msg.step >= msg.width * 3 and len(msg.data) == msg.step * msg.height)
         self.nav.sensor('image', msg if valid else None)
+
+    def _visual(self, msg):
+        data = json_data(msg)
+        stamp = data.get('image_stamp_sec')
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or not math.isfinite(stamp):
+            return
+        age = self.get_clock().now().nanoseconds/1e9-stamp
+        if (stamp <= self.visual_stamp or not 0 <= age <= self.nav.c.visual_age_sec
+                or not isinstance(data.get('blocked'), bool) or not isinstance(data.get('dynamic'), bool)):
+            return
+        self.visual_stamp = stamp
+        acquired = time.monotonic()-age
+        joints = self.nav.map_history.at('joints', acquired, self.nav.c.map_sensor_skew_sec)
+        forward = self.nav.c.head_center_deg-self.nav.c.lidar_yaw_offset_deg/self.nav.c.head_sign
+        if (joints is None or abs(joints['headLeftRight']-forward) > 1.5
+                or not self.nav.mapping_posture_valid(joints)):
+            return  # a sideways/tilted camera cannot certify the driving corridor
+        self.nav.sensor('visual', data, stamp=acquired)
 
     def _task(self, request, response):
         result = self.nav.task(request.operation, request.session_id, request.task_id,
@@ -267,8 +289,10 @@ class NavigationNode(Node):
         msg = JointCommand()
         msg.header.stamp = command.header.stamp
         if self.nav.enabled and self.nav.task_id and self.nav.head_target:
-            msg.names = ['headLeftRight', 'neck']
-            msg.angles_deg = list(self.nav.head_target)
+            msg.names = ['headLeftRight', 'neck', 'eyeLeft', 'eyeRight']
+            msg.angles_deg = [*self.nav.head_target,
+                               self.nav.c.mapping_eye_left_deg,
+                               self.nav.c.mapping_eye_right_deg]
             msg.hold_sec = .25
         else:
             msg.cancel_agent = True
@@ -307,6 +331,7 @@ class NavigationNode(Node):
 
     def destroy_node(self):
         self.drive_pub.publish(DriveCommand(profile='stop'))
+        self.nav.metric_map.close()
         self.velocity_pub.publish(Twist())
         self.head_pub.publish(JointCommand(cancel_agent=True))
         self.motion_pub.publish(JointCommand(cancel_agent=True))

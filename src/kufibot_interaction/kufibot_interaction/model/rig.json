@@ -18,8 +18,8 @@
         0,
         0
       ],
-      "neutral_deg": 60,
-      "assembly_deg": 60,
+      "neutral_deg": 10,
+      "assembly_deg": 0,
       "limits_deg": [
         0,
         120
@@ -58,8 +58,8 @@
         0,
         1
       ],
-      "neutral_deg": 30,
-      "assembly_deg": 30,
+      "neutral_deg": 0,
+      "assembly_deg": 0,
       "limits_deg": [
         0,
         40
@@ -78,8 +78,8 @@
         0,
         1
       ],
-      "neutral_deg": 150,
-      "assembly_deg": 150,
+      "neutral_deg": 170,
+      "assembly_deg": 170,
       "limits_deg": [
         140,
         170
@@ -99,7 +99,7 @@
         0
       ],
       "neutral_deg": 170,
-      "assembly_deg": 170,
+      "assembly_deg": 132.5,
       "limits_deg": [
         109,
         180
@@ -119,7 +119,7 @@
         0
       ],
       "neutral_deg": 15,
-      "assembly_deg": 15,
+      "assembly_deg": 47.5,
       "limits_deg": [
         10,
         72
@@ -162,5 +162,23 @@
       "radius_m": 0.015371418768227826
     }
   },
-  "triangles": 132061
+  "triangles": 132061,
+  "sensors": {
+    "camera": {
+      "parent": "eyeRight",
+      "position_m": [
+        0.01938574,
+        -0.00338662,
+        -0.09181267
+      ]
+    },
+    "lidar": {
+      "parent": "eyeLeft",
+      "position_m": [
+        0.00048105,
+        6.045e-05,
+        -0.0822004
+      ]
+    }
+  }
 }

@@ -28,6 +28,17 @@ def test_navigation_only_owner_verasist_ready_and_ai():
     assert c.tick(.05, {}) == (0., 0.)  # enabling is not a movement command
 
 
+def test_manual_drive_restores_the_level_mapping_sensor_posture():
+    c = Control(clock=lambda: 10.)
+    owner = object()
+    c.command(owner, {'type': 'claim'})
+    c.command(owner, {'type': 'input', 'drive_y': 1.})
+    linear, angular = c.tick(.05, {'neck': 50., 'eyeLeft': 25., 'eyeRight': 145.})
+    assert linear and angular == 0.
+    assert {name: c.targets[name] for name in ('neck', 'eyeLeft', 'eyeRight')} == {
+        'neck': 10., 'eyeLeft': 0., 'eyeRight': 170.}
+
+
 @pytest.mark.parametrize('event', ['stop', 'release', 'timeout', 'mode'])
 def test_every_control_loss_invalidates_enable_epoch(event):
     c, owner = ready()
