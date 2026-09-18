@@ -11,13 +11,20 @@ voice_agent_node:
   ros__parameters:
     api_endpoint: "http://localhost:8000"
     trigger_uuid: "b1c382e1-63cc-406e-b556-7caf8bcb4d60"
-    mic_device: "plughw:2,0"
-    speaker_device: "default"
+    mic_device: "pulse:kufibot_aec_source"
+    speaker_device: "pulse:kufibot_aec_sink"
     ice_timeout_sec: 30.0
     sensor_max_age_sec: 2.0
-    mute_mic_during_playback: true
-    mic_noise_gate_rms: 450.0
+    mute_mic_during_playback: false
+    mic_noise_gate_rms: 0.0
     mic_noise_gate_hangover_sec: 0.5
+    # Adaptive noise postfilter after PipeWire AEC; 0 disables it.
+    mic_noise_suppression_db: -25.0
+    # Raise interruption energy only during local playback and its echo tail.
+    # 0 RMS disables the guard. Accepted speech retains its initial 180 ms.
+    mic_barge_in_rms: 4000.0
+    mic_barge_in_start_sec: 0.28
+    mic_playback_echo_tail_sec: 1.2
     camera_max_age_sec: 1.0
     camera_jpeg_max_width: 640
     camera_jpeg_quality: 80
@@ -28,6 +35,20 @@ voice_agent_node:
     auto_start: false
     remote_mode_controls_voice: true
     expression_model_path: "/usr/local/ai.models/llamaModel/mxbaiV1.gguf"
+    # Resource-exclusive local voice stages; silence ends a turn after 600 ms.
+    local_vad_model: "/usr/local/ai.models/vad/silero_vad.onnx"
+    local_vad_threshold: 0.5
+    local_vad_pre_roll_ms: 300
+    local_vad_silence_ms: 600
+    local_vad_min_speech_ms: 96
+    local_max_utterance_sec: 30.0
+    local_llm_threads: 3
+    local_llm_batch_threads: 4
+    local_llm_context: 2048
+    local_llm_max_tokens: 160
+    # Piper overlaps LLM generation: 3 LLM + 1 Piper CPU thread.
+    local_tts_threads: 1
+    local_hailo_timeout_sec: 30.0
     expression_n_threads: 2
     expression_n_ctx: 512
     expression_n_gpu_layers: 0
@@ -72,6 +93,7 @@ servo_arbiter:
 
 servo_node:
   ros__parameters:
+    startup_settle_sec: 1.5
     step_deg: 1.0
     arm_step_deg: 0.3
     step_delay_ms: 15.0

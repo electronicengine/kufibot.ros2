@@ -19,7 +19,9 @@ async def wait_for(predicate, timeout=4):
     await asyncio.wait_for(poll(), timeout)
 
 
-def test_browser_camera_controls_and_reconnect(monkeypatch):
+def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    monkeypatch.setenv('KUFIBOT_KNOWLEDGE_ROOT', str(tmp_path / 'knowledge'))
     playwright = pytest.importorskip('playwright.async_api')
     chromium = shutil.which('chromium')
     if not chromium:
@@ -29,7 +31,7 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
         control = Control()
         from kufibot_interaction.ai_settings import DEFAULT
         models = [dict(id=kind, kind=kind, languages=['tr'], available=True)
-                  for kind in ('stt', 'llm', 'tts')]
+                  for kind in ('stt', 'llm', 'embedding', 'tts')]
         monkeypatch.setattr('kufibot_interaction.ai_settings.catalog', lambda: models)
         ai_config = {'settings': dict(DEFAULT), 'models': models, 'error': ''}
         values = {'camera': True, 'driveAvailable': True, 'voltage': 12.4}
@@ -53,6 +55,11 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
 
         server = Server(control, status,
                         lambda: LatestCameraTrack(lambda: pixels if values['camera'] else None))
+        workflow = server.workflow_api.workflows.save(dict(schema_version=1, name='Sesli workflow',
+            settings={**DEFAULT, 'provider': 'local', 'stt': 'stt', 'llm': 'llm',
+                      'tts': 'tts', 'embedding': 'embedding', 'system_prompt': 'Workflow talimatı'},
+            nodes=[dict(id='s', type='start', data={}), dict(id='a', type='agent', data={})],
+            edges=[dict(id='sa', source='s', target='a')]))
         runner = web.AppRunner(server.app)
         await runner.setup()
         site = web.TCPSite(runner, '127.0.0.1', 0)
@@ -103,26 +110,31 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
 
                     # The UI saves installed model IDs and keeps drafts across telemetry.
                     await page.locator('#menu-open').click()
+                    await page.locator('[data-page="voice"]').click()
+                    await page.locator('#ai-camera-context').check()
+                    await page.locator('#save-ai-settings').click()
+                    await wait_for(lambda: ai_config['settings']['camera_attach_to_every_user_turn'] is True)
                     await page.locator('#ai-provider').select_option('local')
+                    await playwright.expect(page.locator('#ai-camera-context')).to_be_disabled()
                     await playwright.expect(page.locator('#local-model-settings')).to_be_visible()
                     await playwright.expect(page.locator('#save-ai-settings')).to_be_disabled()
-                    for kind in ('stt', 'llm', 'tts'):
-                        await page.locator('#ai-' + kind).select_option(kind)
-                    await page.locator('#ai-system-prompt').fill(
-                        'You are Kufibot. Answer in one sentence.')
+                    assert await page.locator('#ai-system-prompt, #ai-llm, #ai-stt, #ai-tts').count() == 0
+                    await page.locator('#ai-workflow').select_option(workflow['id'])
                     await page.locator('#save-ai-settings').click()
                     await wait_for(lambda: ai_config['settings']['provider'] == 'local')
                     assert ai_config['settings']['stt'] == 'stt'
-                    assert ai_config['settings']['system_prompt'] == (
-                        'You are Kufibot. Answer in one sentence.')
-                    await page.locator('#menu-close').click()
+                    assert ai_config['settings']['system_prompt'] == 'Workflow talimatı'
+                    assert ai_config['settings']['workflow_id'] == workflow['id']
+                    await playwright.expect(page.locator('#ai-settings-status')).not_to_contain_text('Uygulanması bekleniyor')
+                    await page.locator('#page-back').click()
                     await page.locator('#mode-ai').click()
                     await wait_for(lambda: control.mode == 'ai')
                     await page.locator('#menu-open').click()
+                    await page.locator('[data-page="voice"]').click()
                     await page.locator('#ai-provider').select_option('verasist')
                     await page.locator('#save-ai-settings').click()
                     await wait_for(lambda: ai_config['settings']['provider'] == 'verasist')
-                    await page.locator('#menu-close').click()
+                    await page.locator('#page-back').click()
                     await page.locator('#mode-remote').click()
                     await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'false')
                     await page.locator('#mode-remote').focus()
@@ -205,11 +217,11 @@ def test_browser_camera_controls_and_reconnect(monkeypatch):
                     await page.keyboard.up('w')
                     await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     await page.locator('#eyeLeft').check()
-                    await wait_for(lambda: control.targets.get('eyeLeft') == 0)
+                    await wait_for(lambda: current.get('eyeLeft') == 0)
                     await page.locator('#rightArm').focus()
                     await page.locator('#rightArm').press('Home')
                     await page.locator('#rightArm').press('ArrowRight')
-                    await wait_for(lambda: control.targets.get('rightArm') == 11)
+                    await wait_for(lambda: current.get('rightArm') == 11)
 
                     # Mobile browser sizing retains every control in the viewport.
                     for width, height, name in [(852, 393, 'landscape'), (390, 844, 'portrait')]:

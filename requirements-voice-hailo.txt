@@ -1,0 +1,4 @@
+# Optional Hailo-8L Whisper host dependencies; HailoRT comes from system packages.
+# Deliberately avoid torch/transformers in the robot voice worker.
+tokenizers==0.21.4
+scipy>=1.10,<2

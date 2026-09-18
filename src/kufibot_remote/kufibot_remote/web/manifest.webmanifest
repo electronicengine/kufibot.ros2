@@ -1,0 +1,10 @@
+{
+  "name": "Kufibot Kontrol Merkezi",
+  "short_name": "Kufibot",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#111319",
+  "theme_color": "#111319",
+  "icons": [{"src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+}

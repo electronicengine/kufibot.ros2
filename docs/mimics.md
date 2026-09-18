@@ -22,7 +22,7 @@ Sayfa kapanırken veya uygulama arka plana giderken oynatma durdurulur.
 Normal derleme ve başlatma akışı geçerlidir:
 
 ```bash
-./tools/ros2_build.sh
+./tools/ros2_build_sim.sh
 ./tools/ros2_sim_launch.sh sim voice:=false
 ```
 

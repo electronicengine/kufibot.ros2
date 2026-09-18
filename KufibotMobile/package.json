@@ -14,6 +14,7 @@
     "expo": "~55.0.0",
     "expo-build-properties": "~55.0.0",
     "expo-dev-client": "~55.0.0",
+    "expo-document-picker": "~55.0.17",
     "expo-keep-awake": "~55.0.8",
     "expo-system-ui": "~55.0.22",
     "react": "19.2.0",

@@ -3,14 +3,32 @@ import { RobotConnection } from './connection.js';
 const $ = id => document.getElementById(id);
 const link = new RobotConnection();
 const menu = $('menu');
-const calibrationModal = $('calibration-modal');
 const aiTriggerModal = $('ai-trigger-modal');
 const AI_TRIGGER_UUID_KEY = 'kufibot.aiTriggerUuid';
 const AI_TRIGGER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let windowActive = true;
+const pageTitles = {connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', workflows: 'Workflowlar', calibration: 'Kalibrasyon'};
+let activePage = location.hash.slice(1) || 'control';
+if (!['control', 'connection', 'voice', 'workflows', 'calibration'].includes(activePage)) activePage = 'control';
 let imageLoaded = false;
 const keys = new Set();
-const canControl = () => link.ready && !menu.open && !$('mimics-modal').open && windowActive;
+const canControl = () => link.ready && !menu.classList.contains('open') && activePage === 'control' && !$('mimics-modal').open && windowActive;
+
+function openDrawer() { link.stop(); menu.classList.add('open'); menu.setAttribute('aria-hidden', 'false'); $('drawer-backdrop').hidden = false; render(); }
+function closeDrawer() { menu.classList.remove('open'); menu.setAttribute('aria-hidden', 'true'); $('drawer-backdrop').hidden = true; render(); }
+function selectPage(page, replace = false) {
+  link.stop(); closeDrawer();
+  if (page === 'mimics') { openMimics(); return; }
+  activePage = page;
+  if (page === 'workflows') refreshWorkflowOptions();
+  $('settings-page').hidden = page === 'control';
+  for (const article of document.querySelectorAll('[data-page-content]')) article.classList.toggle('active', article.dataset.pageContent === page);
+  for (const button of document.querySelectorAll('[data-page]')) button.setAttribute('aria-current', String(button.dataset.page === page));
+  if (page !== 'control') $('page-title').textContent = pageTitles[page];
+  const hash = page === 'control' ? '' : `#${page}`;
+  if (replace) history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); else if (location.hash !== hash) history.pushState(null, '', hash || location.pathname);
+  render();
+}
 
 class Joystick {
   constructor(part) {
@@ -121,7 +139,6 @@ function renderCalibration(state) {
   const progress = active && Number.isInteger(calibration.samples) && Number.isInteger(calibration.target)
     ? ` (${calibration.samples}/${calibration.target})` : '';
   $('calibration-info').textContent = `${message}${progress}`;
-  $('calibration-modal-message').textContent = `${message}${progress}`;
   for (const [name, value] of Object.entries({
     'raw-x': calibration?.raw?.x, 'raw-y': calibration?.raw?.y,
     'min-x': calibration?.minimum?.x, 'max-x': calibration?.maximum?.x,
@@ -145,42 +162,34 @@ function renderAiWorkflow(state) {
 let aiDraft = null;
 let aiDirty = false;
 let aiSaved = null;
+let localWorkflows = [];
+let aiWorkflowError = '';
 function renderAiSettings(state) {
   const config = state?.aiConfig;
   if (!aiDirty && config?.settings) aiDraft = {...config.settings};
   if (aiSaved && JSON.stringify(config?.settings) === aiSaved) {
     aiDirty = false; aiSaved = null;
   }
-  const draft = aiDraft || {provider: 'verasist', language: 'tr', stt: '', llm: '', tts: '', system_prompt: ''};
+  const draft = aiDraft || {provider: 'verasist', language: 'tr', stt: '', llm: '', embedding: '', tts: '', system_prompt: '', camera_attach_to_every_user_turn: false};
   const local = draft.provider === 'local';
   $('ai-provider').value = draft.provider;
   $('ai-provider').disabled = !state?.owner || !config;
+  $('ai-camera-context').checked = !!draft.camera_attach_to_every_user_turn;
+  $('ai-camera-context').disabled = !state?.owner || !config || local;
+  $('ai-camera-context').parentElement.hidden = local;
+  $('ai-camera-help').hidden = local;
+  $('ai-camera-help').textContent = local ? 'Yerel sağlayıcı görüntü desteklemiyor.' :
+    'Açıkken her konuşmanıza robot kamerasından bir fotoğraf eklenir. Kapalıyken açık kamera talepleri ve navigasyon çalışmaya devam eder.';
   $('local-model-settings').hidden = !local;
   $('verasist-settings').hidden = local;
-  const models = config?.models || [];
-  const languages = [...new Set(models.filter(m => m.available).flatMap(m => m.languages))].sort();
-  function options(id, values, current) {
-    const select = $(id);
-    select.replaceChildren(new Option('Seçin', ''));
-    for (const [value, label] of values) select.add(new Option(label, value));
-    select.value = current;
-    select.disabled = !state?.owner;
-  }
-  options('ai-language', languages.map(l => [l, l]), draft.language);
-  for (const kind of ['stt', 'llm', 'tts']) {
-    options(`ai-${kind}`, models.filter(m => m.kind === kind && m.available && m.languages.includes(draft.language))
-      .map(m => [m.id, m.label || m.id]), draft[kind]);
-  }
-  const prompt = $('ai-system-prompt');
-  if (document.activeElement !== prompt) prompt.value = draft.system_prompt || '';
-  prompt.disabled = !state?.owner;
-  const valid = !local || ['stt', 'llm', 'tts'].every(kind => models.some(m =>
-    m.kind === kind && m.id === draft[kind] && m.available && m.languages.includes(draft.language)));
+  $('ai-workflow').disabled = !state?.owner;
+  const valid = !local || localWorkflows.some(w => w.id === draft.workflow_id);
   $('save-ai-settings').disabled = !state?.owner || !config || !valid;
-  const saved = config && ['provider', 'language', 'stt', 'llm', 'tts', 'system_prompt'].every(k => draft[k] === config.settings[k]);
-  $('ai-settings-status').textContent = [config?.error, state?.voiceStatus?.detail,
+  $('save-ai-settings').textContent = local ? 'Seçili workflow’u bağla ve uygula' : 'Ayarları kaydet ve uygula';
+  const saved = config && ['provider', 'workflow_id', 'camera_attach_to_every_user_turn'].every(k => draft[k] === config.settings[k]);
+  $('ai-settings-status').textContent = [aiWorkflowError, config?.error, state?.voiceStatus?.detail,
     state?.voiceStatus?.state, aiSaved ? 'Uygulanması bekleniyor…' : '',
-    local && !valid ? 'Bu dil için robotta STT, LLM ve TTS modellerini kurup seçin.' : '',
+    local && !valid ? 'Bir workflow seçin veya workflow editöründen oluşturun.' : '',
     !config ? 'Sesli ajan ayarları bekleniyor' : !saved ? 'Önce ayarları kaydedin.' : state.mode !== 'ai' ? 'Ayarlar kayıtlı. Ana ekrandan YZ modu seçildiğinde ajan başlar.' : ''].filter(Boolean).join(' · ');
 }
 
@@ -256,23 +265,97 @@ function drawDistanceMap(canvas, mapping, routePlan) {
   const liveRange = link.state?.sensors.distance;
   ctx.fillText(Number.isFinite(liveRange) ? `Lidar baktığı yön: ${liveRange.toFixed(2)} m` : 'Lidar: — m', 8*ratio, 26*ratio);
 }
-for (const key of ['provider', 'language', 'stt', 'llm', 'tts']) {
+for (const key of ['provider']) {
   $(`ai-${key}`).addEventListener('change', event => {
     aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), [key]: event.target.value};
-    if (key === 'language') for (const kind of ['stt', 'llm', 'tts']) aiDraft[kind] = '';
+    if (key === 'language') for (const kind of ['stt', 'tts']) aiDraft[kind] = '';
     aiDirty = true; aiSaved = null;
     renderAiSettings(link.state);
   });
 }
-$('ai-system-prompt').addEventListener('input', event => {
-  aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), system_prompt: event.target.value};
+$('ai-camera-context').addEventListener('change', event => {
+  aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), camera_attach_to_every_user_turn: event.target.checked};
   aiDirty = true; aiSaved = null;
-  renderAiSettings(link.state);
 });
 $('save-ai-settings').addEventListener('click', () => {
+  if (aiDraft?.provider === 'local') {
+    aiWorkflowError = '';
+    const workflow = localWorkflows.find(w => w.id === aiDraft.workflow_id);
+    if (workflow && link.send({type:'workflow',action:'activate',request_id:'voice-workflow-activate',id:workflow.id})) {
+      $('ai-settings-status').textContent = 'Workflow doğrulanıyor ve bağlanıyor…';
+    }
+    return;
+  }
   if (link.send({type: 'setAiSettings', settings: aiDraft})) aiSaved = JSON.stringify(aiDraft);
   renderAiSettings(link.state);
 });
+
+const workflowDialog = document.createElement('dialog');
+workflowDialog.style.cssText = 'width:98vw;max-width:1800px;height:96vh;padding:0;border:1px solid #405064';
+const workflowFrame = document.createElement('iframe');
+workflowFrame.title = 'Local Agent Workflow';
+workflowFrame.style.cssText = 'width:100%;height:100%;border:0';
+workflowDialog.append(workflowFrame); document.body.append(workflowDialog);
+workflowDialog.addEventListener('close', () => {
+  link.send({type:'workflow',action:'testStop'});
+  workflowFrame.src='about:blank';
+  refreshWorkflowOptions();
+});
+async function refreshWorkflowOptions() {
+  try {
+    const response = await fetch('/api/workflows', {cache:'no-store'});
+    if (!response.ok) throw new Error('Workflow servisine erişilemiyor. Robot sunucusunu güncel sürümle yeniden başlatın.');
+    const workflows = await response.json();
+    localWorkflows = workflows;
+    $('ai-workflow').replaceChildren(new Option('Workflow seçin', ''), ...workflows.map(w => new Option(w.name, w.id)));
+    $('ai-workflow').value = aiDraft?.workflow_id || link.state?.aiConfig?.settings?.workflow_id || '';
+    $('workflow-list').replaceChildren(...workflows.map(w => {
+      const row = document.createElement('div');
+      const button = document.createElement('button');
+      button.className = 'secondary';
+      button.textContent = `${w.name} · Düzenle`;
+      button.addEventListener('click', () => openWorkflowEditor(w.id));
+      row.append(button);
+      return row;
+    }));
+    $('workflow-list-status').textContent = workflows.length ? `${workflows.length} kayıtlı workflow` : 'Henüz workflow yok. Yeni workflow oluşturarak başlayın.';
+    renderAiSettings(link.state);
+  } catch (error) { $('workflow-list-status').textContent = error.message; }
+}
+$('ai-workflow').addEventListener('change', event => {
+  aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), workflow_id:event.target.value};
+  aiDirty = true; aiSaved = null;
+  renderAiSettings(link.state);
+});
+function openWorkflowEditor(id = '') {
+  link.stopManualInput(); closeDrawer();
+  workflowFrame.src=`/workflows?embedded=1${id ? `&workflow=${encodeURIComponent(id)}` : ''}`;
+  workflowDialog.showModal();
+}
+$('open-workflows').addEventListener('click', () => openWorkflowEditor());
+$('new-workflow').addEventListener('click', () => openWorkflowEditor());
+$('refresh-workflows').addEventListener('click', refreshWorkflowOptions);
+workflowFrame.addEventListener('load', () => {
+  if (link.state) workflowFrame.contentWindow?.postMessage(link.state, location.origin);
+});
+window.addEventListener('message', event => {
+  if (event.origin !== location.origin || event.source !== workflowFrame.contentWindow || !workflowDialog.open) return;
+  if (event.data?.type === 'workflowClose') {workflowDialog.close(); workflowFrame.src='about:blank';refreshWorkflowOptions();}
+  if (event.data?.type === 'workflowCommand' && event.data.command?.type === 'workflow') link.send(event.data.command);
+});
+link.addEventListener('workflow', ({detail}) => {if(workflowDialog.open)workflowFrame.contentWindow?.postMessage(detail,location.origin)});
+link.addEventListener('workflow', ({detail}) => {
+  if (detail.request_id !== 'voice-workflow-activate') return;
+  if (detail.error) { aiWorkflowError = detail.error; renderAiSettings(link.state); return; }
+  aiWorkflowError = '';
+  aiDirty = false; aiSaved = null;
+  refreshWorkflowOptions();
+});
+link.addEventListener('state', ({detail}) => {
+  if(workflowDialog.open)workflowFrame.contentWindow?.postMessage(detail,location.origin);
+  if(!aiDirty) $('ai-workflow').value=detail?.aiConfig?.settings?.workflow_id || '';
+});
+refreshWorkflowOptions();
 
 function render() {
   const state = link.state;
@@ -381,6 +464,10 @@ $('ai-trigger-modal-input').addEventListener('keydown', event => {
 $('ai-trigger-modal-input').addEventListener('input', () => { $('ai-trigger-modal-error').hidden = true; });
 
 for (const mode of ['remote', 'ai', 'tools']) $(`mode-${mode}`).addEventListener('click', () => {
+  if (mode === 'ai' && link.state?.aiConfig?.settings?.provider === 'local' && !link.state.aiConfig.settings.workflow_id) {
+    selectPage('voice');
+    return;
+  }
   if (mode === 'ai' && link.state?.aiConfig?.settings?.provider === 'verasist') {
     openAiTriggerModal();
     return;
@@ -467,23 +554,24 @@ for (const name of ['leftArm', 'rightArm']) {
 $('eyeLeft').addEventListener('change', () => link.joint('eyeLeft', $('eyeLeft').checked ? 0 : 30));
 $('eyeRight').addEventListener('change', () => link.joint('eyeRight', $('eyeRight').checked ? 170 : 150));
 
-$('menu-open').addEventListener('click', () => { link.stop(); menu.showModal(); render(); });
-$('menu-close').addEventListener('click', () => menu.close());
-menu.addEventListener('close', render);
-$('reconnect').addEventListener('click', () => { menu.close(); link.connect(); });
+$('menu-open').addEventListener('click', openDrawer);
+$('menu-close').addEventListener('click', closeDrawer);
+$('drawer-backdrop').addEventListener('click', closeDrawer);
+$('page-menu').addEventListener('click', openDrawer);
+$('page-back').addEventListener('click', () => selectPage('control'));
+for (const button of document.querySelectorAll('[data-page]')) button.addEventListener('click', () => selectPage(button.dataset.page));
+$('reconnect').addEventListener('click', () => { selectPage('control'); link.connect(); });
 $('ai-trigger-uuid').addEventListener('input', () => renderAiWorkflow(link.state));
 $('start-ai-workflow').addEventListener('click', () => {
   const value = $('ai-trigger-uuid').value.trim();
   localStorage.setItem(AI_TRIGGER_UUID_KEY, value);
   link.startAiWorkflow(value);
-  menu.close();
+  selectPage('control');
 });
 $('calibrate-compass').addEventListener('click', () => {
   link.calibrateCompass();
-  menu.close();
-  calibrationModal.showModal();
+  selectPage('calibration');
 });
-$('calibration-close').addEventListener('click', () => calibrationModal.close());
 $('endpoint').textContent = location.host;
 $('menu-address').textContent = location.origin;
 $('distance-map').addEventListener('click', () => {
@@ -529,17 +617,20 @@ window.addEventListener('focus', () => { windowActive = true; render(); });
 window.addEventListener('resize', () => link.stopManualInput());
 render();
 link.connect();
+selectPage(activePage, true);
+window.addEventListener('popstate', () => selectPage(location.hash.slice(1) || 'control', true));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
 
 // Reuse this controller's ownership; the embedded editor has no second socket.
 const mimicModal = $('mimics-modal');
 const mimicFrame = $('mimics-frame');
-$('mimics-open').addEventListener('click', () => {
-  link.stop(); menu.close(); mimicModal.showModal();
+function openMimics() {
+  link.stop(); closeDrawer(); mimicModal.showModal();
   mimicFrame.src = '/mimics?embedded=1';
-});
+}
 const closeMimics = () => {
   if (link.state?.owner) link.send({type:'stopMimic'});
-  mimicModal.close(); mimicFrame.src = 'about:blank';
+  mimicModal.close(); mimicFrame.src = 'about:blank'; selectPage('control');
 };
 mimicModal.addEventListener('cancel', event => {event.preventDefault(); closeMimics();});
 const editorCommands = new Set(['playMimic','stopMimic','stop','claim','mode']);

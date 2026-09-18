@@ -5,6 +5,8 @@ import time
 import sys
 import os
 
+from kufibot_interaction.local_voice_runtime import attach_phase_lease
+
 import cv2
 # MediaPipe imports its optional audio Tasks API at package import time. On
 # headless Raspberry Pi, sounddevice can block while PortAudio probes devices.
@@ -81,8 +83,8 @@ class MediaPipeNode(Node):
         self.mode_time = 0.0
         self.create_subscription(String, 'remote/applied_mode', self._mode, 10)
         self.local_compute_active = False
-        self.create_subscription(
-            Bool, 'local_ai/compute_active', self._local_compute, 10)
+        self.local_phase_lease = attach_phase_lease(
+            self, lambda active: self._local_compute(Bool(data=active)))
         self.latest_target = None
         self.image_size = (640, 480)
         self.last_target_time = 0.0

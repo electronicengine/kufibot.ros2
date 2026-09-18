@@ -129,6 +129,9 @@ class DcMotorNode(Node):
         self._apply_speed(linear, angular)
 
     def _apply_speed(self, linear, angular):
+        # Wiring's zero-velocity baseline treats +linear.x as reverse; negate
+        # only this common-mode term so turning (angular-only) stays correct.
+        linear = -linear
         v_left = linear - angular * self.wheel_sep / 2.0
         v_right = linear + angular * self.wheel_sep / 2.0
 

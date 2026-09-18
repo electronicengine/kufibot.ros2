@@ -1,0 +1,34 @@
+# Shared non-ROS Python dependencies for every Kufibot build (sim and Pi).
+#
+# Create the environment with --system-site-packages so apt-installed ROS 2
+# modules (rclpy, cv_bridge, generated messages) remain available.
+numpy>=1.26,<2
+
+# Local background expression embeddings (llama.cpp Python binding)
+llama-cpp-python==0.3.35
+
+# Mobile LAN WebSocket bridge
+aiohttp>=3.9,<4
+
+# Verasist live voice transport
+# aiortc 1.11+ requires PyAV 14+, whose aarch64 source build needs FFmpeg 7.
+# Debian Bookworm/ROS image already provides PyAV 12.3; aiortc 1.9 supports it.
+aiortc==1.9.0
+av==12.3.0
+websockets>=12,<16
+httpx>=0.27,<1
+pydantic>=2,<3
+
+# Do not add webrtc-audio-processing==0.1.3 here: its source distribution
+# unconditionally compiles x86 SSE code and fails on Raspberry Pi aarch64.
+# The audio node uses PipeWire WebRTC AEC and optional system libspeexdsp1
+# noise reduction; it does not import this incompatible Python package.
+
+# Private SDK vendored at the workspace root. Install requirements from the
+# workspace root so this relative path resolves correctly.
+./verasist-sdk[voice]
+
+# Optional offline voice backend (Vosk Turkish STT + llama.cpp + Piper)
+vosk==0.3.45
+piper-tts>=1.3,<2
+pypdf>=5,<6

@@ -3,8 +3,8 @@ import { AppState } from 'react-native';
 import { MediaStream, RTCPeerConnection, RTCSessionDescription } from 'react-native-webrtc';
 import { Robot } from './discovery';
 
-export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt: string; llm: string; tts: string; system_prompt: string};
-export type AiConfig = {settings: AiSettings; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'tts'; languages: string[]; available: boolean}[]; error: string};
+export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt: string; llm: string; embedding: string; tts: string; system_prompt: string; camera_attach_to_every_user_turn: boolean; workflow_id?: string};
+export type AiConfig = {settings: AiSettings; workflows?: {id:string;label:string}[]; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'embedding' | 'tts'; backend?: 'vosk' | 'hailo_whisper'; languages: string[]; available: boolean}[]; error: string};
 export type RoutePlan = {
   route_id: string; map_id: string; map_revision: number; start_pose: number[];
   waypoints: {x_m: number; y_m: number}[]; active_index: number; completed_count: number;
@@ -23,6 +23,7 @@ export type DistanceMapData = {
   pose_fresh?: boolean; mapping_status?: {skipped_samples: number; reason: string};
 };
 export type State = {
+  workflowToken?: string;
   navigation?: {enabled: boolean; state: string; reason: string; calibrated: boolean; task_id: string; route_plan?: RoutePlan | null} | null;
   mimic?: {state: string; id: string | null; elapsed_ms: number; duration_ms?: number; revision?: number; error?: string | null};
   navigationRequested?: boolean;
@@ -51,6 +52,12 @@ export function useRobot(robot: Robot | null) {
   const [frame, setFrame] = useState<string | null>(null);
   const [connection, setConnection] = useState('Robot aranıyor');
   const [error, setError] = useState('');
+  const [workflowEvent, setWorkflowEvent] = useState<any>(null);
+  const workflowListeners = useRef(new Set<(event:any)=>void>());
+  const subscribeWorkflow = useCallback((listener:(event:any)=>void) => {
+    workflowListeners.current.add(listener);
+    return () => {workflowListeners.current.delete(listener);};
+  }, []);
   const socket = useRef<WebSocket | null>(null);
   const axes = useRef(zero());
   const inputPending = useRef(false);
@@ -163,6 +170,9 @@ export function useRobot(robot: Robot | null) {
             lastState = Date.now(); live.current = data; setState(data);
             setConnection(data.owner ? 'Bağlı' : 'İzleyici');
             if (!data.owner || data.mode !== 'remote' || data.appliedMode !== 'remote') axes.current = zero();
+          } else if (data.type === 'workflowResult' || data.type === 'workflowEvent') {
+            workflowListeners.current.forEach(listener=>listener(data));
+            setWorkflowEvent(data);
           } else if (data.type === 'ack') {
             if (data.command === 'input') inputPending.current = false;
           } else if (data.type === 'error') {
@@ -191,5 +201,5 @@ export function useRobot(robot: Robot | null) {
     connect();
     return () => { disposed = true; stop(); listener.remove(); close(); };
   }, [robot?.host, robot?.port, send, stop]);
-  return {state, frame, connection, error, send, stop, input};
+  return {state, frame, connection, error, send, stop, input, workflowEvent, subscribeWorkflow};
 }

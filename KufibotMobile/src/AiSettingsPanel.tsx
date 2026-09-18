@@ -1,12 +1,12 @@
 import React, {useEffect, useState} from 'react';
-import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {Pressable, StyleSheet, Switch, Text, TextInput, View} from 'react-native';
 import {AiConfig, AiSettings} from './useRobot';
 
 export function AiSettingsPanel({config, owner, send, status, error}: {
   config?: AiConfig; owner: boolean; send: (data: {type: string; [key: string]: unknown}) => unknown;
   status?: {state: string; detail: string}; error?: string;
 }) {
-  const [draft, setDraft] = useState<AiSettings>({provider: 'verasist', language: 'tr', stt: '', llm: '', tts: '', system_prompt: ''});
+  const [draft, setDraft] = useState<AiSettings>({provider: 'verasist', language: 'tr', stt: '', llm: '', embedding: '', tts: '', system_prompt: '', camera_attach_to_every_user_turn: false});
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const saved = JSON.stringify(config?.settings);
@@ -18,10 +18,11 @@ export function AiSettingsPanel({config, owner, send, status, error}: {
   const models = config?.models ?? [];
   const languages = [...new Set(models.filter(m => m.available).flatMap(m => m.languages))].sort();
   const local = draft.provider === 'local';
-  const valid = !local || (['stt', 'llm', 'tts'] as const).every(kind => models.some(m =>
-    m.kind === kind && m.id === draft[kind] && m.available && m.languages.includes(draft.language)));
+  const valid = !local || (['stt', 'llm', 'embedding', 'tts'] as const).every(kind => models.some(m =>
+    m.kind === kind && m.id === draft[kind] && m.available &&
+    (kind === 'llm' || kind === 'embedding' || m.languages.includes(draft.language))));
   function choose(key: keyof AiSettings, value: string) {
-    setDraft(previous => ({...previous, [key]: value, ...(key === 'language' ? {stt: '', llm: '', tts: ''} : {})}));
+    setDraft(previous => ({...previous, [key]: value, ...(key === 'language' ? {stt: '', tts: ''} : {})}));
     setDirty(true); setPending(null);
   }
   function choices(key: keyof AiSettings, items: {id: string; label?: string}[]) {
@@ -36,11 +37,13 @@ export function AiSettingsPanel({config, owner, send, status, error}: {
     <Text style={styles.title}>Sesli Ajan Ayarları</Text>
     {choices('provider', [{id: 'verasist', label: 'Verasist AI'}, {id: 'local', label: 'Local AI'}])}
     {local && <>
+      <Text style={styles.text}>Workflow</Text>
+      {choices('workflow_id', [{id:'',label:'Düz sohbet'}, ...(config?.workflows || [])])}
       <Text style={styles.text}>Dil</Text>
-      {choices('language', languages.map(id => ({id})))}
-      {(['stt', 'llm', 'tts'] as const).map(kind => <View key={kind}>
-        <Text style={styles.text}>{({stt: 'STT · Vosk', llm: 'LLM · llama.cpp', tts: 'TTS · Piper'})[kind]}</Text>
-        {choices(kind, models.filter(m => m.kind === kind && m.available && m.languages.includes(draft.language)))}
+      {choices('language', languages.map(id => ({id, label: ({tr: 'Türkçe', en: 'English'} as Record<string, string>)[id] || id})))}
+      {(['stt', 'llm', 'embedding', 'tts'] as const).map(kind => <View key={kind}>
+        <Text style={styles.text}>{({stt: 'STT', llm: 'LLM · llama.cpp', embedding: 'Embedding modeli · llama.cpp', tts: 'TTS · Piper'})[kind]}</Text>
+        {choices(kind, models.filter(m => m.kind === kind && m.available && (kind === 'llm' || kind === 'embedding' || m.languages.includes(draft.language))))}
       </View>)}
       <Text style={styles.text}>Sistem mesajı</Text>
       <TextInput multiline maxLength={6000} editable={owner && !!config}
@@ -50,6 +53,15 @@ export function AiSettingsPanel({config, owner, send, status, error}: {
         style={styles.prompt}/>
       {!valid && <Text style={styles.notice}>Bu dil için robotta STT, LLM ve TTS modellerini kurup seçin.</Text>}
     </>}
+    <Text style={styles.text}>Konuşmalarıma kamera görüntüsü ekle</Text>
+    <Switch accessibilityLabel="Konuşmalarıma kamera görüntüsü ekle"
+      disabled={!owner || !config || local} value={!!draft.camera_attach_to_every_user_turn}
+      onValueChange={value => {
+        setDraft(previous => ({...previous, camera_attach_to_every_user_turn: value}));
+        setDirty(true); setPending(null);
+      }}/>
+    <Text style={styles.notice}>{local ? 'Yerel sağlayıcı görüntü desteklemiyor.' :
+      'Açıkken her konuşmanıza robot kamerasından bir fotoğraf eklenir. Kapalıyken açık kamera talepleri ve navigasyon çalışmaya devam eder.'}</Text>
     <Pressable disabled={!owner || !config || !valid} style={[styles.option, (!owner || !config || !valid) && {opacity: 0.4}]}
       onPress={() => {send({type: 'setAiSettings', settings: draft}); setPending(JSON.stringify(draft));}}>
       <Text style={styles.text}>Ayarları kaydet ve uygula</Text>

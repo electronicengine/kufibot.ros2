@@ -20,6 +20,19 @@ def voice_node():
     return node
 
 
+def test_workflow_event_burst_does_not_block_stdout_reader():
+    node = voice_node()
+    node.ai_settings = {'workflow_id': 'flow'}
+    node.workflow_session_id = 'session'
+    node._publish_ai_settings = Mock()
+    for i in range(20):
+        node._record_workflow_event({'type': 'node', 'node_id': str(i)})
+    node._publish_ai_settings.assert_not_called()
+    assert len(node.workflow_events) == 20
+    node._publish_workflow_updates()
+    node._publish_ai_settings.assert_called_once()
+
+
 def test_ai_mode_starts_voice_session(monkeypatch):
     node = voice_node()
     monkeypatch.setenv('VERASIST_API_TOKEN', 'test-token')
@@ -98,7 +111,7 @@ def test_provider_switch_stops_before_restart(monkeypatch):
     node = voice_node()
     node.ai_settings = {'provider': 'verasist'}
     node._publish_ai_settings = Mock()
-    settings = dict(provider='local', language='tr', stt='a', llm='b', tts='c')
+    settings = dict(provider='local', language='tr', stt='a', llm='b', embedding='b', tts='c')
     monkeypatch.setattr('kufibot_interaction.voice_agent_node.validate', lambda v: v)
     monkeypatch.setattr('kufibot_interaction.voice_agent_node.save_settings', Mock())
     order = []
@@ -107,7 +120,7 @@ def test_provider_switch_stops_before_restart(monkeypatch):
     import json
     asyncio.run(node._apply_ai_settings(json.dumps(settings)))
     assert order == ['stop', 'start']
-    assert node.ai_settings == settings
+    assert node.ai_settings == {**settings, 'camera_attach_to_every_user_turn': False}
 
 
 def test_local_events_publish_transcripts_and_report_worker_failure():
@@ -127,6 +140,7 @@ def test_local_events_publish_transcripts_and_report_worker_failure():
         process.stdout = asyncio.StreamReader()
         node.local_process = process
         for event in [dict(type='ready'), dict(type='compute', active=True),
+                      dict(type='transcript', role='user', text='mer', final=False),
                       dict(type='transcript', role='user', text='merhaba'),
                       dict(type='compute', active=False),
                       dict(type='transcript', role='assistant', text='Merhaba!'),
@@ -136,7 +150,8 @@ def test_local_events_publish_transcripts_and_report_worker_failure():
         await node._local_events(process)
 
     asyncio.run(scenario())
-    assert node.transcript_pub.publish.call_count == 2
+    assert node.transcript_pub.publish.call_count == 3
+    assert node.transcript_pub.publish.call_args_list[0].args[0].final is False
     node._expression_user_transcript.assert_called_once_with('merhaba', True)
     node._express_from_text.assert_called_once_with('Merhaba!')
     node._speaking_changed.assert_called_once_with(True)
@@ -176,3 +191,33 @@ def test_sdk_api_key_starts_voice_session(monkeypatch):
 
     node._start_session.assert_awaited_once()
     node._stop_session.assert_not_awaited()
+
+
+def test_camera_setting_applies_without_session_restart(monkeypatch):
+    from kufibot_interaction.ai_settings import DEFAULT
+    import json
+    node = voice_node()
+    node.ai_settings = dict(DEFAULT)
+    node.session = Mock(configure_camera_turns=AsyncMock())
+    node._publish_ai_settings = Mock()
+    monkeypatch.setattr('kufibot_interaction.voice_agent_node.save_settings', Mock())
+    asyncio.run(node._apply_ai_settings(json.dumps({**DEFAULT, 'camera_attach_to_every_user_turn': True})))
+    node.session.configure_camera_turns.assert_awaited_once_with(True)
+    node._stop_session.assert_not_awaited()
+    node._start_session.assert_not_awaited()
+    assert node.camera_attach_to_every_user_turn is True
+
+
+def test_old_client_save_preserves_camera_setting(monkeypatch):
+    from kufibot_interaction.ai_settings import DEFAULT
+    import json
+    node = voice_node()
+    node.ai_settings = {**DEFAULT, 'camera_attach_to_every_user_turn': True}
+    node.session = None
+    node._publish_ai_settings = Mock()
+    save = Mock()
+    monkeypatch.setattr('kufibot_interaction.voice_agent_node.save_settings', save)
+    old = {k: v for k, v in DEFAULT.items() if k != 'camera_attach_to_every_user_turn'}
+    asyncio.run(node._apply_ai_settings(json.dumps(old)))
+    assert save.call_args.args[0]['camera_attach_to_every_user_turn'] is True
+    node._start_session.assert_not_awaited()

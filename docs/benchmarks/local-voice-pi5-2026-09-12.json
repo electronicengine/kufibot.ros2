@@ -1,0 +1,3453 @@
+{
+  "summary": {
+    "stt": {
+      "stt-baseline-en": {
+        "count": 6,
+        "reference_words": 65,
+        "word_errors": 1,
+        "wer": 0.015384615384615385,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 2.981119053000384,
+        "cpu_sec": 2.9801498550000005,
+        "rtf": 0.092032571406532
+      },
+      "stt-baseline-tr": {
+        "count": 6,
+        "reference_words": 53,
+        "word_errors": 2,
+        "wer": 0.03773584905660377,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 2.2119955949997347,
+        "cpu_sec": 2.211418827,
+        "rtf": 0.06834754253865849
+      },
+      "stt-hailo-base-en": {
+        "count": 6,
+        "reference_words": 65,
+        "word_errors": 7,
+        "wer": 0.1076923076923077,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 8.468834641000285,
+        "cpu_sec": 1.1829407790000004,
+        "rtf": 0.26144834036182657
+      },
+      "stt-hailo-base-tr": {
+        "count": 6,
+        "reference_words": 53,
+        "word_errors": 32,
+        "wer": 0.6037735849056604,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 10.413183171999663,
+        "cpu_sec": 1.4737519539999997,
+        "rtf": 0.32175266597272545
+      },
+      "stt-hailo-tiny-en": {
+        "count": 6,
+        "reference_words": 65,
+        "word_errors": 1,
+        "wer": 0.015384615384615385,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 7.261258078000083,
+        "cpu_sec": 1.7635992219999994,
+        "rtf": 0.2241682538281083
+      },
+      "stt-hailo-tiny-tr": {
+        "count": 6,
+        "reference_words": 53,
+        "word_errors": 35,
+        "wer": 0.660377358490566,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 12.425199679999878,
+        "cpu_sec": 2.793166824,
+        "rtf": 0.3839211369135748
+      },
+      "stt-vosk-en": {
+        "count": 6,
+        "reference_words": 65,
+        "word_errors": 1,
+        "wer": 0.015384615384615385,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 3.1658017879999534,
+        "cpu_sec": 3.165340729,
+        "rtf": 0.09773406359594819
+      },
+      "stt-vosk-tr": {
+        "count": 6,
+        "reference_words": 53,
+        "word_errors": 2,
+        "wer": 0.03773584905660377,
+        "failures": 0,
+        "false_activations": 0,
+        "processing_sec": 2.3545670919997974,
+        "cpu_sec": 2.354090082,
+        "rtf": 0.07275280061333074
+      }
+    },
+    "llm": {
+      "llm-2": {
+        "count": 4,
+        "first_token_sec": 1.9596201794997796,
+        "total_sec": 10.263534752500163,
+        "cpu_sec": 20.4378515315,
+        "temperature_c": 56.475
+      },
+      "llm-3-4": {
+        "count": 6,
+        "first_token_sec": 1.1269167279999692,
+        "total_sec": 9.149068798499911,
+        "cpu_sec": 28.413266608,
+        "temperature_c": 63.349999999999994
+      },
+      "llm-3": {
+        "count": 4,
+        "first_token_sec": 1.35115800199992,
+        "total_sec": 9.46127346000003,
+        "cpu_sec": 28.199359632000007,
+        "temperature_c": 62.525
+      },
+      "llm-4": {
+        "count": 4,
+        "first_token_sec": 1.1272038194999823,
+        "total_sec": 9.475354769499972,
+        "cpu_sec": 37.20870619349999,
+        "temperature_c": 64.725
+      }
+    },
+    "replay": {
+      "replay-en": {
+        "model_load_sec": [
+          16.87068945900046
+        ],
+        "speech_to_playback": {
+          "count": 3,
+          "p50_sec": 3.25570900799994,
+          "p95_sec": 3.5977384479001557
+        },
+        "endpoint_delay": {
+          "count": 3,
+          "p50_sec": 0.6084951200000432,
+          "p95_sec": 0.6085574683996129
+        },
+        "stt_finalize": {
+          "count": 3,
+          "p50_sec": 0.022882674999891606,
+          "p95_sec": 0.02737593670044589
+        },
+        "llm_first_token": {
+          "count": 3,
+          "p50_sec": 0.6139400550000573,
+          "p95_sec": 1.267100339999797
+        },
+        "llm_total": {
+          "count": 3,
+          "p50_sec": 2.3260046880004666,
+          "p95_sec": 2.6803496316000746
+        },
+        "tts_first_audio": {
+          "count": 3,
+          "p50_sec": 0.28356229000019084,
+          "p95_sec": 0.30051448120011626
+        }
+      },
+      "replay-tr": {
+        "model_load_sec": [
+          9.686049211999489
+        ],
+        "speech_to_playback": {
+          "count": 3,
+          "p50_sec": 2.4648100679996787,
+          "p95_sec": 3.3359363382000082
+        },
+        "endpoint_delay": {
+          "count": 3,
+          "p50_sec": 0.618749088000186,
+          "p95_sec": 0.6191708657999697
+        },
+        "stt_finalize": {
+          "count": 3,
+          "p50_sec": 0.0191086639997593,
+          "p95_sec": 0.026400963500418585
+        },
+        "llm_first_token": {
+          "count": 3,
+          "p50_sec": 0.8242624249996879,
+          "p95_sec": 1.4809020083001085
+        },
+        "llm_total": {
+          "count": 3,
+          "p50_sec": 1.6850476399995387,
+          "p95_sec": 2.501505187700513
+        },
+        "tts_first_audio": {
+          "count": 3,
+          "p50_sec": 0.14295239300008689,
+          "p95_sec": 0.1880992162999064
+        }
+      }
+    },
+    "limitations": [
+      "Synthetic Piper corpus; not a human speech accuracy evaluation.",
+      "Replay uses paced file input and ALSA null; not acoustic latency.",
+      "No simultaneous camera/ROS workload during the timing measurements."
+    ],
+    "paired_endpoint_gain_sec": {
+      "count": 9,
+      "median": 0.3330000000000002
+    }
+  },
+  "records": {
+    "llm-2.jsonl": [
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 2,
+        "batch_threads": 2,
+        "repeat": 0,
+        "language": "en",
+        "load_sec": 27.9851383350001,
+        "first_token_sec": 1.8291219589996217,
+        "total_sec": 10.088935150999987,
+        "cpu_sec": 20.094903331999998,
+        "output_tokens": 48,
+        "temperature_c": 55.1,
+        "peak_rss_kb": 3942928,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 2,
+        "batch_threads": 2,
+        "repeat": 0,
+        "language": "tr",
+        "load_sec": 27.9851383350001,
+        "first_token_sec": 2.096513060000234,
+        "total_sec": 10.367253024000092,
+        "cpu_sec": 20.677022807999997,
+        "output_tokens": 48,
+        "temperature_c": 56.2,
+        "peak_rss_kb": 3945488,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 2,
+        "batch_threads": 2,
+        "repeat": 1,
+        "language": "en",
+        "load_sec": 27.9851383350001,
+        "first_token_sec": 1.8070502499999748,
+        "total_sec": 10.184362423000039,
+        "cpu_sec": 20.246711083999998,
+        "output_tokens": 48,
+        "temperature_c": 56.75,
+        "peak_rss_kb": 3947024,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 2,
+        "batch_threads": 2,
+        "repeat": 1,
+        "language": "tr",
+        "load_sec": 27.9851383350001,
+        "first_token_sec": 2.0901183999999375,
+        "total_sec": 10.342707082000288,
+        "cpu_sec": 20.628991979000006,
+        "output_tokens": 48,
+        "temperature_c": 58.95,
+        "peak_rss_kb": 3948560,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      }
+    ],
+    "llm-3-4.jsonl": [
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 4,
+        "repeat": 0,
+        "language": "en",
+        "load_sec": 4.069885333999991,
+        "first_token_sec": 1.0088890030001494,
+        "total_sec": 9.042753840000387,
+        "cpu_sec": 27.992495651000002,
+        "output_tokens": 48,
+        "temperature_c": 61.15,
+        "peak_rss_kb": 3943440,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 4,
+        "repeat": 0,
+        "language": "tr",
+        "load_sec": 4.069885333999991,
+        "first_token_sec": 1.2123624930000005,
+        "total_sec": 9.268385893999948,
+        "cpu_sec": 28.849803676,
+        "output_tokens": 48,
+        "temperature_c": 61.7,
+        "peak_rss_kb": 3945488,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 4,
+        "repeat": 1,
+        "language": "en",
+        "load_sec": 4.069885333999991,
+        "first_token_sec": 0.9939061289996971,
+        "total_sec": 9.063412339999559,
+        "cpu_sec": 28.048507962000002,
+        "output_tokens": 48,
+        "temperature_c": 62.8,
+        "peak_rss_kb": 3947024,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 4,
+        "repeat": 1,
+        "language": "tr",
+        "load_sec": 4.069885333999991,
+        "first_token_sec": 1.2148741440000776,
+        "total_sec": 9.27869299799977,
+        "cpu_sec": 28.877467811000002,
+        "output_tokens": 48,
+        "temperature_c": 63.9,
+        "peak_rss_kb": 3948560,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 4,
+        "repeat": 2,
+        "language": "en",
+        "load_sec": 4.069885333999991,
+        "first_token_sec": 1.041470962999938,
+        "total_sec": 9.062976953999623,
+        "cpu_sec": 27.927383582000004,
+        "output_tokens": 48,
+        "temperature_c": 63.9,
+        "peak_rss_kb": 3950096,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 4,
+        "repeat": 2,
+        "language": "tr",
+        "load_sec": 4.069885333999991,
+        "first_token_sec": 1.219075513000007,
+        "total_sec": 9.234725257000264,
+        "cpu_sec": 28.778025254,
+        "output_tokens": 48,
+        "temperature_c": 65.0,
+        "peak_rss_kb": 3951632,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      }
+    ],
+    "llm-3.jsonl": [
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 3,
+        "repeat": 0,
+        "language": "en",
+        "load_sec": 5.220068864000041,
+        "first_token_sec": 1.2613393470001029,
+        "total_sec": 9.349351989000297,
+        "cpu_sec": 27.910831832999996,
+        "output_tokens": 48,
+        "temperature_c": 60.6,
+        "peak_rss_kb": 3943808,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 3,
+        "repeat": 0,
+        "language": "tr",
+        "load_sec": 5.220068864000041,
+        "first_token_sec": 1.470977909999874,
+        "total_sec": 9.63474888699966,
+        "cpu_sec": 28.600915407000002,
+        "output_tokens": 48,
+        "temperature_c": 62.25,
+        "peak_rss_kb": 3945856,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 3,
+        "repeat": 1,
+        "language": "en",
+        "load_sec": 5.220068864000041,
+        "first_token_sec": 1.2535040960001425,
+        "total_sec": 9.450586797000142,
+        "cpu_sec": 28.070222741000002,
+        "output_tokens": 48,
+        "temperature_c": 62.8,
+        "peak_rss_kb": 3947392,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 3,
+        "batch_threads": 3,
+        "repeat": 1,
+        "language": "tr",
+        "load_sec": 5.220068864000041,
+        "first_token_sec": 1.4409766569997373,
+        "total_sec": 9.471960122999917,
+        "cpu_sec": 28.328496523000013,
+        "output_tokens": 48,
+        "temperature_c": 62.8,
+        "peak_rss_kb": 3948928,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      }
+    ],
+    "llm-4.jsonl": [
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 4,
+        "batch_threads": 4,
+        "repeat": 0,
+        "language": "en",
+        "load_sec": 4.044636777000051,
+        "first_token_sec": 0.9938385320001544,
+        "total_sec": 9.477908995000234,
+        "cpu_sec": 36.946706295999995,
+        "output_tokens": 48,
+        "temperature_c": 63.9,
+        "peak_rss_kb": 3942800,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 4,
+        "batch_threads": 4,
+        "repeat": 0,
+        "language": "tr",
+        "load_sec": 4.044636777000051,
+        "first_token_sec": 1.2185844979999274,
+        "total_sec": 9.695937197999683,
+        "cpu_sec": 37.789349269,
+        "output_tokens": 48,
+        "temperature_c": 64.45,
+        "peak_rss_kb": 3945360,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 4,
+        "batch_threads": 4,
+        "repeat": 1,
+        "language": "en",
+        "load_sec": 4.044636777000051,
+        "first_token_sec": 1.0358231410000371,
+        "total_sec": 9.264558444000158,
+        "cpu_sec": 36.56308394,
+        "output_tokens": 48,
+        "temperature_c": 65.0,
+        "peak_rss_kb": 3946896,
+        "answer": "Once upon a time, in a bustling city, there lived a friendly robot named B-9. B-9 was programmed to assist humans in their daily lives, but he had a heart full of kindness and a mind full of curiosity."
+      },
+      {
+        "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "threads": 4,
+        "batch_threads": 4,
+        "repeat": 1,
+        "language": "tr",
+        "load_sec": 4.044636777000051,
+        "first_token_sec": 1.229424391000066,
+        "total_sec": 9.47280054399971,
+        "cpu_sec": 37.470706091,
+        "output_tokens": 48,
+        "temperature_c": 67.2,
+        "peak_rss_kb": 3948432,
+        "answer": "Bir zamanlar, bir üniversitede robot mühendisliği bölümünde okuyan bir öğrenci vardı. O, robotlarla çok ilgiliydi ve her gün onları çalıştırmak için laboratuvarında kalmakt"
+      }
+    ],
+    "replay-en.jsonl": [
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4300.959114725
+      },
+      {
+        "type": "metric",
+        "event": "load_start",
+        "turn": 0,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4300.959682571,
+        "cpu_sec": 0.058290999999999996,
+        "peak_rss_kb": 19104,
+        "rss_kb": 15040,
+        "swap_kb": 0,
+        "temperature_c": 47.95,
+        "language": "en",
+        "stt_backend": "vosk",
+        "llm_model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "llm_threads": 3,
+        "llm_batch_threads": 4
+      },
+      {
+        "type": "metric",
+        "event": "load_stt_end",
+        "turn": 0,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4301.667422607,
+        "cpu_sec": 0.7956249999999999,
+        "peak_rss_kb": 202736,
+        "rss_kb": 202736,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4301.710545956
+      },
+      {
+        "type": "metric",
+        "event": "load_vad_end",
+        "turn": 0,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4301.722099197,
+        "cpu_sec": 0.850302,
+        "peak_rss_kb": 224080,
+        "rss_kb": 224080,
+        "swap_kb": 0,
+        "temperature_c": 49.05
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4302.460751538
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4303.210940255
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4303.961126366
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4304.711315262
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4305.46149646
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4306.21167733
+      },
+      {
+        "type": "metric",
+        "event": "load_llm_end",
+        "turn": 0,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4306.923398903,
+        "cpu_sec": 6.043439,
+        "peak_rss_kb": 4110960,
+        "rss_kb": 4110960,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4306.961856132
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4307.712022848
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4308.462176218
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4309.21232813
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4309.962470344
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4310.71261338
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4311.46278031
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4312.212962635
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4312.96314926
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4313.71333556
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4314.463516273
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4315.21370049
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4315.963895528
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4316.714075943
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4317.464234587
+      },
+      {
+        "type": "metric",
+        "event": "load_tts_end",
+        "turn": 0,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4317.830009478,
+        "cpu_sec": 8.057656,
+        "peak_rss_kb": 4221040,
+        "rss_kb": 4221040,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "metric",
+        "event": "load_end",
+        "turn": 0,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4317.83037203,
+        "cpu_sec": 8.058026,
+        "peak_rss_kb": 4221040,
+        "rss_kb": 4221040,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4317.830563547
+      },
+      {
+        "type": "ready"
+      },
+      {
+        "type": "metric",
+        "event": "capture_ready",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4317.936455667,
+        "cpu_sec": 8.058907,
+        "peak_rss_kb": 4221040,
+        "rss_kb": 4221040,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4318.214388624
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4318.964537445
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4319.714682864
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4320.464831031
+      },
+      {
+        "type": "metric",
+        "event": "speech_end",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4320.336827651,
+        "cpu_sec": 8.962096,
+        "peak_rss_kb": 4223616,
+        "rss_kb": 4223616,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "metric",
+        "event": "endpoint",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4320.945322771,
+        "cpu_sec": 8.962395,
+        "peak_rss_kb": 4223616,
+        "rss_kb": 4223616,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "phase",
+        "phase": "transcribing",
+        "monotonic_sec": 4320.946617814
+      },
+      {
+        "type": "metric",
+        "event": "stt_final",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4320.968205446,
+        "cpu_sec": 8.984226,
+        "peak_rss_kb": 4223616,
+        "rss_kb": 4223616,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "transcript",
+        "role": "user",
+        "text": "hello robot how are you today"
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4320.968545814
+      },
+      {
+        "type": "compute",
+        "active": true
+      },
+      {
+        "type": "state",
+        "state": "thinking"
+      },
+      {
+        "type": "metric",
+        "event": "llm_start",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4320.96894468,
+        "cpu_sec": 8.984968,
+        "peak_rss_kb": 4223616,
+        "rss_kb": 4223616,
+        "swap_kb": 0,
+        "temperature_c": 48.5
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4321.215006943
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4321.965215082
+      },
+      {
+        "type": "metric",
+        "event": "llm_first_token",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4322.308618385,
+        "cpu_sec": 14.274274,
+        "peak_rss_kb": 4231840,
+        "rss_kb": 4231840,
+        "swap_kb": 0,
+        "temperature_c": 55.1
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4322.715790057
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4323.46629391
+      },
+      {
+        "type": "metric",
+        "event": "llm_end",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4323.688665972,
+        "cpu_sec": 18.392018,
+        "peak_rss_kb": 4231840,
+        "rss_kb": 4231840,
+        "swap_kb": 0,
+        "temperature_c": 57.3,
+        "output_tokens": 8
+      },
+      {
+        "type": "compute",
+        "active": false
+      },
+      {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "I'm functioning well, thank you!"
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4323.688994987
+      },
+      {
+        "type": "metric",
+        "event": "tts_start",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4323.68900708,
+        "cpu_sec": 18.392364,
+        "peak_rss_kb": 4231840,
+        "rss_kb": 4231840,
+        "swap_kb": 0,
+        "temperature_c": 57.3
+      },
+      {
+        "type": "metric",
+        "event": "playback_start",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4323.97256937,
+        "cpu_sec": 18.818507999999998,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 54.0
+      },
+      {
+        "type": "speaking",
+        "value": true
+      },
+      {
+        "type": "metric",
+        "event": "tts_end",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4323.972990107,
+        "cpu_sec": 18.818929999999998,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 54.0
+      },
+      {
+        "type": "phase",
+        "phase": "speaking",
+        "monotonic_sec": 4323.973199679
+      },
+      {
+        "type": "speaking",
+        "value": false
+      },
+      {
+        "type": "metric",
+        "event": "playback_end",
+        "turn": 1,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4323.988597276,
+        "cpu_sec": 18.819336000000003,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 55.1
+      },
+      {
+        "type": "state",
+        "state": "connecting",
+        "detail": "Mikrofon yeniden açılıyor"
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4323.988931292
+      },
+      {
+        "type": "ready"
+      },
+      {
+        "type": "metric",
+        "event": "capture_ready",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4324.071213102,
+        "cpu_sec": 18.820075,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 54.0
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4324.216581196
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4324.966724765
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4325.716868953
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4326.467013683
+      },
+      {
+        "type": "metric",
+        "event": "speech_end",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4326.471658159,
+        "cpu_sec": 19.008512,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "metric",
+        "event": "endpoint",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4327.080120003,
+        "cpu_sec": 19.008836,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "phase",
+        "phase": "transcribing",
+        "monotonic_sec": 4327.081412176
+      },
+      {
+        "type": "metric",
+        "event": "stt_final",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4327.097873875,
+        "cpu_sec": 19.025541,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "transcript",
+        "role": "user",
+        "text": "hello robot how are you today"
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4327.098231779
+      },
+      {
+        "type": "compute",
+        "active": true
+      },
+      {
+        "type": "state",
+        "state": "thinking"
+      },
+      {
+        "type": "metric",
+        "event": "llm_start",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4327.098617739,
+        "cpu_sec": 19.026289000000002,
+        "peak_rss_kb": 4257968,
+        "rss_kb": 4257968,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4327.22007404
+      },
+      {
+        "type": "metric",
+        "event": "llm_first_token",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4327.706321612,
+        "cpu_sec": 21.428968,
+        "peak_rss_kb": 4259504,
+        "rss_kb": 4259504,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4327.970319428
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4328.7206066
+      },
+      {
+        "type": "metric",
+        "event": "llm_end",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4329.424622427,
+        "cpu_sec": 26.550804,
+        "peak_rss_kb": 4259504,
+        "rss_kb": 4259504,
+        "swap_kb": 0,
+        "temperature_c": 56.2,
+        "output_tokens": 10
+      },
+      {
+        "type": "compute",
+        "active": false
+      },
+      {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "I'm performing well, thank you for asking."
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4329.424957257
+      },
+      {
+        "type": "metric",
+        "event": "tts_start",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4329.424969109,
+        "cpu_sec": 26.551155,
+        "peak_rss_kb": 4259504,
+        "rss_kb": 4259504,
+        "swap_kb": 0,
+        "temperature_c": 56.2
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4329.470815759
+      },
+      {
+        "type": "metric",
+        "event": "playback_start",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4329.727367167,
+        "cpu_sec": 27.088779,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "speaking",
+        "value": true
+      },
+      {
+        "type": "metric",
+        "event": "tts_end",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4329.727763978,
+        "cpu_sec": 27.089178,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "phase",
+        "phase": "speaking",
+        "monotonic_sec": 4329.727934514
+      },
+      {
+        "type": "speaking",
+        "value": false
+      },
+      {
+        "type": "metric",
+        "event": "playback_end",
+        "turn": 2,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4329.735239502,
+        "cpu_sec": 27.089516,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "state",
+        "state": "connecting",
+        "detail": "Mikrofon yeniden açılıyor"
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4329.735554758
+      },
+      {
+        "type": "ready"
+      },
+      {
+        "type": "metric",
+        "event": "capture_ready",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4329.81576448,
+        "cpu_sec": 27.090227000000002,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4330.220984591
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4330.971134947
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4331.721290327
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4332.47146625
+      },
+      {
+        "type": "metric",
+        "event": "speech_end",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4332.21636697,
+        "cpu_sec": 27.315011000000002,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "metric",
+        "event": "endpoint",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4332.824931366,
+        "cpu_sec": 27.315397,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "phase",
+        "phase": "transcribing",
+        "monotonic_sec": 4332.826284835
+      },
+      {
+        "type": "metric",
+        "event": "stt_final",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4332.852806554,
+        "cpu_sec": 27.342218000000003,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "transcript",
+        "role": "user",
+        "text": "hello robot how are you today"
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4332.85325492
+      },
+      {
+        "type": "compute",
+        "active": true
+      },
+      {
+        "type": "state",
+        "state": "thinking"
+      },
+      {
+        "type": "metric",
+        "event": "llm_start",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4332.853778304,
+        "cpu_sec": 27.343194,
+        "peak_rss_kb": 4272816,
+        "rss_kb": 4272816,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4333.224069619
+      },
+      {
+        "type": "metric",
+        "event": "llm_first_token",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4333.467718359,
+        "cpu_sec": 29.767124000000003,
+        "peak_rss_kb": 4274352,
+        "rss_kb": 4274352,
+        "swap_kb": 0,
+        "temperature_c": 55.1
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4333.974295737
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4334.724580972
+      },
+      {
+        "type": "metric",
+        "event": "llm_end",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4334.852763591,
+        "cpu_sec": 33.884687,
+        "peak_rss_kb": 4274352,
+        "rss_kb": 4274352,
+        "swap_kb": 0,
+        "temperature_c": 55.65,
+        "output_tokens": 8
+      },
+      {
+        "type": "compute",
+        "active": false
+      },
+      {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "I'm functioning well, thank you!"
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4334.853091421
+      },
+      {
+        "type": "metric",
+        "event": "tts_start",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4334.853102995,
+        "cpu_sec": 33.885032,
+        "peak_rss_kb": 4274352,
+        "rss_kb": 4274352,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "metric",
+        "event": "playback_start",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4335.095619898,
+        "cpu_sec": 34.317344,
+        "peak_rss_kb": 4274352,
+        "rss_kb": 4274352,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "speaking",
+        "value": true
+      },
+      {
+        "type": "metric",
+        "event": "tts_end",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4335.09604345,
+        "cpu_sec": 34.31777,
+        "peak_rss_kb": 4274352,
+        "rss_kb": 4274352,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "phase",
+        "phase": "speaking",
+        "monotonic_sec": 4335.096221411
+      },
+      {
+        "type": "speaking",
+        "value": false
+      },
+      {
+        "type": "metric",
+        "event": "playback_end",
+        "turn": 3,
+        "session": "9aff6d69008b4f0d80add62090959c1b",
+        "monotonic_sec": 4335.103556714,
+        "cpu_sec": 34.318146,
+        "peak_rss_kb": 4274352,
+        "rss_kb": 4274352,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "state",
+        "state": "connecting",
+        "detail": "Mikrofon yeniden açılıyor"
+      },
+      {
+        "type": "phase",
+        "phase": "idle",
+        "monotonic_sec": 4335.256794863
+      }
+    ],
+    "replay-tr.jsonl": [
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4335.555744841
+      },
+      {
+        "type": "metric",
+        "event": "load_start",
+        "turn": 0,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4335.556253818,
+        "cpu_sec": 0.052922,
+        "peak_rss_kb": 19104,
+        "rss_kb": 14512,
+        "swap_kb": 0,
+        "temperature_c": 52.9,
+        "language": "tr",
+        "stt_backend": "vosk",
+        "llm_model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+        "llm_threads": 3,
+        "llm_batch_threads": 4
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4336.307360946
+      },
+      {
+        "type": "metric",
+        "event": "load_stt_end",
+        "turn": 0,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4336.881467663,
+        "cpu_sec": 0.775552,
+        "peak_rss_kb": 175120,
+        "rss_kb": 175120,
+        "swap_kb": 0,
+        "temperature_c": 51.8
+      },
+      {
+        "type": "metric",
+        "event": "load_vad_end",
+        "turn": 0,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4336.948366291,
+        "cpu_sec": 0.830896,
+        "peak_rss_kb": 196768,
+        "rss_kb": 196768,
+        "swap_kb": 0,
+        "temperature_c": 51.25
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4337.057807715
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4337.807989843
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4338.558241978
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4339.308419321
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4340.058595929
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4340.808775024
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4341.558958737
+      },
+      {
+        "type": "metric",
+        "event": "load_llm_end",
+        "turn": 0,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4342.107132591,
+        "cpu_sec": 5.960398,
+        "peak_rss_kb": 4082528,
+        "rss_kb": 4082528,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4342.309155343
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4343.059323548
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4343.809484739
+      },
+      {
+        "type": "phase",
+        "phase": "loading",
+        "monotonic_sec": 4344.559650807
+      },
+      {
+        "type": "metric",
+        "event": "load_tts_end",
+        "turn": 0,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4345.241939978,
+        "cpu_sec": 7.952173999999999,
+        "peak_rss_kb": 4192096,
+        "rss_kb": 4192096,
+        "swap_kb": 0,
+        "temperature_c": 50.15
+      },
+      {
+        "type": "metric",
+        "event": "load_end",
+        "turn": 0,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4345.24230303,
+        "cpu_sec": 7.952543,
+        "peak_rss_kb": 4192096,
+        "rss_kb": 4192096,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4345.24249475
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4345.309809491
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4346.059950346
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4346.810080522
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4347.560200946
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4348.310347152
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4349.060516473
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4349.810695523
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4350.560871967
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4351.311032713
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4352.06118763
+      },
+      {
+        "type": "ready"
+      },
+      {
+        "type": "metric",
+        "event": "capture_ready",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4352.66620625,
+        "cpu_sec": 7.968743,
+        "peak_rss_kb": 4192608,
+        "rss_kb": 4192608,
+        "swap_kb": 0,
+        "temperature_c": 49.05
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4352.811345072
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4353.561489297
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4354.311644083
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4355.061809133
+      },
+      {
+        "type": "metric",
+        "event": "speech_end",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4355.130675625,
+        "cpu_sec": 8.465366,
+        "peak_rss_kb": 4195712,
+        "rss_kb": 4195712,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "metric",
+        "event": "endpoint",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4355.749424713,
+        "cpu_sec": 8.465751999999998,
+        "peak_rss_kb": 4195712,
+        "rss_kb": 4195712,
+        "swap_kb": 0,
+        "temperature_c": 49.6
+      },
+      {
+        "type": "phase",
+        "phase": "transcribing",
+        "monotonic_sec": 4355.750731535
+      },
+      {
+        "type": "metric",
+        "event": "stt_final",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4355.776635932,
+        "cpu_sec": 8.491914,
+        "peak_rss_kb": 4195712,
+        "rss_kb": 4195712,
+        "swap_kb": 0,
+        "temperature_c": 47.95
+      },
+      {
+        "type": "transcript",
+        "role": "user",
+        "text": "merhaba robot bugün nasılsın"
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4355.776997595
+      },
+      {
+        "type": "compute",
+        "active": true
+      },
+      {
+        "type": "state",
+        "state": "thinking"
+      },
+      {
+        "type": "metric",
+        "event": "llm_start",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4355.777405573,
+        "cpu_sec": 8.492687,
+        "peak_rss_kb": 4195712,
+        "rss_kb": 4195712,
+        "swap_kb": 0,
+        "temperature_c": 47.95
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4355.812033058
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4356.564119103
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4357.314762239
+      },
+      {
+        "type": "metric",
+        "event": "llm_first_token",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4357.331267535,
+        "cpu_sec": 14.223072,
+        "peak_rss_kb": 4203904,
+        "rss_kb": 4203904,
+        "swap_kb": 0,
+        "temperature_c": 56.75
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4358.066230539
+      },
+      {
+        "type": "metric",
+        "event": "llm_end",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4358.369628266,
+        "cpu_sec": 17.308551,
+        "peak_rss_kb": 4203904,
+        "rss_kb": 4203904,
+        "swap_kb": 0,
+        "temperature_c": 57.85,
+        "output_tokens": 6
+      },
+      {
+        "type": "compute",
+        "active": false
+      },
+      {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Merhaba, iyi."
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4358.37026989
+      },
+      {
+        "type": "metric",
+        "event": "tts_start",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4358.370288241,
+        "cpu_sec": 17.308978,
+        "peak_rss_kb": 4203904,
+        "rss_kb": 4203904,
+        "swap_kb": 0,
+        "temperature_c": 57.85
+      },
+      {
+        "type": "metric",
+        "event": "playback_start",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4358.563403771,
+        "cpu_sec": 17.628738000000002,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "speaking",
+        "value": true
+      },
+      {
+        "type": "metric",
+        "event": "tts_end",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4358.56418956,
+        "cpu_sec": 17.629139,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "phase",
+        "phase": "speaking",
+        "monotonic_sec": 4358.564526538
+      },
+      {
+        "type": "speaking",
+        "value": false
+      },
+      {
+        "type": "metric",
+        "event": "playback_end",
+        "turn": 1,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4358.571947638,
+        "cpu_sec": 17.629554000000002,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 57.3
+      },
+      {
+        "type": "state",
+        "state": "connecting",
+        "detail": "Mikrofon yeniden açılıyor"
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4358.572309635
+      },
+      {
+        "type": "ready"
+      },
+      {
+        "type": "metric",
+        "event": "capture_ready",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4358.6560417,
+        "cpu_sec": 17.630326,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4358.816467689
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4359.566618253
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4360.316772582
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4361.066933915
+      },
+      {
+        "type": "metric",
+        "event": "speech_end",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4361.120561751,
+        "cpu_sec": 17.833377,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 51.8
+      },
+      {
+        "type": "metric",
+        "event": "endpoint",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4361.739779481,
+        "cpu_sec": 17.833754,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 51.8
+      },
+      {
+        "type": "phase",
+        "phase": "transcribing",
+        "monotonic_sec": 4361.741108487
+      },
+      {
+        "type": "metric",
+        "event": "stt_final",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4361.756210649,
+        "cpu_sec": 17.849135999999998,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "transcript",
+        "role": "user",
+        "text": "merhaba robot bugün nasılsın"
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4361.756582146
+      },
+      {
+        "type": "compute",
+        "active": true
+      },
+      {
+        "type": "state",
+        "state": "thinking"
+      },
+      {
+        "type": "metric",
+        "event": "llm_start",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4361.756986938,
+        "cpu_sec": 17.849915,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4361.820099893
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4362.570459792
+      },
+      {
+        "type": "metric",
+        "event": "llm_first_token",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4362.576470479,
+        "cpu_sec": 21.081455000000002,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 56.75
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4363.320871121
+      },
+      {
+        "type": "metric",
+        "event": "llm_end",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4363.442034578,
+        "cpu_sec": 23.650555999999998,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 56.2,
+        "output_tokens": 5
+      },
+      {
+        "type": "compute",
+        "active": false
+      },
+      {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Terk edici."
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4363.442401667
+      },
+      {
+        "type": "metric",
+        "event": "tts_start",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4363.442419426,
+        "cpu_sec": 23.650944000000003,
+        "peak_rss_kb": 4224928,
+        "rss_kb": 4224928,
+        "swap_kb": 0,
+        "temperature_c": 56.2
+      },
+      {
+        "type": "metric",
+        "event": "playback_start",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4363.585371819,
+        "cpu_sec": 23.899125,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "speaking",
+        "value": true
+      },
+      {
+        "type": "metric",
+        "event": "tts_end",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4363.585770945,
+        "cpu_sec": 23.899524,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "phase",
+        "phase": "speaking",
+        "monotonic_sec": 4363.585988888
+      },
+      {
+        "type": "speaking",
+        "value": false
+      },
+      {
+        "type": "metric",
+        "event": "playback_end",
+        "turn": 2,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4363.593322674,
+        "cpu_sec": 23.899942,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "state",
+        "state": "connecting",
+        "detail": "Mikrofon yeniden açılıyor"
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4363.593647208
+      },
+      {
+        "type": "ready"
+      },
+      {
+        "type": "metric",
+        "event": "capture_ready",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4363.673884734,
+        "cpu_sec": 23.900681,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 54.55
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4364.071156048
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4364.821306629
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4365.571469551
+      },
+      {
+        "type": "phase",
+        "phase": "listening",
+        "monotonic_sec": 4366.321628551
+      },
+      {
+        "type": "metric",
+        "event": "speech_end",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4366.138357716,
+        "cpu_sec": 24.092303,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "metric",
+        "event": "endpoint",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4366.756964276,
+        "cpu_sec": 24.092667,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 50.7
+      },
+      {
+        "type": "phase",
+        "phase": "transcribing",
+        "monotonic_sec": 4366.758285061
+      },
+      {
+        "type": "metric",
+        "event": "stt_final",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4366.77607294,
+        "cpu_sec": 24.110726999999997,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 50.15
+      },
+      {
+        "type": "transcript",
+        "role": "user",
+        "text": "merhaba robot bugün nasılsın"
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4366.776435492
+      },
+      {
+        "type": "compute",
+        "active": true
+      },
+      {
+        "type": "state",
+        "state": "thinking"
+      },
+      {
+        "type": "metric",
+        "event": "llm_start",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4366.7768876,
+        "cpu_sec": 24.111544,
+        "peak_rss_kb": 4226976,
+        "rss_kb": 4226976,
+        "swap_kb": 0,
+        "temperature_c": 50.15
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4367.07181263
+      },
+      {
+        "type": "metric",
+        "event": "llm_first_token",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4367.601150025,
+        "cpu_sec": 27.346072,
+        "peak_rss_kb": 4228512,
+        "rss_kb": 4228512,
+        "swap_kb": 0,
+        "temperature_c": 57.3
+      },
+      {
+        "type": "phase",
+        "phase": "thinking",
+        "monotonic_sec": 4367.82414388
+      },
+      {
+        "type": "metric",
+        "event": "llm_end",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4368.131564821,
+        "cpu_sec": 28.903931,
+        "peak_rss_kb": 4228512,
+        "rss_kb": 4228512,
+        "swap_kb": 0,
+        "temperature_c": 55.65,
+        "output_tokens": 3
+      },
+      {
+        "type": "compute",
+        "active": false
+      },
+      {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "İyi."
+      },
+      {
+        "type": "phase",
+        "phase": "synthesizing",
+        "monotonic_sec": 4368.13193154
+      },
+      {
+        "type": "metric",
+        "event": "tts_start",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4368.131947706,
+        "cpu_sec": 28.904317,
+        "peak_rss_kb": 4228512,
+        "rss_kb": 4228512,
+        "swap_kb": 0,
+        "temperature_c": 55.65
+      },
+      {
+        "type": "metric",
+        "event": "playback_start",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4368.193934749,
+        "cpu_sec": 29.007476,
+        "peak_rss_kb": 4228512,
+        "rss_kb": 4228512,
+        "swap_kb": 0,
+        "temperature_c": 57.3
+      },
+      {
+        "type": "speaking",
+        "value": true
+      },
+      {
+        "type": "metric",
+        "event": "tts_end",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4368.194335783,
+        "cpu_sec": 29.007862,
+        "peak_rss_kb": 4228512,
+        "rss_kb": 4228512,
+        "swap_kb": 0,
+        "temperature_c": 57.3
+      },
+      {
+        "type": "phase",
+        "phase": "speaking",
+        "monotonic_sec": 4368.194532633
+      },
+      {
+        "type": "speaking",
+        "value": false
+      },
+      {
+        "type": "metric",
+        "event": "playback_end",
+        "turn": 3,
+        "session": "c5ecfb5cb4324cb284d90d847eadf4ba",
+        "monotonic_sec": 4368.201866012,
+        "cpu_sec": 29.008253,
+        "peak_rss_kb": 4228512,
+        "rss_kb": 4228512,
+        "swap_kb": 0,
+        "temperature_c": 56.2
+      },
+      {
+        "type": "state",
+        "state": "connecting",
+        "detail": "Mikrofon yeniden açılıyor"
+      },
+      {
+        "type": "phase",
+        "phase": "idle",
+        "monotonic_sec": 4368.355890332
+      }
+    ],
+    "stt-baseline-en.jsonl": [
+      {
+        "id": "en-short",
+        "language": "en",
+        "scenario": "short",
+        "wav": "en-short.wav",
+        "text": "Stop.",
+        "speech_end_sec": 0.972,
+        "source": "synthetic_piper",
+        "hypothesis": "stop",
+        "word_errors": 0,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.875
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.2599880140001005,
+        "processing_sec": 0.6023223300003337,
+        "cpu_sec": 0.602248442,
+        "peak_rss_kb": 171696,
+        "audio_sec": 1.972,
+        "rtf": 0.3054372870184248
+      },
+      {
+        "id": "en-clean",
+        "language": "en",
+        "scenario": "clean",
+        "wav": "en-clean.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.604,
+        "source": "synthetic_piper",
+        "hypothesis": "hello robot how are you today",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.375
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.2599880140001005,
+        "processing_sec": 0.4646350069997425,
+        "cpu_sec": 0.4643211089999999,
+        "peak_rss_kb": 179376,
+        "audio_sec": 3.604,
+        "rtf": 0.12892203301879646
+      },
+      {
+        "id": "en-noise",
+        "language": "en",
+        "scenario": "noise",
+        "wav": "en-noise.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.732,
+        "source": "synthetic_piper",
+        "hypothesis": "hello robot how are you today",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.375
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.2599880140001005,
+        "processing_sec": 0.24903425399998014,
+        "cpu_sec": 0.24895594300000012,
+        "peak_rss_kb": 182448,
+        "audio_sec": 3.732,
+        "rtf": 0.066729435691313
+      },
+      {
+        "id": "en-pause",
+        "language": "en",
+        "scenario": "pause",
+        "wav": "en-pause.wav",
+        "text": "Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 4.86,
+        "source": "synthetic_piper",
+        "hypothesis": "tell me a short story then we can play a new game together",
+        "word_errors": 0,
+        "reference_words": 13,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.25
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.2599880140001005,
+        "processing_sec": 0.6913574270001845,
+        "cpu_sec": 0.6912406250000003,
+        "peak_rss_kb": 192176,
+        "audio_sec": 5.86,
+        "rtf": 0.11797908310583353
+      },
+      {
+        "id": "en-long",
+        "language": "en",
+        "scenario": "long",
+        "wav": "en-long.wav",
+        "text": "Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 12.924,
+        "source": "synthetic_piper",
+        "hypothesis": "tell me a short story then we can play and new game together tell me a short story then we can play a new game together tell me a short story then we can play a new game together",
+        "word_errors": 1,
+        "reference_words": 39,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.625
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.2599880140001005,
+        "processing_sec": 0.8607624070000384,
+        "cpu_sec": 0.8603680520000001,
+        "peak_rss_kb": 198832,
+        "audio_sec": 13.924,
+        "rtf": 0.06181861584315128
+      },
+      {
+        "id": "en-silence",
+        "language": "en",
+        "scenario": "silence",
+        "wav": "en-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.2599880140001005,
+        "processing_sec": 0.11300762800010489,
+        "cpu_sec": 0.11301568400000006,
+        "peak_rss_kb": 198832,
+        "audio_sec": 3.3,
+        "rtf": 0.034244735757607545
+      }
+    ],
+    "stt-baseline-tr.jsonl": [
+      {
+        "id": "tr-short",
+        "language": "tr",
+        "scenario": "short",
+        "wav": "tr-short.wav",
+        "text": "Dur.",
+        "speech_end_sec": 0.6831875,
+        "source": "synthetic_piper",
+        "hypothesis": "gör",
+        "word_errors": 1,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.5064089359998434,
+        "processing_sec": 0.37177568099968994,
+        "cpu_sec": 0.37167377599999996,
+        "peak_rss_kb": 146976,
+        "audio_sec": 1.6831875,
+        "rtf": 0.22087597549274215
+      },
+      {
+        "id": "tr-clean",
+        "language": "tr",
+        "scenario": "clean",
+        "wav": "tr-clean.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5524375,
+        "source": "synthetic_piper",
+        "hypothesis": "merhaba robot bugün nasılsın",
+        "word_errors": 0,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.5
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.5064089359998434,
+        "processing_sec": 0.3623742120003044,
+        "cpu_sec": 0.36227461000000005,
+        "peak_rss_kb": 150560,
+        "audio_sec": 3.5524375,
+        "rtf": 0.10200720266023101
+      },
+      {
+        "id": "tr-noise",
+        "language": "tr",
+        "scenario": "noise",
+        "wav": "tr-noise.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5175625,
+        "source": "synthetic_piper",
+        "hypothesis": "merhaba bugün nasılsın",
+        "word_errors": 1,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.25
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.5064089359998434,
+        "processing_sec": 0.26870328099994367,
+        "cpu_sec": 0.268655925,
+        "peak_rss_kb": 156704,
+        "audio_sec": 3.5175625,
+        "rtf": 0.07638905662655424
+      },
+      {
+        "id": "tr-pause",
+        "language": "tr",
+        "scenario": "pause",
+        "wav": "tr-pause.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 5.088625,
+        "source": "synthetic_piper",
+        "hypothesis": "bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım",
+        "word_errors": 0,
+        "reference_words": 11,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.875
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.5064089359998434,
+        "processing_sec": 0.43138694799972654,
+        "cpu_sec": 0.4313404810000001,
+        "peak_rss_kb": 159776,
+        "audio_sec": 6.088625,
+        "rtf": 0.07085129204044041
+      },
+      {
+        "id": "tr-long",
+        "language": "tr",
+        "scenario": "long",
+        "wav": "tr-long.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 13.222125,
+        "source": "synthetic_piper",
+        "hypothesis": "bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım",
+        "word_errors": 0,
+        "reference_words": 33,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          14.125
+        ],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.5064089359998434,
+        "processing_sec": 0.6629879810002421,
+        "cpu_sec": 0.662750221,
+        "peak_rss_kb": 164080,
+        "audio_sec": 14.222125,
+        "rtf": 0.046616661082661145
+      },
+      {
+        "id": "tr-silence",
+        "language": "tr",
+        "scenario": "silence",
+        "wav": "tr-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "baseline",
+        "repeat": 0,
+        "load_sec": 1.5064089359998434,
+        "processing_sec": 0.11476749199982805,
+        "cpu_sec": 0.11472381399999998,
+        "peak_rss_kb": 164080,
+        "audio_sec": 3.3,
+        "rtf": 0.034778027878735775
+      }
+    ],
+    "stt-hailo-base-en.jsonl": [
+      {
+        "id": "en-short",
+        "language": "en",
+        "scenario": "short",
+        "wav": "en-short.wav",
+        "text": "Stop.",
+        "speech_end_sec": 0.972,
+        "source": "synthetic_piper",
+        "hypothesis": "Stop.",
+        "word_errors": 0,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.44
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.0018410829998174,
+        "processing_sec": 0.42317101400021784,
+        "cpu_sec": 0.14969103800000005,
+        "peak_rss_kb": 522752,
+        "audio_sec": 1.972,
+        "rtf": 0.21458976369179403
+      },
+      {
+        "id": "en-clean",
+        "language": "en",
+        "scenario": "clean",
+        "wav": "en-clean.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.604,
+        "source": "synthetic_piper",
+        "hypothesis": "Hello robot, how are you today?",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.04
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.0018410829998174,
+        "processing_sec": 0.792018552999707,
+        "cpu_sec": 0.10544334599999994,
+        "peak_rss_kb": 522752,
+        "audio_sec": 3.604,
+        "rtf": 0.21976097475019618
+      },
+      {
+        "id": "en-noise",
+        "language": "en",
+        "scenario": "noise",
+        "wav": "en-noise.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.732,
+        "source": "synthetic_piper",
+        "hypothesis": "Hello robot, how are you today?",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.168
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.0018410829998174,
+        "processing_sec": 0.7928011990002233,
+        "cpu_sec": 0.10394362800000012,
+        "peak_rss_kb": 522752,
+        "audio_sec": 3.732,
+        "rtf": 0.21243333306544032
+      },
+      {
+        "id": "en-pause",
+        "language": "en",
+        "scenario": "pause",
+        "wav": "en-pause.wav",
+        "text": "Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 4.86,
+        "source": "synthetic_piper",
+        "hypothesis": "Tell me a short story, then we can play. a new game together.",
+        "word_errors": 0,
+        "reference_words": 13,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.12
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.0018410829998174,
+        "processing_sec": 1.6498913269997502,
+        "cpu_sec": 0.20272506199999984,
+        "peak_rss_kb": 522752,
+        "audio_sec": 5.86,
+        "rtf": 0.2815514209897184
+      },
+      {
+        "id": "en-long",
+        "language": "en",
+        "scenario": "long",
+        "wav": "en-long.wav",
+        "text": "Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 12.924,
+        "source": "synthetic_piper",
+        "hypothesis": "Tell me a short story, then we can play it. You can play and you gain together. Tell me a short story. Then we can play a new game together. Tell me a short story, then we can play a new game together.",
+        "word_errors": 7,
+        "reference_words": 39,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.376
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.0018410829998174,
+        "processing_sec": 4.779624360000071,
+        "cpu_sec": 0.5898258170000001,
+        "peak_rss_kb": 522752,
+        "audio_sec": 13.924,
+        "rtf": 0.3432651795461125
+      },
+      {
+        "id": "en-silence",
+        "language": "en",
+        "scenario": "silence",
+        "wav": "en-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.0018410829998174,
+        "processing_sec": 0.031328188000316004,
+        "cpu_sec": 0.03131188800000029,
+        "peak_rss_kb": 522752,
+        "audio_sec": 3.3,
+        "rtf": 0.009493390303126062
+      }
+    ],
+    "stt-hailo-base-tr.jsonl": [
+      {
+        "id": "tr-short",
+        "language": "tr",
+        "scenario": "short",
+        "wav": "tr-short.wav",
+        "text": "Dur.",
+        "speech_end_sec": 0.6831875,
+        "source": "synthetic_piper",
+        "hypothesis": "Yavrum",
+        "word_errors": 1,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.248
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.4551375209998696,
+        "processing_sec": 0.49550380399978167,
+        "cpu_sec": 0.1534634450000001,
+        "peak_rss_kb": 521664,
+        "audio_sec": 1.6831875,
+        "rtf": 0.29438419902701374
+      },
+      {
+        "id": "tr-clean",
+        "language": "tr",
+        "scenario": "clean",
+        "wav": "tr-clean.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5524375,
+        "source": "synthetic_piper",
+        "hypothesis": "Merhaba robot, bugün ne sesin?",
+        "word_errors": 2,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.104
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.4551375209998696,
+        "processing_sec": 0.8694870499998615,
+        "cpu_sec": 0.11623450499999999,
+        "peak_rss_kb": 521664,
+        "audio_sec": 3.5524375,
+        "rtf": 0.24475787399492926
+      },
+      {
+        "id": "tr-noise",
+        "language": "tr",
+        "scenario": "noise",
+        "wav": "tr-noise.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5175625,
+        "source": "synthetic_piper",
+        "hypothesis": "Merhaba dolu, bugün ne sesin?",
+        "word_errors": 3,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.072
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.4551375209998696,
+        "processing_sec": 0.9481789730002674,
+        "cpu_sec": 0.12499385699999999,
+        "peak_rss_kb": 521664,
+        "audio_sec": 3.5175625,
+        "rtf": 0.26955568607530567
+      },
+      {
+        "id": "tr-pause",
+        "language": "tr",
+        "scenario": "pause",
+        "wav": "tr-pause.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 5.088625,
+        "source": "synthetic_piper",
+        "hypothesis": "Bana kısa bir hikaye anlat, sonra birlik. Bidlikte yeni bir oyun oynayalım.",
+        "word_errors": 2,
+        "reference_words": 11,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.44
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.4551375209998696,
+        "processing_sec": 2.2714523929998904,
+        "cpu_sec": 0.284808924,
+        "peak_rss_kb": 521664,
+        "audio_sec": 6.088625,
+        "rtf": 0.3730649190909097
+      },
+      {
+        "id": "tr-long",
+        "language": "tr",
+        "scenario": "long",
+        "wav": "tr-long.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 13.222125,
+        "source": "synthetic_piper",
+        "hypothesis": "Bana kısa bir hikaya anlat, sonra birlikteyi 1 oya 1 oya 1 oy bana kısa bir hikaye (Azm) (Gerilim) 1 ay",
+        "word_errors": 24,
+        "reference_words": 33,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.792
+        ],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.4551375209998696,
+        "processing_sec": 5.782797545999983,
+        "cpu_sec": 0.7488905779999999,
+        "peak_rss_kb": 521664,
+        "audio_sec": 14.222125,
+        "rtf": 0.40660573198449484
+      },
+      {
+        "id": "tr-silence",
+        "language": "tr",
+        "scenario": "silence",
+        "wav": "tr-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "hailo-base",
+        "repeat": 0,
+        "load_sec": 1.4551375209998696,
+        "processing_sec": 0.04576340599987816,
+        "cpu_sec": 0.0453606449999997,
+        "peak_rss_kb": 521664,
+        "audio_sec": 3.3,
+        "rtf": 0.013867698787841868
+      }
+    ],
+    "stt-hailo-tiny-en.jsonl": [
+      {
+        "id": "en-short",
+        "language": "en",
+        "scenario": "short",
+        "wav": "en-short.wav",
+        "text": "Stop.",
+        "speech_end_sec": 0.972,
+        "source": "synthetic_piper",
+        "hypothesis": "Stop.",
+        "word_errors": 0,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.44
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 0.7830772370002705,
+        "processing_sec": 0.3748518890001833,
+        "cpu_sec": 0.16952244299999997,
+        "peak_rss_kb": 328352,
+        "audio_sec": 1.972,
+        "rtf": 0.19008716480739518
+      },
+      {
+        "id": "en-clean",
+        "language": "en",
+        "scenario": "clean",
+        "wav": "en-clean.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.604,
+        "source": "synthetic_piper",
+        "hypothesis": "Hello robot, how are you today?",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.04
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 0.7830772370002705,
+        "processing_sec": 0.6962920420000955,
+        "cpu_sec": 0.15811171899999987,
+        "peak_rss_kb": 328352,
+        "audio_sec": 3.604,
+        "rtf": 0.1931997896781619
+      },
+      {
+        "id": "en-noise",
+        "language": "en",
+        "scenario": "noise",
+        "wav": "en-noise.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.732,
+        "source": "synthetic_piper",
+        "hypothesis": "Hello robot, how are you today?",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.168
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 0.7830772370002705,
+        "processing_sec": 0.6950108979999641,
+        "cpu_sec": 0.1599213869999998,
+        "peak_rss_kb": 328352,
+        "audio_sec": 3.732,
+        "rtf": 0.18623014415861844
+      },
+      {
+        "id": "en-pause",
+        "language": "en",
+        "scenario": "pause",
+        "wav": "en-pause.wav",
+        "text": "Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 4.86,
+        "source": "synthetic_piper",
+        "hypothesis": "Tell me a short story then we can play. a new game together.",
+        "word_errors": 0,
+        "reference_words": 13,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.12
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 0.7830772370002705,
+        "processing_sec": 1.373939158000212,
+        "cpu_sec": 0.30531262699999995,
+        "peak_rss_kb": 328352,
+        "audio_sec": 5.86,
+        "rtf": 0.23446060716727166
+      },
+      {
+        "id": "en-long",
+        "language": "en",
+        "scenario": "long",
+        "wav": "en-long.wav",
+        "text": "Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 12.924,
+        "source": "synthetic_piper",
+        "hypothesis": "Tell me a short story then we can play. a new game together, tell me your short story. then we can play a new game together. \"Tell me a short story, then we can play.\" a new game together.",
+        "word_errors": 1,
+        "reference_words": 39,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.376
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 0.7830772370002705,
+        "processing_sec": 4.077778232999663,
+        "cpu_sec": 0.9273396199999999,
+        "peak_rss_kb": 328352,
+        "audio_sec": 13.924,
+        "rtf": 0.2928596834960976
+      },
+      {
+        "id": "en-silence",
+        "language": "en",
+        "scenario": "silence",
+        "wav": "en-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 0.7830772370002705,
+        "processing_sec": 0.04338585799996508,
+        "cpu_sec": 0.0433914259999999,
+        "peak_rss_kb": 328352,
+        "audio_sec": 3.3,
+        "rtf": 0.013147229696959117
+      }
+    ],
+    "stt-hailo-tiny-tr.jsonl": [
+      {
+        "id": "tr-short",
+        "language": "tr",
+        "scenario": "short",
+        "wav": "tr-short.wav",
+        "text": "Dur.",
+        "speech_end_sec": 0.6831875,
+        "source": "synthetic_piper",
+        "hypothesis": "Yaptı.",
+        "word_errors": 1,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.248
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 2.365725560000101,
+        "processing_sec": 0.5404703750000408,
+        "cpu_sec": 0.196512095,
+        "peak_rss_kb": 328272,
+        "audio_sec": 1.6831875,
+        "rtf": 0.32109932791209583
+      },
+      {
+        "id": "tr-clean",
+        "language": "tr",
+        "scenario": "clean",
+        "wav": "tr-clean.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5524375,
+        "source": "synthetic_piper",
+        "hypothesis": "Merhaba DoBalt bugün nasılsın? Merhaba DoBalt bugün nasılsın? Merhaba DoBalt bugün nasılsın?",
+        "word_errors": 9,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.104
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 2.365725560000101,
+        "processing_sec": 1.9848425260001932,
+        "cpu_sec": 0.4076547839999999,
+        "peak_rss_kb": 328272,
+        "audio_sec": 3.5524375,
+        "rtf": 0.5587269377716548
+      },
+      {
+        "id": "tr-noise",
+        "language": "tr",
+        "scenario": "noise",
+        "wav": "tr-noise.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5175625,
+        "source": "synthetic_piper",
+        "hypothesis": "Merhaba çok. bugün nasılsın?",
+        "word_errors": 1,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.072
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 2.365725560000101,
+        "processing_sec": 2.7910011779999877,
+        "cpu_sec": 0.5652470170000001,
+        "peak_rss_kb": 328272,
+        "audio_sec": 3.5175625,
+        "rtf": 0.7934475017856791
+      },
+      {
+        "id": "tr-pause",
+        "language": "tr",
+        "scenario": "pause",
+        "wav": "tr-pause.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 5.088625,
+        "source": "synthetic_piper",
+        "hypothesis": "Bana kısa bir hikayanet. ...bizlikte yeni bir oyun eyle.",
+        "word_errors": 5,
+        "reference_words": 11,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.44
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 2.365725560000101,
+        "processing_sec": 1.703668781000033,
+        "cpu_sec": 0.3622126669999999,
+        "peak_rss_kb": 328272,
+        "audio_sec": 6.088625,
+        "rtf": 0.27981174419512334
+      },
+      {
+        "id": "tr-long",
+        "language": "tr",
+        "scenario": "long",
+        "wav": "tr-long.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 13.222125,
+        "source": "synthetic_piper",
+        "hypothesis": "Bana kısa bir hikâyanlat, sonra birlikte yı ve bu videonun bir şey diye yeni bir oyun oynayalım. Bana kısa bir hikayeyi. bir oyun oynaya. bana kısa bir hikayeyenat, sonra bildi. abitlikte yeni bir oyun oynayalım.",
+        "word_errors": 19,
+        "reference_words": 33,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.792
+        ],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 2.365725560000101,
+        "processing_sec": 5.361386575999859,
+        "cpu_sec": 1.217720446,
+        "peak_rss_kb": 328272,
+        "audio_sec": 14.222125,
+        "rtf": 0.3769750706030118
+      },
+      {
+        "id": "tr-silence",
+        "language": "tr",
+        "scenario": "silence",
+        "wav": "tr-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "hailo-tiny",
+        "repeat": 0,
+        "load_sec": 2.365725560000101,
+        "processing_sec": 0.04383024399976421,
+        "cpu_sec": 0.043819814999999984,
+        "peak_rss_kb": 328272,
+        "audio_sec": 3.3,
+        "rtf": 0.013281892121140669
+      }
+    ],
+    "stt-vosk-en.jsonl": [
+      {
+        "id": "en-short",
+        "language": "en",
+        "scenario": "short",
+        "wav": "en-short.wav",
+        "text": "Stop.",
+        "speech_end_sec": 0.972,
+        "source": "synthetic_piper",
+        "hypothesis": "stop",
+        "word_errors": 0,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.44
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7318233729997701,
+        "processing_sec": 0.5779413049999675,
+        "cpu_sec": 0.577814274,
+        "peak_rss_kb": 225520,
+        "audio_sec": 1.972,
+        "rtf": 0.29307368407706264
+      },
+      {
+        "id": "en-clean",
+        "language": "en",
+        "scenario": "clean",
+        "wav": "en-clean.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.604,
+        "source": "synthetic_piper",
+        "hypothesis": "hello robot how are you today",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.04
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7318233729997701,
+        "processing_sec": 0.5337696169999617,
+        "cpu_sec": 0.5337594059999999,
+        "peak_rss_kb": 235760,
+        "audio_sec": 3.604,
+        "rtf": 0.14810477719199824
+      },
+      {
+        "id": "en-noise",
+        "language": "en",
+        "scenario": "noise",
+        "wav": "en-noise.wav",
+        "text": "Hello robot. How are you today?",
+        "speech_end_sec": 2.732,
+        "source": "synthetic_piper",
+        "hypothesis": "hello robot how are you today",
+        "word_errors": 0,
+        "reference_words": 6,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.168
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7318233729997701,
+        "processing_sec": 0.2530271499999799,
+        "cpu_sec": 0.25293522099999977,
+        "peak_rss_kb": 235760,
+        "audio_sec": 3.732,
+        "rtf": 0.06779934351553588
+      },
+      {
+        "id": "en-pause",
+        "language": "en",
+        "scenario": "pause",
+        "wav": "en-pause.wav",
+        "text": "Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 4.86,
+        "source": "synthetic_piper",
+        "hypothesis": "tell me a short story then we can play a new game together",
+        "word_errors": 0,
+        "reference_words": 13,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.12
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7318233729997701,
+        "processing_sec": 0.6930987979999372,
+        "cpu_sec": 0.6930272950000003,
+        "peak_rss_kb": 246000,
+        "audio_sec": 5.86,
+        "rtf": 0.11827624539248074
+      },
+      {
+        "id": "en-long",
+        "language": "en",
+        "scenario": "long",
+        "wav": "en-long.wav",
+        "text": "Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together. Tell me a short story. Then we can play a new game together.",
+        "speech_end_sec": 12.924,
+        "source": "synthetic_piper",
+        "hypothesis": "tell me a short story then we can play and new game together tell me a short story then we can play a new game together tell me a short story then we can play a new game together",
+        "word_errors": 1,
+        "reference_words": 39,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.376
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7318233729997701,
+        "processing_sec": 1.0767787610002415,
+        "cpu_sec": 1.076610385,
+        "peak_rss_kb": 252656,
+        "audio_sec": 13.924,
+        "rtf": 0.07733257404483206
+      },
+      {
+        "id": "en-silence",
+        "language": "en",
+        "scenario": "silence",
+        "wav": "en-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7318233729997701,
+        "processing_sec": 0.03118615699986549,
+        "cpu_sec": 0.031194147999999977,
+        "peak_rss_kb": 252656,
+        "audio_sec": 3.3,
+        "rtf": 0.009450350606019845
+      }
+    ],
+    "stt-vosk-tr.jsonl": [
+      {
+        "id": "tr-short",
+        "language": "tr",
+        "scenario": "short",
+        "wav": "tr-short.wav",
+        "text": "Dur.",
+        "speech_end_sec": 0.6831875,
+        "source": "synthetic_piper",
+        "hypothesis": "gör",
+        "word_errors": 1,
+        "reference_words": 1,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          1.248
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7018332090001422,
+        "processing_sec": 0.3292339730001004,
+        "cpu_sec": 0.32923185,
+        "peak_rss_kb": 199744,
+        "audio_sec": 1.6831875,
+        "rtf": 0.19560148408902772
+      },
+      {
+        "id": "tr-clean",
+        "language": "tr",
+        "scenario": "clean",
+        "wav": "tr-clean.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5524375,
+        "source": "synthetic_piper",
+        "hypothesis": "merhaba robot bugün nasılsın",
+        "word_errors": 0,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.104
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7018332090001422,
+        "processing_sec": 0.3397432349997871,
+        "cpu_sec": 0.3395832029999999,
+        "peak_rss_kb": 203328,
+        "audio_sec": 3.5524375,
+        "rtf": 0.09563665370602216
+      },
+      {
+        "id": "tr-noise",
+        "language": "tr",
+        "scenario": "noise",
+        "wav": "tr-noise.wav",
+        "text": "Merhaba robot. Bugün nasılsın?",
+        "speech_end_sec": 2.5175625,
+        "source": "synthetic_piper",
+        "hypothesis": "merhaba bugün nasılsın",
+        "word_errors": 1,
+        "reference_words": 4,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          3.072
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7018332090001422,
+        "processing_sec": 0.3012237309999364,
+        "cpu_sec": 0.30109985100000003,
+        "peak_rss_kb": 209984,
+        "audio_sec": 3.5175625,
+        "rtf": 0.08563422284605786
+      },
+      {
+        "id": "tr-pause",
+        "language": "tr",
+        "scenario": "pause",
+        "wav": "tr-pause.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 5.088625,
+        "source": "synthetic_piper",
+        "hypothesis": "bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım",
+        "word_errors": 0,
+        "reference_words": 11,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          5.44
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7018332090001422,
+        "processing_sec": 0.4837949469997511,
+        "cpu_sec": 0.4836519229999998,
+        "peak_rss_kb": 213056,
+        "audio_sec": 6.088625,
+        "rtf": 0.07945881820604013
+      },
+      {
+        "id": "tr-long",
+        "language": "tr",
+        "scenario": "long",
+        "wav": "tr-long.wav",
+        "text": "Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım. Bana kısa bir hikaye anlat. Sonra birlikte yeni bir oyun oynayalım.",
+        "speech_end_sec": 13.222125,
+        "source": "synthetic_piper",
+        "hypothesis": "bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım bana kısa bir hikaye anlat sonra birlikte yeni bir oyun oynayalım",
+        "word_errors": 0,
+        "reference_words": 33,
+        "false_activation": false,
+        "endpoint_audio_sec": [
+          13.792
+        ],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7018332090001422,
+        "processing_sec": 0.8678829059999771,
+        "cpu_sec": 0.8678274960000003,
+        "peak_rss_kb": 217392,
+        "audio_sec": 14.222125,
+        "rtf": 0.06102343398050412
+      },
+      {
+        "id": "tr-silence",
+        "language": "tr",
+        "scenario": "silence",
+        "wav": "tr-silence.wav",
+        "text": "",
+        "speech_end_sec": null,
+        "source": "synthetic_piper",
+        "hypothesis": "",
+        "word_errors": 0,
+        "reference_words": 0,
+        "false_activation": false,
+        "endpoint_audio_sec": [],
+        "backend": "vosk",
+        "repeat": 0,
+        "load_sec": 0.7018332090001422,
+        "processing_sec": 0.03268830000024536,
+        "cpu_sec": 0.0326957590000001,
+        "peak_rss_kb": 217392,
+        "audio_sec": 3.3,
+        "rtf": 0.009905545454619807
+      }
+    ]
+  },
+  "environment": {
+    "hardware": "Raspberry Pi 5, 8 GB, Hailo-8L",
+    "hailort": "4.20.0",
+    "llama_cpp_python": "0.3.35",
+    "onnxruntime": "1.29.0",
+    "piper_tts": "1.8.0",
+    "tokenizers": "0.21.4",
+    "corpus_path": "/usr/local/ai.models/benchmarks/local-voice-2026-09-12",
+    "corpus_files": {
+      "tr-pause.wav": "5b19e1fd2081965c0808b64f597097f0690ce6ffba389348f2a5b553d7ba30d0",
+      "tr-silence.wav": "e3d260035c0e24cce5f4e9b26c60cbe8a2bf5bceeed521eb2c41a2e8527ca66e",
+      "tr-short.wav": "c69318e6df581019994d6d21349c829df0b00c36d310248701aa9af38b3406ca",
+      "en-short.wav": "f5af96c8a3a8ae6f5a8de561bd7e2b8b65817dd5bcf9c3a9d02d8d4c4c34f792",
+      "en-pause.wav": "ab875363c7be392a7ead4200a29ee0e5dfb3fa5b07c8a6a0cd8e5a5565d7de5c",
+      "tr-long.wav": "74a4d4ed8ce494d2f4593c99c6f92127fcdd2946bd4d0958e5bb1e05e883cf86",
+      "tr-noise.wav": "aef87d41bbd4b3695a5bfed42ccb32415e729ebebf190deb8a2be4a345e41b5d",
+      "en-clean.wav": "899c9039834143d01df5cfb271be75eb1b329c1a0fb4aae3471403d2d8392427",
+      "en-silence.wav": "e3d260035c0e24cce5f4e9b26c60cbe8a2bf5bceeed521eb2c41a2e8527ca66e",
+      "manifest.json": "7471f2f1cf0857a902ea09754513b5a01c3bebab7b7891ff1623fde0979b8a7a",
+      "en-long.wav": "f3b8987e771900896c359ba52b9b71afdd4b6dc9ff2c5cfc062793274713231f",
+      "en-noise.wav": "1108fa36435aacb90de2b52df21d9d6b2e8c5b7d31f100937ca6e1fa3f8ab308",
+      "tr-clean.wav": "b215f8a498ce75aff6d6f63187300b9ea58bb55389a8a24ec927910c1bc5d40d"
+    }
+  }
+}

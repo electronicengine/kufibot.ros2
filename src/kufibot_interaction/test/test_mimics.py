@@ -46,7 +46,11 @@ def test_persistence_and_conflict(tmp_path):
 
 def test_legacy_and_user_refresh(tmp_path,monkeypatch):
     monkeypatch.setenv('KUFIBOT_MIMICS_FILE',str(tmp_path/'mimics.json'))
-    store=default_store()
+    # Exercise the bundled fixture, not this robot's editable physical poses.
+    from pathlib import Path
+    from kufibot_interaction import mimics
+    root=Path(mimics.__file__).with_name('expression_defaults')
+    store=default_store(root/'gesture_config.json',root/'motion_definitions.json',root/'joint_angles.json')
     legacy=store.get('greeting')
     assert legacy['interpolation']=='step'
     assert evaluate(legacy,499)['rightArm']==65

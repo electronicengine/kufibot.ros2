@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build the complete Kufibot ROS 2 workspace from its root dependencies.
-# Usage: ./tools/ros2_build.sh
+# Shared colcon/pip build logic for ros2_build_sim.sh and ros2_build_pi.sh.
+# Meant to be sourced, not executed directly. The caller must set
+# REQUIREMENTS_FILE (relative to the workspace root) before sourcing this.
 # ROS 2's generated setup scripts read optional unset variables, so do not
 # enable `nounset` here. Keep failures and pipeline errors fatal.
 set -eo pipefail
@@ -25,13 +26,9 @@ if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
 fi
 
 source "${VENV_DIR}/bin/activate"
-echo "Installing Python dependencies..."
+echo "Installing Python dependencies (${REQUIREMENTS_FILE})..."
 python -m pip install --upgrade pip
-python -m pip install -r "${WORKSPACE_DIR}/requirements.txt"
+python -m pip install -r "${WORKSPACE_DIR}/${REQUIREMENTS_FILE}"
 
 echo "Building ROS 2 packages..."
 colcon build --symlink-install --base-paths src
-
-echo
-echo "Build completed. Start the simulation with:"
-echo "  ./tools/ros2_sim_launch.sh sim voice:=true"

@@ -62,80 +62,73 @@ def test_stale_camera_frame_is_rejected_without_upload():
     session.send_image.assert_not_awaited()
 
 
-def test_first_interim_user_turn_schedules_silent_camera_context():
-    async def scenario():
-        node = VoiceAgentNode.__new__(VoiceAgentNode)
-        node.camera_attach_to_every_user_turn = True
-        node.session = object()
-        node.last_auto_camera_text = ''
-        node.last_auto_camera_at = 0.0
-        node.auto_camera_turn_active = False
-        node.camera_send_tasks = set()
-        node._send_camera_image = AsyncMock(
-            return_value={'status': 'success'})
-        node.get_logger = lambda: type('Logger', (), {
-            'warning': lambda self, message: None,
-            'error': lambda self, message: None,
-        })()
+def camera_node():
+    from unittest.mock import Mock
+    node = VoiceAgentNode.__new__(VoiceAgentNode)
+    node.camera_attach_to_every_user_turn = True
+    node.camera_turn_task = None
+    node.camera_turn_id = None
+    node.camera_send_tasks = set()
+    node.camera_lock = threading.Lock()
+    node.latest_camera_image = snapshot()
+    node.camera_max_age = 1.0
+    node.camera_jpeg_max_width = 640
+    node.camera_jpeg_quality = 80
+    node._publish_ai_settings = Mock()
+    node.get_logger = Mock()
+    node.session = Mock(send_image=AsyncMock(), complete_camera_turn=AsyncMock())
+    return node
 
-        node._handle_user_camera_context('Elimde', final=False)
-        node._handle_user_camera_context('Elimde ne var?', final=False)
-        await asyncio.gather(*tuple(node.camera_send_tasks))
 
-        args, kwargs = node._send_camera_image.await_args
-        assert args[0] is node.session
-        assert args[1] == 'Elimde'
-        assert kwargs['enforce_cooldown'] is True
+def test_camera_event_sends_one_snapshot_per_turn():
+    async def run():
+        node = camera_node()
+        event = {'type': 'rtf-user-turn-started', 'payload': {'turn_id': 'one'}}
+        node._voice_event(node.session, event)
+        node._voice_event(node.session, event)
+        await node.camera_turn_task
+        node.session.send_image.assert_awaited_once()
+        kwargs = node.session.send_image.await_args.kwargs
+        assert kwargs['turn_id'] == 'one'
         assert kwargs['trigger_response'] is False
-
-    asyncio.run(scenario())
-
-
-def test_final_transcript_closes_turn_without_second_upload():
-    async def scenario():
-        node = VoiceAgentNode.__new__(VoiceAgentNode)
-        node.camera_attach_to_every_user_turn = True
-        node.session = object()
-        node.last_auto_camera_text = ''
-        node.last_auto_camera_at = 0.0
-        node.auto_camera_turn_active = False
-        node.camera_send_tasks = set()
-        node._send_camera_image = AsyncMock(
-            return_value={'status': 'success'})
-        node.get_logger = lambda: type('Logger', (), {
-            'warning': lambda self, message: None,
-            'error': lambda self, message: None,
-        })()
-
-        node._handle_user_camera_context('Mer', final=False)
-        node._handle_user_camera_context('Merhaba', final=True)
-        await asyncio.gather(*tuple(node.camera_send_tasks))
-        assert node._send_camera_image.await_count == 1
-
-    asyncio.run(scenario())
+        node.session.complete_camera_turn.assert_awaited_once_with('one')
+    asyncio.run(run())
 
 
-def test_final_only_transcript_uses_best_effort_fallback():
-    async def scenario():
-        node = VoiceAgentNode.__new__(VoiceAgentNode)
-        node.camera_attach_to_every_user_turn = True
-        node.session = object()
-        node.last_auto_camera_text = ''
-        node.last_auto_camera_at = 0.0
-        node.auto_camera_turn_active = False
-        node.camera_send_tasks = set()
-        node._send_camera_image = AsyncMock(
-            return_value={'status': 'success'})
-        node.get_logger = lambda: type('Logger', (), {
-            'warning': lambda self, message: None,
-            'error': lambda self, message: None,
-        })()
+def test_disabled_camera_does_not_upload():
+    async def run():
+        node = camera_node()
+        node.camera_attach_to_every_user_turn = False
+        node._voice_event(node.session, {'type': 'rtf-user-turn-started', 'payload': {'turn_id': 'one'}})
+        node.session.send_image.assert_not_awaited()
+    asyncio.run(run())
 
-        node._handle_user_camera_context('Neye bakıyorum?', final=True)
-        await asyncio.gather(*tuple(node.camera_send_tasks))
-        args, kwargs = node._send_camera_image.await_args
-        assert args[1] == 'Neye bakıyorum?'
-        assert kwargs['trigger_response'] is False
-        assert node.auto_camera_turn_active is False
 
-    asyncio.run(scenario())
+def test_missing_camera_completes_turn_without_image():
+    async def run():
+        node = camera_node()
+        node.latest_camera_image = None
+        node._voice_event(node.session, {'type': 'rtf-user-turn-started', 'payload': {'turn_id': 'one'}})
+        await node.camera_turn_task
+        node.session.send_image.assert_not_awaited()
+        node.session.complete_camera_turn.assert_awaited_once_with('one')
+        assert 'eklenemedi' in node.camera_status
+    asyncio.run(run())
+
+
+def test_new_turn_cancels_previous_pending_upload():
+    async def run():
+        node = camera_node()
+        blocker = asyncio.Event()
+        node.session.send_image.side_effect = lambda **kwargs: None
+        async def upload(**kwargs):
+            if kwargs['turn_id'] == 'one':
+                await blocker.wait()
+        node.session.send_image.side_effect = upload
+        node._voice_event(node.session, {'type': 'rtf-user-turn-started', 'payload': {'turn_id': 'one'}})
+        old = node.camera_turn_task
+        await asyncio.sleep(0.02)
+        node._voice_event(node.session, {'type': 'rtf-user-turn-started', 'payload': {'turn_id': 'two'}})
+        await asyncio.gather(old, node.camera_turn_task)
+        node.session.complete_camera_turn.assert_awaited_once_with('two')
+    asyncio.run(run())

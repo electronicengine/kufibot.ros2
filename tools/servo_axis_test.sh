@@ -30,7 +30,7 @@ echo "Starting servo controller..."
 ros2 run kufibot_actuators servo_node &
 SERVO_PID=$!
 
-# servo_axis_test waits for all servo subscriptions before sending commands.
+# servo_axis_test waits for startup joint states before sending commands.
 # Arguments are ROS arguments for the test, e.g. --ros-args -p hold_seconds:=3.0
 "${VENV_DIR}/bin/python" \
     "${WORKSPACE_DIR}/src/kufibot_actuators/test/manual/servo_axis_test.py" "$@"

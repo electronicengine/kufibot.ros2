@@ -33,8 +33,12 @@ class Server:
         control.mimic_store = self.mimics
         self.clients = set()
         self.peers = set()
-        self.app = web.Application()
+        self.app = web.Application(client_max_size=21 * 1024 * 1024)
+        from .workflow_api import WorkflowAPI
+        self.workflow_api = WorkflowAPI(self)
         self.app.add_routes([web.get('/', self.index),
+                             web.get('/manifest.webmanifest', self.manifest),
+                             web.get('/service-worker.js', self.service_worker),
                              web.get('/assets/{name}', self.asset),
                              web.get('/mimics', self.editor),
                              web.get('/api/mimics', self.list_mimics),
@@ -92,9 +96,20 @@ class Server:
                                 headers={'Cache-Control': 'no-cache'})
 
     @staticmethod
+    async def manifest(request):
+        return web.FileResponse(Path(__file__).with_name('web') / 'manifest.webmanifest',
+                                headers={'Cache-Control': 'no-cache'})
+
+    @staticmethod
+    async def service_worker(request):
+        return web.FileResponse(Path(__file__).with_name('web') / 'service-worker.js',
+                                headers={'Cache-Control': 'no-cache',
+                                         'Service-Worker-Allowed': '/'})
+
+    @staticmethod
     async def asset(request):
         name = request.match_info['name']
-        if name not in {'app.js', 'connection.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js'}:
+        if name not in {'app.js', 'connection.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js', 'icon.svg'}:
             raise web.HTTPNotFound()
         return web.FileResponse(Path(__file__).with_name('web') / name,
                                 headers={'Cache-Control': 'no-cache',
@@ -114,15 +129,20 @@ class Server:
         self.check_origin(request)
         if len(self.clients) >= 4:
             raise web.HTTPServiceUnavailable(text='Too many clients')
-        ws = web.WebSocketResponse(heartbeat=5, max_msg_size=4096)
+        ws = web.WebSocketResponse(heartbeat=5, max_msg_size=262144)
         await ws.prepare(request)
         self.clients.add(ws)
 
         async def telemetry():
             while True:
+                status = self.status()
+                settings = (status.get('aiConfig') or {}).get('settings', {})
+                if settings and self.control.ai_settings_requested is None:
+                    self.control.local_workflow_enabled = bool(settings.get('workflow_id') and settings.get('provider') == 'local')
                 await asyncio.wait_for(ws.send_json({
-                    'type': 'state', **self.status(),
+                    'type': 'state', **status,
                     'owner': self.control.owner is ws,
+                    'workflowToken': self.workflow_api.token(ws),
                     'mimic': self.control.mimic_status,
                 }), timeout=1)
                 await asyncio.sleep(0.2)
@@ -151,7 +171,13 @@ class Server:
                     try:
                         data = json.loads(msg.data)
                         command = data.get('type') if isinstance(data, dict) else None
-                        if command == 'tool':
+                        if command == 'workflow':
+                            try:
+                                result = await self.workflow_api.command(ws, data)
+                                await ws.send_json({'type': 'workflowResult', 'request_id': data.get('request_id'), 'result': result})
+                            except (ValueError, KeyError, TypeError, OSError) as exc:
+                                await ws.send_json({'type': 'workflowResult', 'request_id': data.get('request_id'), 'error': str(exc)})
+                        elif command == 'tool':
                             if not self.tool_call:
                                 raise ValueError('Araç çağrıları kullanılamıyor')
                             # A reconnect can race the initial claim/state
@@ -170,6 +196,8 @@ class Server:
                             tool_job = asyncio.create_task(execute_tool(data))
                         else:
                             self.control.command(ws, data)
+                            if command == 'stop':
+                                await self.workflow_api.stop_test(ws)
                         await ws.send_json({'type': 'ack', 'command': command})
                     except (ValueError, TypeError) as error:
                         if command == 'playMimic':
@@ -177,6 +205,7 @@ class Server:
                         await ws.send_json({'type': 'error', 'command': command, 'message': str(error)})
         finally:
             self.control.release(ws)
+            await self.workflow_api.disconnect(ws)
             if tool_job is not None:
                 tool_job.cancel()
                 await asyncio.gather(tool_job, return_exceptions=True)
@@ -219,5 +248,6 @@ class Server:
             raise
 
     async def close(self):
+        self.workflow_api.knowledge.cancel.set()
         await asyncio.gather(*(ws.close() for ws in list(self.clients)))
         await asyncio.gather(*(peer.close() for peer in list(self.peers)))

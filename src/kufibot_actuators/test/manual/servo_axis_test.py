@@ -8,6 +8,7 @@ import kufibot_actuators
 import rclpy
 from kufibot_actuators.servo_node import DEFAULT_ANGLES, JOINT_CHANNELS
 from rclpy.node import Node
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32
 
 
@@ -23,7 +24,7 @@ class ServoAxisTest(Node):
         super().__init__('servo_axis_test')
 
         self.declare_parameter('hold_seconds', 2.0)
-        self.declare_parameter('discovery_timeout_seconds', 5.0)
+        self.declare_parameter('discovery_timeout_seconds', 30.0)
         self.declare_parameter('joint_config_file', '')
 
         self.hold_seconds = float(self.get_parameter('hold_seconds').value)
@@ -46,10 +47,13 @@ class ServoAxisTest(Node):
         self.sequence_index = 0
         self.discovery_elapsed = 0.0
         self.finished = False
+        self.startup_complete = False
+        self.state_subscription = self.create_subscription(
+            JointState, 'servo/joint_states', self._on_joint_states, 10)
         self.timer_period = 0.1
         self.timer = self.create_timer(self.timer_period, self._tick)
         self.get_logger().info(
-            'Waiting for servo_node subscriptions before axis test...')
+            'Waiting for servo_node startup pose before axis test...')
 
     @staticmethod
     def _load_sequence(path):
@@ -71,8 +75,11 @@ class ServoAxisTest(Node):
             raise RuntimeError(
                 f'Cannot create axis test from {path}: {error}') from error
 
+    def _on_joint_states(self, msg):
+        self.startup_complete = set(JOINT_CHANNELS).issubset(msg.name)
+
     def _servo_node_is_ready(self):
-        return all(
+        return self.startup_complete and all(
             publisher.get_subscription_count() > 0
             for publisher in self._joint_publishers.values())
 
@@ -84,7 +91,7 @@ class ServoAxisTest(Node):
             self.discovery_elapsed += self.timer_period
             if self.discovery_elapsed >= self.discovery_timeout:
                 self.get_logger().error(
-                    'servo_node was not found; no motion commands were sent')
+                    'servo_node startup not ready; no motion commands were sent')
                 self.finished = True
             return
 

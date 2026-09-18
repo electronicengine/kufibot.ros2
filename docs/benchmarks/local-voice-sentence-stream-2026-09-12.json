@@ -1,0 +1,122 @@
+{
+  "config": {
+    "model": "/usr/local/ai.models/llamaModel/dolphin3.gguf",
+    "llm_threads": 3,
+    "llm_batch_threads": 4,
+    "tts_threads": 1,
+    "max_tokens": 96,
+    "temperature": 0,
+    "seed": 17,
+    "speaker": "ALSA null"
+  },
+  "summary": {
+    "en": {
+      "serial": {
+        "first_pcm_sec": 6.4341889220004305,
+        "llm_sec": 6.010431061999952,
+        "total_sec": 7.607226666500537
+      },
+      "stream": {
+        "first_pcm_sec": 3.9497143759999744,
+        "llm_sec": 6.672344146500109,
+        "total_sec": 7.326290243499898
+      },
+      "first_pcm_gain_percent": 38.61363998040669
+    },
+    "tr": {
+      "serial": {
+        "first_pcm_sec": 13.53273064599989,
+        "llm_sec": 12.322825166999792,
+        "total_sec": 16.16107455349993
+      },
+      "stream": {
+        "first_pcm_sec": 8.47806114649984,
+        "llm_sec": 14.176708994500132,
+        "total_sec": 15.62748789149964
+      },
+      "first_pcm_gain_percent": 37.35143801886095
+    }
+  },
+  "records": [
+    {
+      "language": "en",
+      "repeat": 0,
+      "mode": "serial",
+      "answer": "The friendly robot is named Bumble. It has a round body and a cheerful face. Bumble can speak and understand human language.",
+      "first_pcm_sec": 6.436164067000391,
+      "llm_sec": 6.0040977899998325,
+      "playback_before_llm_end": false,
+      "total_sec": 7.629691468000601
+    },
+    {
+      "language": "en",
+      "repeat": 0,
+      "mode": "stream",
+      "answer": "The friendly robot is named Bumble. It has a round body and a cheerful face. Bumble can speak and understand human language.",
+      "first_pcm_sec": 4.024743590000071,
+      "llm_sec": 6.65433738899992,
+      "playback_before_llm_end": true,
+      "total_sec": 7.2997212210002544
+    },
+    {
+      "language": "en",
+      "repeat": 1,
+      "mode": "stream",
+      "answer": "The friendly robot is named Bumble. It has a round body and a cheerful face. Bumble can speak and understand human language.",
+      "first_pcm_sec": 3.874685161999878,
+      "llm_sec": 6.690350904000297,
+      "playback_before_llm_end": true,
+      "total_sec": 7.352859265999541
+    },
+    {
+      "language": "en",
+      "repeat": 1,
+      "mode": "serial",
+      "answer": "The friendly robot is named Bumble. It has a round body and a cheerful face. Bumble can speak and understand human language.",
+      "first_pcm_sec": 6.43221377700047,
+      "llm_sec": 6.016764334000072,
+      "playback_before_llm_end": false,
+      "total_sec": 7.584761865000473
+    },
+    {
+      "language": "tr",
+      "repeat": 0,
+      "mode": "serial",
+      "answer": "Bir arkadaş canlısı robot, insanlarla etkileşim kurabilme yeteneğine sahip. Güzel bir arayüzü ve etkileşimli sesi ile kullanıcılarına güzellik katıyor. Bu robot, çeşitli görevleri yerine getirebilen karmaşık bir programlama ile donatılmıştır.",
+      "first_pcm_sec": 13.555807837999964,
+      "llm_sec": 12.348018704999959,
+      "playback_before_llm_end": false,
+      "total_sec": 16.20250952799961
+    },
+    {
+      "language": "tr",
+      "repeat": 0,
+      "mode": "stream",
+      "answer": "Bir arkadaş canlısı robot, insanlarla etkileşim kurabilme yeteneğine sahip. Güzel bir arayüzü ve etkileşimli sesi ile kullanıcılarına güzellik katıyor. Bu robot, çeşitli görevleri yerine getirebilen karmaşık bir programlama ile donatılmıştır.",
+      "first_pcm_sec": 8.498665784999503,
+      "llm_sec": 14.174367122000149,
+      "playback_before_llm_end": true,
+      "total_sec": 15.601678172999527
+    },
+    {
+      "language": "tr",
+      "repeat": 1,
+      "mode": "stream",
+      "answer": "Bir arkadaş canlısı robot, insanlarla etkileşim kurabilme yeteneğine sahip. Güzel bir arayüzü ve etkileşimli sesi ile kullanıcılarına güzellik katıyor. Bu robot, çeşitli görevleri yerine getirebilen karmaşık bir programlama ile donatılmıştır.",
+      "first_pcm_sec": 8.457456508000178,
+      "llm_sec": 14.179050867000115,
+      "playback_before_llm_end": true,
+      "total_sec": 15.653297609999754
+    },
+    {
+      "language": "tr",
+      "repeat": 1,
+      "mode": "serial",
+      "answer": "Bir arkadaş canlısı robot, insanlarla etkileşim kurabilme yeteneğine sahip. Güzel bir arayüzü ve etkileşimli sesi ile kullanıcılarına güzellik katıyor. Bu robot, çeşitli görevleri yerine getirebilen karmaşık bir programlama ile donatılmıştır.",
+      "first_pcm_sec": 13.509653453999817,
+      "llm_sec": 12.297631628999625,
+      "playback_before_llm_end": false,
+      "total_sec": 16.11963957900025
+    }
+  ]
+}

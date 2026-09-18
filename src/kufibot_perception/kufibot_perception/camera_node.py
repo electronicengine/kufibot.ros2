@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import time
 
+from kufibot_interaction.local_voice_runtime import attach_phase_lease
+
 import cv2
 import rclpy
 from rclpy.node import Node
@@ -44,8 +46,8 @@ class UsbCameraNode(Node):
         self.local_compute_active = False
         self.image_pub = self.create_publisher(Image, 'camera/image_raw', 5)
         self.info_pub = self.create_publisher(CameraInfo, 'camera/camera_info', 5)
-        self.create_subscription(
-            Bool, 'local_ai/compute_active', self._local_compute, 10)
+        self.local_phase_lease = attach_phase_lease(
+            self, lambda active: self._local_compute(Bool(data=active)))
         self._connect_camera()
         self.create_timer(1.0 / fps, self._capture)
 

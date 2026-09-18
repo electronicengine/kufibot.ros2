@@ -10,6 +10,7 @@ import { useRobot } from './src/useRobot';
 import { DistanceMap } from './src/DistanceMap';
 import { MimicEditor } from './src/MimicEditor';
 import { AiSettingsPanel } from './src/AiSettingsPanel';
+import { WorkflowEditor } from './src/WorkflowEditor';
 
 
 function Controller() {
@@ -17,15 +18,15 @@ function Controller() {
   const [robots, setRobots] = useState<Robot[]>([]);
   const [selected, setSelected] = useState<Robot | null>(null);
   const [menu, setMenu] = useState(false);
-  const [mimicsOpen, setMimicsOpen] = useState(false);
+  const [page, setPage] = useState<'control' | 'connection' | 'voice' | 'calibration' | 'mimics'>('control');
   const [host, setHost] = useState('');
   const [discoveryError, setDiscoveryError] = useState('');
-  const [calibrationModal, setCalibrationModal] = useState(false);
   const [aiTriggerUuid, setAiTriggerUuid] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(false);
   const link = useRobot(selected);
   const s = link.state;
-  const enabled = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !menu && !mimicsOpen;
+  const enabled = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !menu && page === 'control';
   useEffect(() => {
     try {
       return discover(robot => {
@@ -45,6 +46,7 @@ function Controller() {
     ? ((s.sensors.heading + 90 - s.joints.headLeftRight) % 360 + 360) % 360 : null;
   const joint = (name: string, angle: number) => link.send({type: 'joint', name, value: angle});
   const openMenu = () => { link.stop(); setMenu(true); };
+  const goPage = (next: typeof page) => { link.stop(); setMenu(false); setPage(next === 'mimics' && !selected ? 'connection' : next); };
   const compassCalibrating = !!s?.calibration?.active;
   const canCalibrateCompass = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !compassCalibrating;
   const calibrationValue = (group: 'raw' | 'minimum' | 'maximum', axis: 'x' | 'y') => {
@@ -54,7 +56,7 @@ function Controller() {
   const startCompassCalibration = () => {
     link.send({type: 'calibrateCompass'});
     setMenu(false);
-    setCalibrationModal(true);
+    setPage('calibration');
   };
   const validAiTriggerUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(aiTriggerUuid.trim());
   const startAiWorkflow = () => {
@@ -70,14 +72,14 @@ function Controller() {
         (match[2] && (Number(match[2]) < 1 || Number(match[2]) > 65535))) {
       setDiscoveryError('Geçerli IPv4 adresi girin: 192.168.1.20:8080'); return;
     }
-    link.stop(); setSelected({host: match[1], port: Number(match[2] ?? 8080), name: 'Kufibot'}); setMenu(false);
+    link.stop(); setSelected({host: match[1], port: Number(match[2] ?? 8080), name: 'Kufibot'}); goPage('control');
   };
   return <View style={styles.screen}>
     <StatusBar hidden/>
     {link.frame && s?.camera ? <RTCView streamURL={link.frame} style={StyleSheet.absoluteFill} objectFit="contain"/> :
       <View style={styles.placeholder}><View style={styles.reticle}/><Text style={styles.cameraTitle}>KUFIBOT</Text>
         <Text style={styles.muted}>{s ? 'Kamera görüntüsü bekleniyor' : 'Aynı Wi-Fi ağındaki robot aranıyor…'}</Text></View>}
-    <SafeAreaView style={styles.overlay}>
+    {page === 'control' && <SafeAreaView style={styles.overlay}>
       <View style={styles.top}>
         <View style={styles.sensorGroup}>
           <Pressable accessibilityLabel="Bağlantı menüsü" onPress={openMenu}><Text style={styles.brand}>☰  KUFIBOT</Text></Pressable>
@@ -154,64 +156,26 @@ function Controller() {
         </View>
       </View>
       {!selected && <Pressable onPress={openMenu} style={styles.connectButton}><Text style={styles.buttonText}>BAĞLANTI AYARLARI</Text></Pressable>}
-    </SafeAreaView>
-    <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
-      <View style={styles.scrim}><View style={styles.panel}><ScrollView keyboardShouldPersistTaps="handled">
-        <Text style={styles.panelTitle}>Robot bağlantısı</Text><Text style={styles.muted}>Aynı Wi-Fi ağı · UDP keşfi / WebSocket kontrolü</Text>
-        {robots.map(robot => <Pressable key={`${robot.host}:${robot.port}`} style={styles.robot} onPress={() => {
-          link.stop(); setSelected(robot); setMenu(false);
-        }}><Text style={styles.buttonText}>{robot.name} · {robot.host}:{robot.port}</Text></Pressable>)}
-        {!robots.length && <Text style={styles.help}>Robot aranıyor. Robot ile telefon aynı ağda olmalı; ağdaki cihaz izolasyonu kapalı olmalı.</Text>}
-        <TextInput value={host} onChangeText={setHost} placeholder="192.168.1.20:8080" placeholderTextColor="#799099"
-          style={styles.input} autoCapitalize="none" autoCorrect={false} keyboardType="numbers-and-punctuation" accessibilityLabel="Robot IP adresi"/>
-        {!!discoveryError && <Text style={styles.warning}>{discoveryError}</Text>}
-        <Pressable style={styles.robot} onPress={manual}><Text style={styles.buttonText}>IP ile bağlan</Text></Pressable>
-        {!!s && !s.owner && <Pressable style={styles.robot} onPress={() => link.send({type: 'claim'})}><Text style={styles.buttonText}>Kumandayı devral</Text></Pressable>}
-        <Pressable disabled={!selected} style={styles.robot} onPress={() => {link.stop(); setMenu(false); setMimicsOpen(true);}}>
-          <Text style={styles.buttonText}>Mimikler · 3D hareket editörü</Text>
-        </Pressable>
-        <AiSettingsPanel config={s?.aiConfig} owner={!!s?.owner} send={link.send}
-          status={s?.voiceStatus} error={link.error}/>
-        {s?.aiConfig?.settings.provider !== 'local' && <>
-        <Text style={styles.panelSection}>YZ İş Akışı</Text>
-        <Text style={styles.help}>Verasist iş akışının trigger UUID değerini girin. API anahtarı robotta yapılandırılmış olarak kalır.</Text>
-        <TextInput value={aiTriggerUuid} onChangeText={setAiTriggerUuid} placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" placeholderTextColor="#799099"
-          style={styles.input} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Verasist trigger UUID"/>
-        <Pressable disabled={!s?.owner || !validAiTriggerUuid} style={[styles.robot, (!s?.owner || !validAiTriggerUuid) && styles.disabled]} onPress={startAiWorkflow}>
-          <Text style={styles.buttonText}>YZ iş akışını başlat</Text>
-        </Pressable>
-        <Text style={styles.calibrationInfo}>{s?.aiTriggerUuid ? `Seçili UUID: ${s.aiTriggerUuid}` : 'YZ iş akışı UUID bekleniyor'}</Text>
-        </>}
-        <Text style={styles.panelSection}>HMC Pusula Kalibrasyonu</Text>
-        <Text style={styles.help}>Robotu yatay tutun. Başlatınca sensörü yavaşça farklı yönlere, birkaç tam tur döndürün. Metal ve mıknatıslardan uzak tutun.</Text>
-        <Pressable disabled={!canCalibrateCompass} style={[styles.robot, !canCalibrateCompass && styles.disabled]} onPress={startCompassCalibration}>
-          <Text style={styles.buttonText}>{compassCalibrating ? 'Kalibrasyon sürüyor' : 'Pusulayı kalibre et'}</Text>
-        </Pressable>
-        <Text style={styles.calibrationInfo}>{s?.calibration ? `${s.calibration.message}${compassCalibrating ? ` (${s.calibration.samples}/${s.calibration.target})` : ''}` : 'Pusula sensörü bekleniyor'}</Text>
-        <Text style={styles.help}>Kumanda modu YZ hareketlerini engeller. YZ modu mevcut takip ve sesli asistan hareketlerini açar. Sesli görüşme robotun mikrofonunda sürer.</Text>
-        <Pressable style={styles.robot} onPress={() => setMenu(false)}><Text style={styles.buttonText}>Kapat</Text></Pressable>
-      </ScrollView></View></View>
+    </SafeAreaView>}
+    <Modal visible={menu} transparent animationType="slide" onRequestClose={() => setMenu(false)}>
+      <View style={styles.drawerShell}><Pressable style={styles.drawerScrim} onPress={() => setMenu(false)}/><SafeAreaView style={styles.drawer}>
+        <View style={styles.drawerHead}><View style={styles.drawerIcon}><Text style={styles.drawerIconText}>K</Text></View><View><Text style={styles.drawerTitle}>KUFIBOT</Text><Text style={styles.drawerSub}>CONTROL CENTER</Text></View></View>
+        {([['control', '⌁', 'Kontrol Arayüzü', 'Canlı sürüş ve kamera'], ['connection', '⌘', 'Bağlantı Ayarları', 'Robot ve ağ erişimi'], ['voice', '◉', 'Ses Ajanı', 'Sağlayıcı ve iş akışı'], ['calibration', '◌', 'Kalibrasyon', 'Pusula ölçümleri'], ['mimics', '✦', 'Mimik Editörü', '3D hareket düzenleme']] as const).map(([key, icon, title, subtitle]) => <Pressable key={key} onPress={() => goPage(key)} style={[styles.drawerItem, page === key && styles.drawerSelected]}><Text style={styles.navIcon}>{icon}</Text><View><Text style={styles.navTitle}>{title}</Text><Text style={styles.navSub}>{subtitle}</Text></View></Pressable>)}
+      </SafeAreaView></View>
     </Modal>
-    {selected && <MimicEditor visible={mimicsOpen} robot={selected} state={s} error={link.error}
-      send={link.send} onClose={() => {link.send({type: 'stopMimic'}); setMimicsOpen(false);}}/>}
+    {page !== 'control' && page !== 'mimics' && <SafeAreaView style={styles.page}><View style={styles.pageHeader}><Pressable onPress={() => goPage('control')} style={styles.headerButton}><Text style={styles.headerText}>←</Text></Pressable><View style={{flex: 1}}><Text style={styles.pageKicker}>KUFIBOT CONTROL · AYARLAR</Text><Text style={styles.panelTitle}>{({connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', calibration: 'Kalibrasyon'} as const)[page]}</Text></View><Pressable onPress={openMenu} style={styles.headerButton}><Text style={styles.headerText}>☰</Text></Pressable></View><ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
+      {page === 'connection' && <><Text style={styles.muted}>Aynı Wi-Fi ağı · UDP keşfi / WebSocket kontrolü</Text>{robots.map(robot => <Pressable key={`${robot.host}:${robot.port}`} style={styles.robot} onPress={() => {link.stop(); setSelected(robot); goPage('control');}}><Text style={styles.buttonText}>{robot.name} · {robot.host}:{robot.port}</Text></Pressable>)}{!robots.length && <Text style={styles.help}>Robot aranıyor. Telefon ve robot aynı ağda olmalı.</Text>}<TextInput value={host} onChangeText={setHost} placeholder="192.168.1.20:8080" placeholderTextColor="#799099" style={styles.input} autoCapitalize="none" autoCorrect={false} keyboardType="numbers-and-punctuation"/><Text style={styles.warning}>{discoveryError}</Text><Pressable style={styles.robot} onPress={manual}><Text style={styles.buttonText}>IP ile bağlan</Text></Pressable>{!!s && !s.owner && <Pressable style={styles.robot} onPress={() => link.send({type: 'claim'})}><Text style={styles.buttonText}>Kumandayı devral</Text></Pressable>}</>}
+      {page === 'voice' && <><AiSettingsPanel config={s?.aiConfig} owner={!!s?.owner} send={link.send} status={s?.voiceStatus} error={link.error}/>{s?.aiConfig?.settings.provider !== 'local' && <><Text style={styles.panelSection}>YZ İş Akışı</Text><Text style={styles.help}>Verasist iş akışı trigger UUID değerini girin.</Text><TextInput value={aiTriggerUuid} onChangeText={setAiTriggerUuid} placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" placeholderTextColor="#799099" style={styles.input}/><Pressable disabled={!s?.owner || !validAiTriggerUuid} style={[styles.robot, (!s?.owner || !validAiTriggerUuid) && styles.disabled]} onPress={startAiWorkflow}><Text style={styles.buttonText}>YZ iş akışını başlat</Text></Pressable></>}</>}
+      {page === 'calibration' && <><Text style={styles.help}>Robotu yatay tutun, metal ve mıknatıslardan uzak şekilde yavaşça birkaç tam tur çevirin.</Text><Pressable disabled={!canCalibrateCompass} style={[styles.robot, !canCalibrateCompass && styles.disabled]} onPress={startCompassCalibration}><Text style={styles.buttonText}>{compassCalibrating ? 'Kalibrasyon sürüyor' : 'Pusulayı kalibre et'}</Text></Pressable><Text style={styles.calibrationInfo}>{s?.calibration ? `${s.calibration.message}${compassCalibrating ? ` (${s.calibration.samples}/${s.calibration.target})` : ''}` : 'Pusula sensörü bekleniyor'}</Text><View style={styles.calibrationValues}>{(['HAM X', 'HAM Y', 'MİN X', 'MAKS X', 'MİN Y', 'MAKS Y'] as const).map((label, index) => <Text key={label} style={styles.calibrationValue}>{label}  {calibrationValue(index < 2 ? 'raw' : index < 4 ? (index === 2 ? 'minimum' : 'maximum') : (index === 4 ? 'minimum' : 'maximum'), index % 2 === 0 ? 'x' : 'y')}</Text>)}</View></>}
+    </ScrollView></SafeAreaView>}
+    {page === 'voice' && selected && <Pressable style={styles.robot} onPress={()=>setWorkflowOpen(true)}><Text style={styles.buttonText}>◈ Local Workflow düzenle</Text></Pressable>}
+    {selected && <WorkflowEditor visible={workflowOpen} robot={selected} state={s} event={link.workflowEvent} subscribe={link.subscribeWorkflow} send={link.send} onClose={()=>setWorkflowOpen(false)}/>}
+    {selected && <MimicEditor visible={page === 'mimics'} robot={selected} state={s} error={link.error} send={link.send} onClose={() => {link.send({type: 'stopMimic'}); setPage('control');}}/>}
     <Modal visible={mapOpen} transparent animationType="fade" onRequestClose={() => setMapOpen(false)}>
       <Pressable style={styles.mapModal} onPress={() => setMapOpen(false)}><View style={styles.mapLargeCard}>
         <Text style={styles.panelTitle}>Mesafe haritası</Text><DistanceMap map={s?.distanceMap} routePlan={s?.navigation?.route_plan} distance={s?.sensors.distance} large/>
         <Text style={styles.hint}>Turkuaz: başlangıç · sarı: robot · kırmızı: engel sınırı</Text>
       </View></Pressable>
-    </Modal>
-    <Modal visible={calibrationModal} transparent animationType="fade" onRequestClose={() => setCalibrationModal(false)}>
-      <View style={styles.scrim}><View style={styles.panel}>
-        <Text style={styles.panelTitle}>HMC Pusula Kalibrasyonu</Text>
-        <Text style={styles.help}>Robotu yatay tutun ve yavaşça birkaç tam tur, farklı yönlere çevirin. Metal ve mıknatıslardan uzak tutun.</Text>
-        <Text style={styles.calibrationInfo}>{s?.calibration ? `${s.calibration.message}${s.calibration.active ? ` (${s.calibration.samples}/${s.calibration.target})` : ''}` : 'Kalibrasyon başlatılıyor'}</Text>
-        <View style={styles.calibrationValues}>
-          <Text style={styles.calibrationValue}>HAM X  {calibrationValue('raw', 'x')}</Text><Text style={styles.calibrationValue}>HAM Y  {calibrationValue('raw', 'y')}</Text>
-          <Text style={styles.calibrationValue}>MİN X  {calibrationValue('minimum', 'x')}</Text><Text style={styles.calibrationValue}>MAKS X  {calibrationValue('maximum', 'x')}</Text>
-          <Text style={styles.calibrationValue}>MİN Y  {calibrationValue('minimum', 'y')}</Text><Text style={styles.calibrationValue}>MAKS Y  {calibrationValue('maximum', 'y')}</Text>
-        </View>
-        <Pressable style={styles.robot} onPress={() => setCalibrationModal(false)}><Text style={styles.buttonText}>Kapat</Text></Pressable>
-      </View></View>
     </Modal>
   </View>;
 }
@@ -236,7 +200,7 @@ const styles = StyleSheet.create({
   centerBottom: {alignItems: 'center', flex: 1, marginBottom: 22}, mapCard: {padding: 5, borderColor: '#4d70d388', borderWidth: 1, borderRadius: 8, backgroundColor: '#111319aa'}, mapLabel: {fontSize: 8, letterSpacing: 1, color: '#bdd0f9', textAlign: 'center', paddingTop: 3}, mapModal: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#03040add'}, mapLargeCard: {alignItems: 'center', backgroundColor: '#111319', borderColor: '#4d70d3', borderWidth: 1, borderRadius: 12, padding: 20}, stop: {borderColor: '#fb7777', borderWidth: 1, borderRadius: 12, backgroundColor: '#6a2025dd', paddingHorizontal: 28, paddingVertical: 13},
   stopText: {fontWeight: '700', letterSpacing: 3, color: '#fff'}, hint: {fontSize: 10, color: '#bdd0f9', marginTop: 10, textAlign: 'center'},
   connectButton: {position: 'absolute', alignSelf: 'center', top: '48%', padding: 14, backgroundColor: '#4b6fd4', borderRadius: 8},
-  scrim: {flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#03040acc'}, panel: {width: '75%', maxWidth: 560, maxHeight: '90%', borderRadius: 16, padding: 22, backgroundColor: '#111319'},
+  drawerShell: {flex: 1, flexDirection: 'row'}, drawerScrim: {flex: 1, backgroundColor: '#03040acc'}, drawer: {width: '62%', minWidth: 300, maxWidth: 430, backgroundColor: '#101723', paddingHorizontal: 16}, drawerHead: {flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 18, borderBottomColor: '#4d70d344', borderBottomWidth: 1}, drawerIcon: {width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#4b6fd4'}, drawerIconText: {fontWeight: '800', color: '#fff'}, drawerTitle: {color: '#f7f9ff', fontWeight: '700', letterSpacing: 2}, drawerSub: {color: '#65758b', fontSize: 9, letterSpacing: 1}, drawerItem: {flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, marginTop: 9, borderRadius: 12}, drawerSelected: {backgroundColor: '#4b6fd433'}, navIcon: {width: 36, height: 36, textAlign: 'center', textAlignVertical: 'center', backgroundColor: '#ffffff12', borderRadius: 9, color: '#bdd0f9', fontSize: 20}, navTitle: {color: '#f7f9ff', fontWeight: '600', fontSize: 13}, navSub: {color: '#799099', fontSize: 10, marginTop: 2}, page: {flex: 1, backgroundColor: '#111319'}, pageHeader: {flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 22, paddingVertical: 12, borderBottomColor: '#4d70d355', borderBottomWidth: 1}, headerButton: {backgroundColor: '#ffffff12', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 9}, headerText: {color: '#f7f9ff', fontSize: 18}, pageKicker: {color: '#7d9ef0', fontSize: 9, letterSpacing: 1.2, marginBottom: 3}, pageContent: {width: '100%', maxWidth: 760, alignSelf: 'center', padding: 24},
   panelTitle: {fontSize: 22, color: '#f7f9ff', fontWeight: '600', marginBottom: 8}, robot: {backgroundColor: '#2b50b8', padding: 14, marginTop: 10, borderRadius: 8},
   panelSection: {fontSize: 16, color: '#f7f9ff', fontWeight: '600', marginTop: 20}, disabled: {opacity: 0.4}, calibrationInfo: {fontSize: 12, color: '#bdd0f9', marginTop: 10, minHeight: 18},
   calibrationValues: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12}, calibrationValue: {width: '48%', color: '#e9effd', backgroundColor: '#17233d', padding: 10, fontSize: 11, fontVariant: ['tabular-nums']},

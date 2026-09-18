@@ -1,0 +1,10 @@
+# Python dependencies for the Panda3D simulation build (WSL/Ubuntu x86_64).
+# No real robot hardware is required here; kufibot_sensors, kufibot_actuators
+# and kufibot_perception still get built by colcon, but their hardware-only
+# imports (smbus2, pyserial, mediapipe, ...) are not needed to run the sim.
+-r requirements-common.txt
+
+# 3D simulation viewer and 2D floor-plan editor
+panda3d>=1.10.15,<1.11
+panda3d-gltf==1.3.0
+pygame>=2.5,<3

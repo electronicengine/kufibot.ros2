@@ -1,0 +1,84 @@
+{
+  "hailo_revision": "891ce701c2ebe239a5d277759eb75a30f76678a9",
+  "silero_revision": "867c2aa692646a1f1de3e94a15c9dd9f614c0acb",
+  "files": [
+    {
+      "group": "vad",
+      "path": "vad/silero_vad.onnx",
+      "url": "https://raw.githubusercontent.com/snakers4/silero-vad/867c2aa692646a1f1de3e94a15c9dd9f614c0acb/src/silero_vad/data/silero_vad.onnx",
+      "sha256": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
+    },
+    {
+      "group": "tiny",
+      "path": "whisper-tiny-hailo8l/encoder.hef",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/whisper/h8l/tiny-whisper-encoder-10s_15dB_h8l.hef",
+      "sha256": "c6285642516cbe094cda29181ba840dbcea0a3a7d1dcad7c035c223df36eedb3"
+    },
+    {
+      "group": "tiny",
+      "path": "whisper-tiny-hailo8l/decoder.hef",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/whisper/h8l/tiny-whisper-decoder-fixed-sequence-matmul-split_h8l.hef",
+      "sha256": "b663ad3a5adc0484f39bd1f72f078cce0a68b2e33b9996e5a2fea11c71e5025f"
+    },
+    {
+      "group": "tiny",
+      "path": "whisper-tiny-hailo8l/token_embedding.npy",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/npy%20files/whisper/decoder_assets/tiny/decoder_tokenization/token_embedding_weight_tiny.npy",
+      "sha256": "a449c89d80dd9839a42e733db31156d6608dcc5cb70dd33e8dd3991572ddef8e"
+    },
+    {
+      "group": "tiny",
+      "path": "whisper-tiny-hailo8l/position_embedding.npy",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/npy%20files/whisper/decoder_assets/tiny/decoder_tokenization/onnx_add_input_tiny.npy",
+      "sha256": "d5d46b0fc05fd5d17c5db6e31c79c84a57ff2d787ea6cb2a4dbb3500f26c0765"
+    },
+    {
+      "group": "tiny",
+      "path": "whisper-tiny-hailo8l/tokenizer.json",
+      "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/tokenizer.json",
+      "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+    },
+    {
+      "group": "tiny",
+      "path": "whisper-tiny-hailo8l/mel_filters.npz",
+      "url": "https://raw.githubusercontent.com/hailo-ai/hailo-apps/891ce701c2ebe239a5d277759eb75a30f76678a9/hailo_apps/python/standalone_apps/speech_recognition/assets/mel_filters.npz",
+      "sha256": "7450ae70723a5ef9d341e3cee628c7cb0177f36ce42c44b7ed2bf3325f0f6d4c"
+    },
+    {
+      "group": "base",
+      "path": "whisper-base-hailo8l/encoder.hef",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/whisper/h8l/base-whisper-encoder-5s_h8l.hef",
+      "sha256": "f58929ef9ba61cd443d2707c6a0effe65ad7eb035b56a85ae611c0084c6aac6b"
+    },
+    {
+      "group": "base",
+      "path": "whisper-base-hailo8l/decoder.hef",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/whisper/h8l/base-whisper-decoder-fixed-sequence-matmul-split_h8l.hef",
+      "sha256": "117c7627afaa1ec653c3c670ca893c0153a79010d3a7add64c412b3e5f312f57"
+    },
+    {
+      "group": "base",
+      "path": "whisper-base-hailo8l/token_embedding.npy",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/npy%20files/whisper/decoder_assets/base/decoder_tokenization/token_embedding_weight_base.npy",
+      "sha256": "9e83abd1faf2b66a8931dd58ff7b8207d301395f5486d6c069d6cd415e1ba3e6"
+    },
+    {
+      "group": "base",
+      "path": "whisper-base-hailo8l/position_embedding.npy",
+      "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/npy%20files/whisper/decoder_assets/base/decoder_tokenization/onnx_add_input_base.npy",
+      "sha256": "e39b7d22435d08891c3c77b3e2cb32474917c3a1215ad83200a0b8019bb9452d"
+    },
+    {
+      "group": "base",
+      "path": "whisper-base-hailo8l/tokenizer.json",
+      "url": "https://huggingface.co/openai/whisper-base/resolve/e37978b90ca9030d5170a5c07aadb050351a65bb/tokenizer.json",
+      "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+    },
+    {
+      "group": "base",
+      "path": "whisper-base-hailo8l/mel_filters.npz",
+      "url": "https://raw.githubusercontent.com/hailo-ai/hailo-apps/891ce701c2ebe239a5d277759eb75a30f76678a9/hailo_apps/python/standalone_apps/speech_recognition/assets/mel_filters.npz",
+      "sha256": "7450ae70723a5ef9d341e3cee628c7cb0177f36ce42c44b7ed2bf3325f0f6d4c"
+    }
+  ]
+}

@@ -55,6 +55,9 @@ export class RobotConnection extends EventTarget {
 
   stop() {
     this.axes = zero();
+    // Stopping a local workflow returns the robot to remote mode, even if
+    // its preceding mode acknowledgement has not reached the browser yet.
+    this.pendingMode = null;
     if (this.state?.owner) this.send({ type: 'stop' });
     this.emit('reset');
   }
@@ -173,6 +176,8 @@ export class RobotConnection extends EventTarget {
           if (!data.camera) this.clearFrame();
           this.emit('connection', { text: data.owner ? 'Bağlı · kontrol sende' : 'Bağlı · izleyici', connected: true });
           this.emit('state', data);
+        } else if (data.type === 'workflowResult' || data.type === 'workflowEvent') {
+          this.emit('workflow', data);
         } else if (data.type === 'toolResult') {
           this.emit('toolResult', data);
         } else if (data.type === 'ack' || data.type === 'error') {
@@ -214,7 +219,7 @@ export class RobotConnection extends EventTarget {
       };
       peer.onconnectionstatechange = () => {
         if (peer !== this.peer) return;
-        if (['failed', 'disconnected'].includes(peer.connectionState)) this.reconnect();
+        if (['failed', 'disconnected'].includes(peer.connectionState)) this.retryVideo(peer, base);
       };
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
@@ -232,11 +237,21 @@ export class RobotConnection extends EventTarget {
     } catch (error) {
       if (peer === this.peer) {
         this.emit('error', `Kamera bağlantısı kurulamadı: ${error.message}`);
-        this.reconnect();
+        this.retryVideo(peer, base);
       }
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  retryVideo(peer, base) {
+    // Camera availability must not revoke workflow ownership or cancel uploads.
+    this.clearFrame();
+    peer.close();
+    setTimeout(() => {
+      if (this.peer === peer && this.active && !this.disposed &&
+          this.control?.readyState === WebSocket.OPEN) this.startWebRtc(base);
+    }, 3000);
   }
 
   dispose() {

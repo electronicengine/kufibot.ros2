@@ -18,11 +18,12 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
+from .local_voice_runtime import DEFAULTS as LOCAL_DEFAULTS, PHASES, validate_runtime
 from std_srvs.srv import Trigger
 
 from kufibot_interfaces.msg import (
     DetectionArray, JointCommand, TrackingTarget, Transcript, VoiceState)
-from .ai_settings import catalog, read_settings, save_settings, validate
+from .ai_settings import catalog, read_settings, save_settings, validate, settings_path
 from .joint_limits import JOINT_LIMITS, validate_joint_targets
 from .expression_engine import ExpressionConfigError, ExpressionLibrary
 from .expression_embedding import EmbeddingSelector, ExpressionWorker
@@ -69,9 +70,13 @@ class VoiceAgentNode(Node):
         self.declare_parameter('speaker_device', 'default')
         self.declare_parameter('ice_timeout_sec', 30.0)
         self.declare_parameter('sensor_max_age_sec', 2.0)
-        self.declare_parameter('mute_mic_during_playback', True)
+        self.declare_parameter('mute_mic_during_playback', False)
         self.declare_parameter('mic_noise_gate_rms', 450.0)
         self.declare_parameter('mic_noise_gate_hangover_sec', 0.5)
+        self.declare_parameter('mic_noise_suppression_db', 0.0)
+        self.declare_parameter('mic_barge_in_rms', 0.0)
+        self.declare_parameter('mic_barge_in_start_sec', 0.18)
+        self.declare_parameter('mic_playback_echo_tail_sec', 1.2)
         self.declare_parameter('camera_max_age_sec', 1.0)
         self.declare_parameter('camera_jpeg_max_width', 640)
         self.declare_parameter('camera_jpeg_quality', 80)
@@ -83,6 +88,8 @@ class VoiceAgentNode(Node):
             'expression_model_path',
             '/usr/local/ai.models/llamaModel/mxbaiV1.gguf')
         self.declare_parameter('expression_n_threads', 2)
+        for key, value in LOCAL_DEFAULTS.items():
+            self.declare_parameter('local_' + key, value)
         self.declare_parameter('expression_n_ctx', 512)
         self.declare_parameter('expression_n_gpu_layers', 0)
         self.declare_parameter(
@@ -113,6 +120,11 @@ class VoiceAgentNode(Node):
             self.get_parameter('mic_noise_gate_rms').value)
         self.mic_noise_gate_hangover = float(
             self.get_parameter('mic_noise_gate_hangover_sec').value)
+        self.mic_noise_suppression_db = float(
+            self.get_parameter('mic_noise_suppression_db').value)
+        self.mic_barge_in_rms = float(self.get_parameter('mic_barge_in_rms').value)
+        self.mic_barge_in_start = float(self.get_parameter('mic_barge_in_start_sec').value)
+        self.mic_playback_echo_tail = float(self.get_parameter('mic_playback_echo_tail_sec').value)
         self.camera_max_age = float(
             self.get_parameter('camera_max_age_sec').value)
         self.camera_jpeg_max_width = int(
@@ -131,11 +143,17 @@ class VoiceAgentNode(Node):
         self.camera_lock = threading.Lock()
         self.latest_camera_image = None
         self.last_camera_send_at = 0.0
-        self.last_auto_camera_text = ''
-        self.last_auto_camera_at = 0.0
-        self.auto_camera_turn_active = False
         self.camera_send_tasks = set()
         self.ai_settings = read_settings()
+        # Existing persisted choice wins; otherwise retain the launch default.
+        stored = json.loads(settings_path().read_text()) if settings_path().exists() else {}
+        if 'camera_attach_to_every_user_turn' not in stored:
+            self.ai_settings['camera_attach_to_every_user_turn'] = self.camera_attach_to_every_user_turn
+        self.camera_attach_to_every_user_turn = self.ai_settings['camera_attach_to_every_user_turn']
+        self.camera_turn_task = None
+        self.camera_turn_id = None
+        self.camera_status = ''
+        self.audio_watch_task = None
         self.local_process = None
         self.local_task = None
         self.ai_settings_error = ""
@@ -179,18 +197,18 @@ class VoiceAgentNode(Node):
         self.expression_user_final = False
         self.expression_last_user_text = ''
         self.expression_reset_pending = False
-        options = {
+        self.expression_options = {
             'model_path': str(self.get_parameter('expression_model_path').value),
             'n_threads': int(self.get_parameter('expression_n_threads').value),
             'n_ctx': int(self.get_parameter('expression_n_ctx').value),
             'n_gpu_layers': int(self.get_parameter('expression_n_gpu_layers').value),
         }
-        if options['n_threads'] < 1 or options['n_ctx'] < 8:
+        if self.expression_options['n_threads'] < 1 or self.expression_options['n_ctx'] < 8:
             raise ValueError('Expression threads must be positive and context at least 8')
         self.expression_worker = ExpressionWorker(
             self.expression_library,
-            lambda: EmbeddingSelector(self.expression_library, **options),
-            self.get_logger().warning)
+            lambda: EmbeddingSelector(self.expression_library, **self.expression_options),
+            self.get_logger().warning, suspended=self._is_local())
         self.expression_queue = deque()
         self.active_motion = None
         self.speech_motion_active = False
@@ -231,10 +249,15 @@ class VoiceAgentNode(Node):
         self.stop_srv = self.create_service(
             Trigger, 'voice_session/stop', self._stop_service)
         self.ai_settings_pub = self.create_publisher(String, 'voice_session/ai_settings', 10)
+        from rclpy.qos import QoSProfile, DurabilityPolicy
+        self.local_phase_pub = self.create_publisher(
+            String, 'local_ai/phase', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.local_metrics_pub = self.create_publisher(String, 'local_ai/metrics', 50)
         self.local_compute_pub = self.create_publisher(
             Bool, 'local_ai/compute_active', 10)
         self.create_subscription(String, 'voice_session/set_ai_settings', self._set_ai_settings, 10)
         self.create_timer(1.0, self._publish_ai_settings)
+        self.create_timer(.2, self._publish_workflow_updates)
         self.navigation_camera_lock = asyncio.Lock()
         from .navigation_tools import NavigationTools
         self.navigation = NavigationTools(self)
@@ -446,13 +469,48 @@ class VoiceAgentNode(Node):
         return getattr(self, 'ai_settings', {}).get('provider') == 'local'
 
     def _publish_ai_settings(self):
-        try:
-            models = [{k: v for k, v in m.items() if k != 'path'} for m in catalog()]
-            error = self.ai_settings_error
-        except (ValueError, OSError) as exc:
-            models, error = [], str(exc)
+        from .workflows import WorkflowStore
+        now = time.monotonic()
+        if now >= getattr(self, '_catalog_cache_until', 0):
+            try:
+                models = [{k: v for k, v in m.items() if k != 'path'} for m in catalog()]
+                workflows = [{'id': w['id'], 'label': w.get('name', w['id'])} for w in WorkflowStore().all()]
+                self._catalog_cache = (models, workflows, '')
+            except (ValueError, OSError) as exc:
+                self._catalog_cache = ([], [], str(exc))
+            self._catalog_cache_until = now + 5
+        models, workflows, catalog_error = self._catalog_cache
+        error = self.ai_settings_error or catalog_error or getattr(self, 'camera_status', '')
+        self._workflow_updates_pending = False
         self.ai_settings_pub.publish(String(data=json.dumps({
-            'settings': self.ai_settings, 'models': models, 'error': error})))
+            'settings': self.ai_settings, 'models': models, 'workflows': workflows,
+            'workflow_event': getattr(self, 'workflow_event', None),
+            'workflow_events': getattr(self, 'workflow_events', []), 'error': error})))
+
+    def _record_workflow_event(self, event):
+        self.workflow_event = {'session_id': getattr(self, 'workflow_session_id', ''),
+                               'workflow_id': self.ai_settings.get('workflow_id', ''),
+                               'at': time.monotonic(), 'timestamp_ms': time.time() * 1000, **event}
+        self.workflow_events = (getattr(self, 'workflow_events', []) + [self.workflow_event])[-64:]
+        # Never scan model files or serialize the whole trace on the worker's
+        # stdout reader: a blocked reader can stall LLM/TTS JSONL output.
+        self._workflow_updates_pending = True
+
+    def _publish_workflow_updates(self):
+        if getattr(self, '_workflow_updates_pending', False):
+            self._publish_ai_settings()
+
+    def _set_expression_embedding(self, model_path):
+        """Switch the isolated embedding worker after a validated settings save."""
+        if self.expression_options['model_path'] == model_path:
+            return
+        previous = self.expression_worker
+        previous.close()
+        self.expression_options = {**self.expression_options, 'model_path': model_path}
+        self.expression_worker = ExpressionWorker(
+            self.expression_library,
+            lambda: EmbeddingSelector(self.expression_library, **self.expression_options),
+            self.get_logger().warning, suspended=self._is_local())
 
     def _set_ai_settings(self, msg):
         future = asyncio.run_coroutine_threadsafe(self._apply_ai_settings(msg.data), self.loop)
@@ -460,28 +518,101 @@ class VoiceAgentNode(Node):
 
     async def _apply_ai_settings(self, raw):
         try:
-            value = validate(json.loads(raw))
+            incoming = json.loads(raw)
+            if isinstance(incoming, dict):
+                incoming.setdefault('camera_attach_to_every_user_turn',
+                    self.ai_settings.get('camera_attach_to_every_user_turn', False))
+            value = validate(incoming)
+            old = self.ai_settings
+            workflow_changed = False
+            if value.get('workflow_id') and value['provider'] == 'local':
+                from .workflows import WorkflowStore
+                workflow_changed = WorkflowStore().snapshot(value['workflow_id'])['revision'] != getattr(self, 'active_workflow_revision', None)
+            camera_only = not workflow_changed and all(value[k] == old.get(k) for k in value
+                              if k != 'camera_attach_to_every_user_turn')
+            if (camera_only and value['camera_attach_to_every_user_turn'] != old.get('camera_attach_to_every_user_turn', False)
+                    and self.session and not self._is_local()):
+                await self.session.configure_camera_turns(value['camera_attach_to_every_user_turn'])
             save_settings(value)
-        except (ValueError, OSError) as exc:
+        except Exception as exc:
             self.ai_settings_error = str(exc)
             self._publish_ai_settings()
             return
         self.ai_settings_error = ''
-        if value != self.ai_settings:
+        if value != self.ai_settings or workflow_changed:
             self.ai_settings = value
-            self.mode_generation += 1
-            await self._restart_ai_session(self.mode_generation)
+            if self._is_local() and hasattr(self, 'expression_options'):
+                embedding = next(m for m in catalog()
+                                 if m['id'] == value['embedding'] and m['kind'] == 'embedding')
+                self._set_expression_embedding(embedding['path'])
+            self.camera_attach_to_every_user_turn = value['camera_attach_to_every_user_turn']
+            if not self.camera_attach_to_every_user_turn:
+                if getattr(self, 'camera_turn_task', None):
+                    self.camera_turn_task.cancel()
+                self.camera_status = ''
+            if not camera_only:
+                self.mode_generation += 1
+                await self._restart_ai_session(self.mode_generation)
         self._publish_ai_settings()
 
     async def _local_events(self, process):
         error = None
+        workflow_complete = False
+        previous_phase = None
+        first_event = True
+        startup_at = time.monotonic()
         try:
-            async for line in process.stdout:
+            while True:
+                try:
+                    line = await asyncio.wait_for(process.stdout.readline(), timeout=0.75 if first_event else 6.0)
+                except asyncio.TimeoutError:
+                    if self.local_process is not process:
+                        return
+                    if not first_event or time.monotonic() - startup_at >= 30:
+                        raise
+                    # Python/site startup can be slow on a cold Pi. Keep the lease
+                    # alive until the worker's independent heartbeat is available.
+                    self.local_phase_pub.publish(String(data=json.dumps({'phase': 'loading'})))
+                    continue
+                first_event = False
+                if not line:
+                    break
                 event = json.loads(line)
                 if self.local_process is not process:
                     return
                 kind = event['type']
-                if kind == 'ready':
+                if kind == 'workflow_complete':
+                    workflow_complete = True
+                elif kind == 'workflow_tool':
+                    identity = {k: event[k] for k in ('session_id', 'turn_id', 'call_id')}
+                    if identity['session_id'] != getattr(self, 'workflow_session_id', None):
+                        continue
+                    try:
+                        result = await asyncio.wait_for(self._local_workflow_tool(event['name'], event['arguments']), 9)
+                    except Exception as exc:
+                        result = {'status': 'error', 'error': str(exc)}
+                    if self.local_process is process and process.stdin:
+                        process.stdin.write((json.dumps({**identity, 'result': result}) + '\n').encode())
+                        await process.stdin.drain()
+                elif kind == 'workflow_event':
+                    self._record_workflow_event(event['event'])
+                    self.local_metrics_pub.publish(String(data=json.dumps(event)))
+                elif kind == 'phase':
+                    if event['phase'] not in PHASES:
+                        raise ValueError('Invalid local voice phase')
+                    phase = event['phase']
+                    self.local_phase_pub.publish(String(data=json.dumps({'phase': phase})))
+                    if phase != previous_phase:
+                        details = {'transcribing': 'Konuşma çözümleniyor',
+                                   'synthesizing': 'Yanıt seslendiriliyor',
+                                   'speaking': 'Yanıt okunuyor'}
+                        if phase in details:
+                            self._publish_state(phase, details[phase])
+                        previous_phase = phase
+                elif kind == 'metric':
+                    self.local_metrics_pub.publish(String(data=json.dumps(event)))
+                    self.get_logger().info('Local voice metric: ' + json.dumps(event))
+                elif kind == 'ready':
                     self.session_active = True
                     self._publish_state('listening', 'Mikrofon açık; ses verisi alınıyor')
                 elif kind == 'diagnostic':
@@ -492,11 +623,16 @@ class VoiceAgentNode(Node):
                     # perception pipelines remain fully active.
                     self.local_compute_pub.publish(Bool(data=bool(event['active'])))
                 elif kind == 'transcript':
-                    self.get_logger().info(f'Local transcript ({event["role"]}): {event["text"]}')
+                    if event['role'] == 'user' and event.get('final', True) and getattr(self, 'ai_settings', {}).get('workflow_id'):
+                        self._record_workflow_event({'type': 'transcript', 'role': 'user', 'text': event['text']})
+                    if event.get('final', True):
+                        self.get_logger().info(f'Local transcript ({event["role"]}): {event["text"]}')
                     msg = Transcript()
                     msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.role, msg.text, msg.final = event['role'], event['text'], True
+                    msg.role, msg.text, msg.final = event['role'], event['text'], event.get('final', True)
                     self.transcript_pub.publish(msg)
+                    if not msg.final:
+                        continue
                     if msg.role == 'user':
                         self._expression_user_transcript(msg.text, True)
                     else:
@@ -508,12 +644,15 @@ class VoiceAgentNode(Node):
                 elif kind == 'error':
                     error = event['message']
             error = error or 'Yerel ses süreci kapandı'
-        except (ValueError, KeyError) as exc:
-            error = str(exc)
+        except (ValueError, KeyError, asyncio.TimeoutError) as exc:
+            error = str(exc) or 'Local voice heartbeat timed out'
         finally:
             if self.local_process is process:
                 await self._stop_session()
-                self._publish_state('error', error or 'Yerel ses süreci durdu')
+                if workflow_complete:
+                    self._publish_state('idle', 'Yerel workflow tamamlandı')
+                else:
+                    self._publish_state('error', error or 'Yerel ses süreci durdu')
 
     async def _start_session(self):
         if not hasattr(self, 'session_lock'):
@@ -526,28 +665,54 @@ class VoiceAgentNode(Node):
     async def _start_session_unlocked(self):
         if self._is_local():
             value = validate(self.ai_settings)
+            workflow = None
+            if value.get('workflow_id'):
+                from .workflows import WorkflowStore
+                workflow = WorkflowStore().snapshot(value['workflow_id'])
+                self.active_workflow_revision = workflow['revision']
+                value = validate({**value, **workflow.get('settings', {}), 'provider': 'local'})
             models = {m['id']: m for m in catalog()}
             config = {kind: models[value[kind]]['path'] for kind in ('stt', 'llm', 'tts')}
+            config.update({key: self.get_parameter('local_' + key).value for key in LOCAL_DEFAULTS})
+            config['stt_backend'] = models[value['stt']].get('backend', 'vosk')
+            config = validate_runtime(config)
+            self.expression_worker.suspend(True)
+            if not await asyncio.to_thread(self.expression_worker.wait_idle):
+                raise RuntimeError('Expression model did not yield CPU for Local AI')
             config.update(language=value['language'], system_prompt=value['system_prompt'],
                           mic=self.mic_device, speaker=self.speaker_device)
+            if workflow:
+                import uuid
+                self.workflow_session_id = uuid.uuid4().hex
+                self.workflow_events = []
+                self.workflow_event = None
+                config.update(workflow=workflow, workflow_session_id=self.workflow_session_id)
             self.get_logger().info(
                 f'Local voice selected: language={value["language"]}, '
                 f'stt={value["stt"]}, llm={value["llm"]}, tts={value["tts"]}')
             self._reset_expression_turn(enabled=self.expressions_available)
             self._publish_state('connecting', 'Yerel modeller yükleniyor')
+            self.local_phase_pub.publish(String(data=json.dumps({'phase': 'loading'})))
             self.local_process = await asyncio.create_subprocess_exec(
                 sys.executable, '-m', 'kufibot_interaction.local_voice_worker',
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                start_new_session=True)
+                limit=1024 * 1024,
+                start_new_session=True,
+                env={**os.environ, 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1',
+                     'TOKENIZERS_PARALLELISM': 'false'})
             self.local_process.stdin.write((json.dumps(config) + '\n').encode())
             await self.local_process.stdin.drain()
-            self.local_process.stdin.close()
+            if not workflow:
+                self.local_process.stdin.close()
             self.session_active = True
             self.local_task = asyncio.create_task(self._local_events(self.local_process))
             return
-        from aiortc.contrib.media import MediaRelay
+        self.expression_worker.suspend(False)
         from verasist_sdk import LiveSession, VerasistClient
-        from .audio import AlsaMicTrack, AlsaSpeaker
+        from .audio import AlsaMicTrack, AlsaSpeaker, check_aec_devices
+        self.get_logger().info(
+            f'Voice audio devices: microphone={self.mic_device}, speaker={self.speaker_device}')
+        await check_aec_devices(self.mic_device, self.speaker_device)
         self._reset_expression_turn(enabled=self.expressions_available)
         self._publish_state('connecting')
         self.client = VerasistClient(
@@ -557,19 +722,29 @@ class VoiceAgentNode(Node):
         current_session = self.session
         self._register_tools(self.session)
         self.navigation.register(self.session)
-        relay = MediaRelay()
         self.mic = AlsaMicTrack(
             self.mic_device,
             mute_during_playback=self.mute_mic_during_playback,
             noise_gate_rms=self.mic_noise_gate_rms,
-            noise_gate_hangover_sec=self.mic_noise_gate_hangover)
+            noise_gate_hangover_sec=self.mic_noise_gate_hangover,
+            noise_suppression_db=self.mic_noise_suppression_db,
+            barge_in_rms=self.mic_barge_in_rms,
+            barge_in_start_sec=self.mic_barge_in_start,
+            playback_echo_tail_sec=self.mic_playback_echo_tail)
         await self.mic.start_capture()
 
         @self.session.on_track
         def on_track(track):
+            if track.kind != 'audio' or self.session is not current_session:
+                return
             self.speakers.append(AlsaSpeaker(
-                relay.subscribe(track), self.speaker_device, self.mic,
+                track, self.speaker_device, self.mic,
                 self._speaking_changed))
+
+        @self.session.on_voice_event
+        def on_voice_event(event):
+            if self.session is current_session and not self.stopping:
+                self._voice_event(current_session, event)
 
         @self.session.on_transcript
         def on_transcript(event):
@@ -582,8 +757,6 @@ class VoiceAgentNode(Node):
             self.transcript_pub.publish(msg)
             if event['role'] == 'user':
                 self._expression_user_transcript(event['text'], event['final'])
-                self._handle_user_camera_context(
-                    event['text'], event['final'])
             if event['role'] == 'assistant' and event['final']:
                 self._express_from_text(event['text'])
 
@@ -595,11 +768,58 @@ class VoiceAgentNode(Node):
 
         await self.session.connect(
             trigger_uuid=self.trigger_uuid, tracks=[self.mic],
-            ice_timeout_secs=self.ice_timeout)
+            ice_timeout_secs=self.ice_timeout,
+            call_context_vars={'device_barge_in': True})
+        # The SDP answer can precede pipeline registration. Only retry an
+        # explicit "not ready" response, never an ambiguous timed-out command.
+        for attempt in range(20 if self.camera_attach_to_every_user_turn else 0):
+            try:
+                await self.session.configure_camera_turns(self.camera_attach_to_every_user_turn)
+                break
+            except Exception as error:
+                if 'No active conversation' not in str(error) or attempt == 19:
+                    raise
+                await asyncio.sleep(0.25)
+        self.audio_watch_task = asyncio.create_task(self._watch_audio(current_session))
         self.session_active = True
         self.navigation.connection_state('connected')
         self._publish_state('connected')
         asyncio.create_task(self._watch_session(self.session))
+
+    async def _local_workflow_tool(self, name, arguments):
+        from .workflows import TOOLS
+        if name not in TOOLS or not isinstance(arguments, dict):
+            raise ValueError('Geçersiz workflow aracı')
+        if name == 'search_documents':
+            from .knowledge import KnowledgeStore
+            store = KnowledgeStore()
+            return await asyncio.to_thread(store.search, **arguments)
+        if name == 'get_robot_status':
+            return self._robot_status_snapshot()
+        if name == 'get_sensor_data':
+            return self._sensor_snapshot(arguments.get('sensor', 'all'))
+        if name == 'get_joint_positions':
+            return {'positions': self.cache.get('joints_deg', self.max_age), 'limits_deg': JOINT_LIMITS}
+        if name == 'set_joint_positions':
+            return self._set_joint_positions(arguments['names'], arguments['angles_deg'], arguments.get('hold_sec', 2))
+        if name == 'stop_joint_motion':
+            msg = JointCommand()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.hold_sec, msg.cancel_agent = .01, True
+            self.command_pub.publish(msg)
+            return {'status': 'ok'}
+        with self.expression_lock:
+            if name == 'list_mimics':
+                return {'status': 'ok', 'mimics': list(self.expression_library.motions)}
+            if name == 'play_mimic':
+                if arguments.get('id') not in self.expression_library.motions:
+                    raise ValueError('Mimik bulunamadı')
+                self.expression_queue.append(arguments['id'])
+            elif name == 'stop_mimic':
+                self.expression_queue.clear()
+                self.active_motion = None
+                self._return_to_rest()
+        return {'status': 'ok'}
 
     def _register_tools(self, session):
         @session.tool(description=(
@@ -726,65 +946,96 @@ class VoiceAgentNode(Node):
         }
         return result
 
-    def _handle_user_camera_context(self, text, final):
-        """Upload a frame at the earliest transcript event of a spoken turn.
-
-        Transcript callbacks execute on the voice session's asyncio thread,
-        so the upload is scheduled rather than awaited in the callback. Most
-        sessions emit one or more interim events before the final transcript;
-        that gives the backend time to append the image before the final text
-        triggers its response. Final-only streams use a best-effort fallback.
-        """
-        if getattr(self, 'navigation', None) and self.navigation.active:
-            return
-        text = str(text).strip()
-        if final and not text:
-            self.auto_camera_turn_active = False
-            return
-        if not self.camera_attach_to_every_user_turn or not text or not self.session:
-            return
-        if not final:
-            if self.auto_camera_turn_active:
+    def _voice_event(self, session, event):
+        kind, payload = event['type'], event.get('payload', {})
+        if kind == 'rtf-bot-interrupted':
+            for speaker in self.speakers:
+                task = asyncio.create_task(speaker.interrupt())
+                self.camera_send_tasks.add(task)
+                task.add_done_callback(self.camera_send_tasks.discard)
+            self._speaking_changed(False)
+        elif kind == 'rtf-bot-started-speaking':
+            for speaker in self.speakers:
+                speaker.resume()
+        elif kind == 'rtf-user-turn-started' and self.camera_attach_to_every_user_turn:
+            turn_id = payload.get('turn_id')
+            if not turn_id or turn_id == self.camera_turn_id:
                 return
-            self.auto_camera_turn_active = True
-            self._schedule_camera_context(text, captured_at_speech_start=True)
-            return
+            if self.camera_turn_task:
+                self.camera_turn_task.cancel()
+            self.camera_turn_id = turn_id
+            with self.camera_lock:
+                snapshot = self.latest_camera_image
+            self.camera_turn_task = asyncio.create_task(
+                self._send_turn_camera(session, turn_id, snapshot))
+            self.camera_send_tasks.add(self.camera_turn_task)
+            self.camera_turn_task.add_done_callback(self.camera_send_tasks.discard)
+        elif kind == 'rtf-camera-attachment':
+            self.camera_status = payload.get('detail', '')
+            self._publish_ai_settings()
+        elif kind in ('rtf-user-mute-started', 'rtf-user-mute-stopped'):
+            self.get_logger().info(f'Server voice event: {kind}')
 
-        if not self.auto_camera_turn_active:
-            self._schedule_camera_context(text, captured_at_speech_start=False)
-        self.auto_camera_turn_active = False
-
-    def _schedule_camera_context(self, text, captured_at_speech_start):
-        now = time.monotonic()
-        # Some backends can repeat the same final transcript event. Suppress
-        # only immediate duplicates, not a genuinely repeated user command.
-        if text == self.last_auto_camera_text and now - self.last_auto_camera_at < 0.75:
-            return
-        self.last_auto_camera_text = text
-        self.last_auto_camera_at = now
-        timing = ('as the user began speaking' if captured_at_speech_start
-                  else 'at the final transcript fallback')
-        prompt = (
-            f''
-            ''
-            f'{text}')
-        task = asyncio.create_task(self._send_auto_camera_image(prompt))
-        self.camera_send_tasks.add(task)
-        task.add_done_callback(self.camera_send_tasks.discard)
-
-    async def _send_auto_camera_image(self, prompt):
+    async def _send_turn_camera(self, session, turn_id, snapshot):
         try:
-            result = await self._send_camera_image(
-                self.session, prompt, enforce_cooldown=True,
-                trigger_response=False)
-            if result.get('status') != 'success':
-                self.get_logger().warning(
-                    f'Automatic camera attachment skipped: {result.get("error")}')
+            if snapshot is None or time.monotonic() - snapshot['received_at'] > self.camera_max_age:
+                raise ValueError('Kamera görüntüsü yok veya güncel değil')
+            jpeg = await asyncio.to_thread(self._encode_camera_jpeg, snapshot,
+                                           self.camera_jpeg_max_width, self.camera_jpeg_quality)
+            # A single bounded attempt: a late/retried upload must never enter
+            # another turn. The server enforces the final-turn deadline too.
+            await session.send_image(image_bytes=jpeg, mime_type='image/jpeg',
+                                     trigger_response=False, turn_id=turn_id, timeout=2.0)
+        except asyncio.CancelledError:
+            return
         except Exception as error:
-            # The backend intentionally rate-limits images per run. A fast
-            # follow-up utterance can therefore be skipped during normal use.
-            self.get_logger().warning(
-                f'Automatic camera attachment skipped: {error}')
+            self.camera_status = f'Kamera görüntüsü eklenemedi: {error}'
+            self._publish_ai_settings()
+        try:
+            if self.session is session and self.camera_attach_to_every_user_turn:
+                await session.complete_camera_turn(turn_id)
+        except Exception as error:
+            self.get_logger().warning(f'Camera turn completion failed: {error}')
+
+    async def _watch_audio(self, session):
+        """Keep the WebRTC session alive across local audio device disconnects."""
+        from .audio import check_aec_devices
+        unavailable = False
+        try:
+            while self.session is session:
+                await asyncio.sleep(1)
+                if self.session is not session or self.stopping:
+                    return
+                try:
+                    await check_aec_devices(self.mic_device, self.speaker_device)
+                    if self.mic and self.mic.capture_error:
+                        await self.mic.restart_capture()
+                    for speaker in self.speakers:
+                        if speaker.error:
+                            await speaker.restart_playback()
+                except Exception as error:
+                    if not unavailable:
+                        self.get_logger().warning(
+                            f'Audio device unavailable; keeping current session: {error}')
+                        self._publish_state(
+                            'connected', f'Ses aygıtı bekleniyor; oturum korunuyor: {error}')
+                    unavailable = True
+                    if self.mic:
+                        self.mic.suspended = True
+                    for speaker in self.speakers:
+                        speaker.suspended = True
+                    continue
+                if unavailable:
+                    if self.mic:
+                        self.mic.suspended = False
+                    for speaker in self.speakers:
+                        speaker.suspended = False
+                    self.get_logger().info(
+                        'Audio devices returned; continuing the same conversation')
+                    self._publish_state('connected', 'Ses aygıtı geri geldi; aynı oturum devam ediyor')
+                    unavailable = False
+        except asyncio.CancelledError:
+            return
 
     async def _send_camera_image(self, session, prompt, enforce_cooldown=True,
                                  trigger_response=True):
@@ -879,7 +1130,11 @@ class VoiceAgentNode(Node):
         self.get_logger().info(
             'Assistant started speaking' if speaking
             else 'Assistant stopped speaking; microphone enabled')
-        self._publish_state('connected' if self.session_active else 'idle')
+        if self._is_local() and self.session_active:
+            self._publish_state('speaking' if speaking else 'connecting',
+                                'Yanıt okunuyor' if speaking else 'Mikrofon yeniden açılıyor')
+        else:
+            self._publish_state('connected' if self.session_active else 'idle')
 
     def _start_speech_motion(self):
         """Reserve the expression channel for a looping talking motion."""
@@ -1069,9 +1324,17 @@ class VoiceAgentNode(Node):
                 except asyncio.TimeoutError:
                     os.killpg(process.pid, signal.SIGKILL)
                     await process.wait()
-            for task in tuple(self.camera_send_tasks):
+            watcher, self.audio_watch_task = getattr(self, 'audio_watch_task', None), None
+            if watcher and watcher is not asyncio.current_task():
+                watcher.cancel()
+                await asyncio.gather(watcher, return_exceptions=True)
+            tasks = tuple(self.camera_send_tasks)
+            for task in tasks:
                 task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             self.camera_send_tasks.clear()
+            self.camera_turn_id = None
+            self.camera_turn_task = None
             for speaker in self.speakers:
                 await speaker.close()
             self.speakers.clear()
@@ -1087,6 +1350,8 @@ class VoiceAgentNode(Node):
             self.session_active = False
             self.assistant_speaking = False
             self.local_compute_pub.publish(Bool(data=False))
+            if hasattr(self, 'local_phase_pub'):
+                self.local_phase_pub.publish(String(data=json.dumps({'phase': 'idle'})))
             self.command_pub.publish(JointCommand(
                 hold_sec=0.01, cancel_agent=True))
             self._publish_state('idle')

@@ -36,12 +36,17 @@ Sistem yedi ROS 2 paketinden ve iki kullanıcı arayüzünden oluşur.
 ```text
 ros2_kufibot/
 ├── README.md
-├── requirements.txt             # ROS dışı Python bağımlılıkları
+├── requirements.txt             # Tüm platformların birleşik listesi (referans amaçlı)
+├── requirements-common.txt      # Sim ve Pi arasında paylaşılan Python bağımlılıkları
+├── requirements-sim.txt         # WSL/Ubuntu simülasyonuna özgü ek bağımlılıklar
+├── requirements-pi.txt          # Raspberry Pi 5 donanımına özgü ek bağımlılıklar
 ├── pytest.ini                   # Kaynak testleri; donanım denemeleri hariç
 ├── KufibotMobile/                # React Native / Expo Android uygulaması
 │   ├── App.tsx, src/             # Kamera, sensörler, joystickler ve bağlantı
 │   └── modules/kufibot-discovery/ # Android için yerel UDP keşif modülü
 ├── KufibotController/            # Arayüze referans olan önceki Java uygulaması
+├── tools/ros2_build_sim.sh       # WSL/Ubuntu simülasyon derlemesi
+├── tools/ros2_build_pi.sh        # Raspberry Pi 5 donanım derlemesi
 ├── tools/ros2_launch.sh          # ROS + venv ortamını hazırlayan giriş noktası
 ├── src/
 │   ├── kufibot_bringup/
@@ -160,6 +165,16 @@ veya donanımsız çalıştırma için `remote:=false` ya da `motors:=false` ver
 Ses ajanı `/cmd_vel` üretmez. `tracking_test.launch.py` bu iki node'u başlatmaz.
 
 ### Servo eksen testi
+
+`servo_node` açılışta sağ kolu 15°, sol kolu 170°, boynu 10°, başı 90°,
+sağ gözü 170° ve sol gözü 0° konumuna sırayla komutlar; açıları yapılandırılmış
+eklem sınırlarıyla kısıtlar. Her servo için `startup_settle_sec` (varsayılan
+1,5 saniye) bekler. Yaklaşık 9 saniyelik bu başlangıç boyunca gelen servo
+komutları atılır ve eklem durumu yayınlanmaz. I²C yazımı başarısız olursa aynı
+servo yeniden denenir; normal komutlara geçilmez. Simülasyon aynı akışı kullanır.
+Konum geri bildirimi yoktur: ilk hareket doğrudan varsayılan açıya komutlanır,
+hızı ve fiziksel varış doğrulanamaz. Adımlı hız sınırlaması başlangıçtan sonraki
+hareketlerde uygulanır.
 
 PCA9685 servo sürücüsünü ve güvenli, sıralı eksen testini tek komutla başlatmak
 için çalışma alanı kökünden şunu çalıştırın:
@@ -436,9 +451,19 @@ hareket üretir ve otomatik test keşfine alınmaz.
 
 ## Install
 
-Install ROS dependencies, then create a virtual environment that can also see
-the ROS 2 Python packages installed by apt. Debian's PEP 668 protection prevents
-installing these dependencies directly into the system interpreter:
+There are two supported build targets, each with its own Python dependency set:
+
+- **Simulation (WSL/Ubuntu, no hardware):** `./tools/ros2_build_sim.sh` installs
+  `requirements-sim.txt` (shared dependencies plus Panda3D/pygame) and runs
+  `colcon build`.
+- **Raspberry Pi 5 (real robot):** `./tools/ros2_build_pi.sh` installs
+  `requirements-pi.txt` (shared dependencies plus the sensor/actuator drivers
+  and MediaPipe/OpenCV perception stack) and runs `colcon build`.
+
+Both scripts create `.venv` with `--system-site-packages` on first run so
+apt-installed ROS 2 Python modules (`rclpy`, `cv_bridge`, generated messages)
+remain visible, and export `PYTHONPATH` where needed. To reproduce the steps
+manually instead:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -446,7 +471,7 @@ rosdep install --from-paths src --ignore-src -r -y
 python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-sim.txt   # or requirements-pi.txt on the robot
 
 # ROS-generated executables use the system interpreter. Make packages installed
 # in this venv visible to those executables as well.
@@ -459,15 +484,20 @@ source install/setup.bash
 Python dependency ownership:
 
 - All third-party Python packages used by sensors, actuators, perception,
-  voice interaction, and the remote-control bridge are installed from the single
-  root `requirements.txt`.
+  voice interaction, and the remote-control bridge are split across
+  `requirements-common.txt`, `requirements-sim.txt` and `requirements-pi.txt`.
+  The root `requirements.txt` combines both platform files for reference and
+  manual full installs.
 - ROS Python modules such as `rclpy` and generated message modules
   remain apt/rosdep dependencies and become visible in the virtual environment
   through `--system-site-packages`.
 - `kufibot_sensors` and `kufibot_actuators` themselves are ROS packages; they
   are installed into `install/` by `colcon build`, not by pip.
 
-The current voice node uses playback-aware microphone echo gating.
+The robot voice profile uses PipeWire WebRTC echo cancellation with a Bluetooth
+reference delay, followed by adaptive SpeexDSP noise reduction. Install the
+system library with `sudo apt install libspeexdsp1`; this is not a pip dependency.
+See [audio setup and measured results](docs/voice-duplex-camera.md).
 `webrtc-audio-processing` is intentionally not installed: release 0.1.3 tries
 to compile x86 SSE sources on aarch64 and is not imported by the runtime.
 
@@ -478,9 +508,9 @@ then install the copied source. Run these commands from the repository root:
 mkdir -p vendor
 scp -r root@88.99.219.93:/root/verasist/sdk ./vendor/verasist-sdk
 
-# Change the final editable SDK path in requirements.txt to:
+# Change the editable SDK path in requirements-common.txt to:
 # -e ./vendor/verasist-sdk[voice]
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-pi.txt   # or requirements-sim.txt
 ```
 
 Verify the SDK installation before starting ROS:

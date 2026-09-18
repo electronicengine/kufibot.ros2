@@ -30,6 +30,22 @@ def bridge():
     return node
 
 
+def test_transcript_partials_replace_one_bubble_and_final_is_retained():
+    from kufibot_interfaces.msg import Transcript
+    node = bridge()
+    node.ai_config = {'settings': {'workflow_id': 'conversation'}}
+    node._transcript(Transcript(role='user', text='mer', final=False))
+    key = node.voice_transcripts[0]['id']
+    node._transcript(Transcript(role='user', text='merhaba', final=False))
+    node._transcript(Transcript(role='user', text='Merhaba Kufi', final=True))
+    node._transcript(Transcript(role='assistant', text='Merhaba!', final=True))
+    result = node.status()['voiceTranscripts']
+    assert len(result) == 2
+    assert result[0] == {'id': key, 'timestamp_ms': int(key)/1_000_000, 'role': 'user', 'text': 'Merhaba Kufi', 'final': True, 'workflow_id': 'conversation'}
+    assert result[1]['role'] == 'assistant'
+    assert not node.transcript_pending
+
+
 def test_padded_rgb_frame_is_resized_without_jpeg():
     node = bridge()
     pixels = np.zeros((480, 800 * 3 + 8), np.uint8)

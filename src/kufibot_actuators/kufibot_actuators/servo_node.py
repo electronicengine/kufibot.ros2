@@ -4,6 +4,7 @@
 import json
 import math
 from pathlib import Path
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -19,7 +20,7 @@ JOINT_CHANNELS = {
     'eyeRight': 4, 'eyeLeft': 5,
 }
 
-# Last-known startup assumptions from the C++ controller (no homing move).
+# Startup pose from the original C++ controller.
 DEFAULT_ANGLES = {
     'rightArm': 15.0, 'leftArm': 170.0, 'neck': 10.0,
     'headLeftRight': 90.0, 'eyeRight': 170.0, 'eyeLeft': 0.0,
@@ -40,6 +41,7 @@ class ServoNode(Node):
         self.declare_parameter('step_deg', 1.0)
         self.declare_parameter('arm_step_deg', 0.3)
         self.declare_parameter('step_delay_ms', 15.0)
+        self.declare_parameter('startup_settle_sec', 1.5)
         self.declare_parameter('joint_config_file', '')
 
         address = int(self.get_parameter('i2c_address').value)
@@ -50,6 +52,11 @@ class ServoNode(Node):
         self.step_deg = float(self.get_parameter('step_deg').value)
         self.arm_step_deg = float(self.get_parameter('arm_step_deg').value)
         delay = float(self.get_parameter('step_delay_ms').value) / 1000.0
+        self.startup_settle_sec = float(
+            self.get_parameter('startup_settle_sec').value)
+        if (not math.isfinite(self.startup_settle_sec)
+                or self.startup_settle_sec <= 0.0):
+            raise ValueError('startup_settle_sec must be finite and positive')
 
         if self.freq <= 0.0 or self.min_pulse >= self.max_pulse:
             raise ValueError('PWM frequency and pulse limits are invalid')
@@ -66,6 +73,10 @@ class ServoNode(Node):
             for name, angle in DEFAULT_ANGLES.items()
         }
         self.target_angles = self.current_angles.copy()
+        self._startup_joints = list(JOINT_CHANNELS)
+        self._startup_index = 0
+        self._startup_wait_until = 0.0
+        self.startup_complete = False
 
         self.driver = driver_factory(address, busnum=busnum)
         self.driver.set_pwm_freq(self.freq)
@@ -87,7 +98,8 @@ class ServoNode(Node):
             f'{name}={lower:g}..{upper:g}'
             for name, (lower, upper) in self.limits.items())
         self.get_logger().info(
-            f'Servo controller ready at 0x{address:02X}; limits: {ranges}')
+            f'Servo controller initializing at 0x{address:02X}; '
+            f'limits: {ranges}; sequential startup pose in progress')
 
     def _load_joint_config(self, path):
         """Load named positions and derive each joint's mechanical limits."""
@@ -124,6 +136,9 @@ class ServoNode(Node):
         return max(lower, min(upper, float(angle)))
 
     def _set_target(self, joint, requested_angle):
+        # Discard startup commands so stale gestures cannot run after startup.
+        if not self.startup_complete:
+            return
         if not math.isfinite(requested_angle):
             self.get_logger().warning(
                 f'Ignoring non-finite target for {joint}')
@@ -150,6 +165,9 @@ class ServoNode(Node):
 
     def _motion_tick(self):
         """Advance every active joint by at most one configured step."""
+        if not self.startup_complete:
+            self._startup_tick()
+            return
         for joint, channel in JOINT_CHANNELS.items():
             current = self.current_angles[joint]
             difference = self.target_angles[joint] - current
@@ -169,7 +187,37 @@ class ServoNode(Node):
                 continue
             self.current_angles[joint] = next_angle
 
+    def _startup_tick(self):
+        """Command one joint at a time, allowing it to settle before the next.
+
+        PWM servos provide no position feedback. The initial pulse commands
+        the default directly; slew limiting only applies after initialization.
+        Completion means all writes and settling delays succeeded, not that
+        physical arrival was measured.
+        """
+        if time.monotonic() < self._startup_wait_until:
+            return
+        if self._startup_index == len(self._startup_joints):
+            self.startup_complete = True
+            self.get_logger().info('Servo startup pose complete; commands enabled')
+            return
+        joint = self._startup_joints[self._startup_index]
+        angle = self.current_angles[joint]
+        pulse_us = self.min_pulse + (angle / 180.0) * (
+            self.max_pulse - self.min_pulse)
+        try:
+            self.driver.set_pulse_us(JOINT_CHANNELS[joint], pulse_us, self.freq)
+        except OSError as error:
+            self.get_logger().error(
+                f'Failed to initialize {joint}; startup blocked: {error}')
+        else:
+            self._startup_index += 1
+        # Also back off on failed writes; never enable commands on failure.
+        self._startup_wait_until = time.monotonic() + self.startup_settle_sec
+
     def _publish_joint_states(self):
+        if not self.startup_complete:
+            return
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = list(JOINT_CHANNELS)

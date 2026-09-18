@@ -133,6 +133,7 @@ class LiveSession:
         self._close_reason: dict[str, Any] | None = None
 
         self._track_callbacks: list[Callable[[Any], None]] = []
+        self._voice_event_callbacks: list[Callable[[dict[str, Any]], None]] = []
         self._transcript_callbacks: list[Callable[[dict[str, Any]], None]] = []
         self._connection_state_callbacks: list[Callable[[str], None]] = []
         self._ice_timeout_task: asyncio.Task | None = None
@@ -175,6 +176,33 @@ class LiveSession:
         be used as a decorator or called directly."""
         self._track_callbacks.append(callback)
         return callback
+
+    def on_voice_event(self, callback: Callable[[dict[str, Any]], None]) -> Callable:
+        """Receive speaking, interruption, mute and camera-turn events (type/payload)."""
+        self._voice_event_callbacks.append(callback)
+        return callback
+
+    async def configure_camera_turns(self, enabled: bool, *, timeout: float = 3.0):
+        """Opt into turn-bound camera images; unsupported servers fail explicitly."""
+        return await self._camera_command({'action': 'configure', 'enabled': enabled}, timeout)
+
+    async def complete_camera_turn(self, turn_id: str, *, timeout: float = 2.0):
+        """Finish the attachment (including unavailable images) for exactly this turn."""
+        return await self._camera_command({'action': 'complete', 'turn_id': turn_id}, timeout)
+
+    async def _camera_command(self, payload: dict, timeout: float):
+        request_id = uuid.uuid4().hex
+        future = asyncio.get_running_loop().create_future()
+        self._pending_image_requests[request_id] = future
+        try:
+            await self._send({'type': 'device-camera-turn',
+                              'payload': {**payload, 'request_id': request_id}})
+            result = await asyncio.wait_for(future, timeout)
+            if result.get('status') != 'success':
+                raise VerasistSdkError(result.get('error', 'Camera configuration failed'))
+            return result
+        finally:
+            self._pending_image_requests.pop(request_id, None)
 
     def on_transcript(
         self, callback: Callable[[dict[str, Any]], None]
@@ -338,6 +366,7 @@ class LiveSession:
         mime_type: str = "image/jpeg",
         prompt: str | None = None,
         trigger_response: bool = True,
+        turn_id: str | None = None,
         timeout: float = 30.0,
     ) -> dict[str, Any]:
         """Send a snapshot image (e.g. a robot camera frame) to the assistant
@@ -386,6 +415,7 @@ class LiveSession:
                         "data": base64.b64encode(image_bytes).decode("ascii"),
                         "prompt": prompt,
                         "trigger_response": trigger_response,
+                        **({'turn_id': turn_id} if turn_id is not None else {}),
                     },
                 }
             )
@@ -479,7 +509,7 @@ class LiveSession:
             )
         elif msg_type == "tool-call":
             asyncio.create_task(self._handle_tool_call(payload))
-        elif msg_type == "device-image-result":
+        elif msg_type in ("device-image-result", "device-camera-turn-result"):
             request_id = payload.get("request_id")
             future = self._pending_image_requests.get(request_id)
             if future and not future.done():
@@ -490,6 +520,18 @@ class LiveSession:
         elif msg_type == "error":
             self._close_reason = payload
             self._closed_event.set()
+        elif msg_type in {
+            'rtf-bot-started-speaking', 'rtf-bot-stopped-speaking', 'rtf-bot-interrupted',
+            'rtf-user-mute-started', 'rtf-user-mute-stopped',
+            'rtf-user-turn-started', 'rtf-user-turn-final', 'rtf-camera-attachment',
+        }:
+            for callback in self._voice_event_callbacks:
+                try:
+                    callback({'type': msg_type, 'payload': payload})
+                except Exception:
+                    # Application diagnostics must never stop the signaling reader.
+                    import logging
+                    logging.getLogger(__name__).exception('Voice event callback failed')
         elif msg_type == "rtf-user-transcription":
             self._emit_transcript(
                 {

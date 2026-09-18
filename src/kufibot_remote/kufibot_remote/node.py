@@ -15,7 +15,8 @@ from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
 from geometry_msgs.msg import Twist
 
-from kufibot_interfaces.msg import VoiceState
+from kufibot_interaction.local_voice_runtime import attach_phase_lease
+from kufibot_interfaces.msg import VoiceState, Transcript
 from .control import Control
 from .server import Discovery, Server
 from .video import LatestCameraTrack
@@ -69,12 +70,16 @@ class RemoteController(Node):
         self.ai_trigger_uuid = ''
         self.ai_config = None
         self.voice_status = None
+        self.voice_transcripts = []
+        self.transcript_pending = {}
         self.local_compute_active = False
         self.distance_map = None
         self.ai_settings_pub = self.create_publisher(String, 'voice_session/set_ai_settings', 10)
         self.create_subscription(String, 'voice_session/ai_settings', self._ai_settings, 10)
         self.create_subscription(VoiceState, 'voice_session/state', self._voice_state, 10)
-        self.create_subscription(Bool, 'local_ai/compute_active', self._local_compute, 10)
+        self.create_subscription(Transcript, 'voice_session/transcript', self._transcript, 50)
+        self.local_phase_lease = attach_phase_lease(
+            self, lambda active: self._local_compute(Bool(data=active)))
         self.remote_pub = self.create_publisher(String, 'remote/command', 10)
         self.drive_pub = self.create_publisher(Twist, 'drive/manual_cmd', 1)
         self.navigation = None
@@ -184,6 +189,29 @@ class RemoteController(Node):
         except ValueError:
             self.get_logger().warning('Invalid AI settings status')
 
+    def _transcript(self, msg):
+        if msg.role not in ('user', 'assistant'):
+            return
+        pending = getattr(self, 'transcript_pending', {})
+        key = pending.get(msg.role) or str(time.time_ns())
+        if msg.final:
+            pending.pop(msg.role, None)
+        else:
+            pending[msg.role] = key
+        self.transcript_pending = pending
+        entry = {'id': key, 'role': msg.role, 'text': msg.text[:12000], 'final': msg.final,
+                 'timestamp_ms': int(key) / 1_000_000,
+                 'workflow_id': (getattr(self, 'ai_config', None) or {}).get('settings', {}).get('workflow_id', '')}
+        entries = list(getattr(self, 'voice_transcripts', []))
+        index = next((i for i, item in enumerate(entries) if item['id'] == key), None)
+        if index is None:
+            if not msg.text:
+                return
+            entries.append(entry)
+        else:
+            entries[index] = entry
+        self.voice_transcripts = entries[-64:]
+
     def _voice_state(self, msg):
         if self.control.mode != 'tools' and (not msg.session_active or msg.state != 'connected'):
             self.control.disable_navigation('voice_' + msg.state)
@@ -268,6 +296,7 @@ class RemoteController(Node):
                 'aiTriggerUuid': self.ai_trigger_uuid,
                 'aiConfig': getattr(self, 'ai_config', None),
                 'voiceStatus': getattr(self, 'voice_status', None),
+                'voiceTranscripts': getattr(self, 'voice_transcripts', []),
                 'distanceMap': self._distance_map(),
                 'sensors': {name: value if now - stamp < 3 else None
                             for name, (value, stamp) in self.sensors.items()}}

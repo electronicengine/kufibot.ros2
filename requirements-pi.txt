@@ -1,0 +1,14 @@
+# Python dependencies for the real Raspberry Pi 5 robot build.
+-r requirements-common.txt
+
+# Sensors and actuator hardware
+pyserial==3.5
+smbus2==0.4.2
+pi-ina219==1.4.1
+
+# USB camera perception and MediaPipe tracking
+# ROS/apt binary extensions use the NumPy 1.x ABI. Tracking uses the
+# MediaPipe solutions API shipped in 0.10.x; newer 1.x releases removed it.
+# PyPI wheels for Linux aarch64 (Raspberry Pi) are available up to 0.10.18.
+mediapipe>=0.10.14,<=0.10.21
+opencv-contrib-python>=4.11,<4.12

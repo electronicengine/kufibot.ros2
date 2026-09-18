@@ -339,3 +339,34 @@ async def test_close_cancels_pending_image_futures():
 
     assert future.cancelled()
     assert session._pending_image_requests == {}
+
+
+@pytest.mark.asyncio
+async def test_voice_events_and_camera_command_round_trip():
+    session = _make_session()
+    events = []
+    session.on_voice_event(events.append)
+    await session._handle_message({'type': 'rtf-bot-interrupted', 'payload': {}})
+    assert events == [{'type': 'rtf-bot-interrupted', 'payload': {}}]
+    async def send(message):
+        await session._handle_message({'type': 'device-camera-turn-result', 'payload': {
+            'request_id': message['payload']['request_id'], 'status': 'success'}})
+    session._send = AsyncMock(side_effect=send)
+    await session.configure_camera_turns(True)
+    assert session._send.await_args.args[0]['payload']['enabled'] is True
+    await session.complete_camera_turn('turn-1')
+    assert session._send.await_args.args[0]['payload']['turn_id'] == 'turn-1'
+    assert not session._pending_image_requests
+
+
+@pytest.mark.asyncio
+async def test_turn_image_preserves_correlation():
+    session = _make_session()
+    async def send(message):
+        await session._handle_message({'type': 'device-image-result', 'payload': {
+            'request_id': message['payload']['request_id'], 'status': 'success'}})
+    session._send = AsyncMock(side_effect=send)
+    await session.send_image(image_bytes=b'jpeg', turn_id='turn-2', trigger_response=False)
+    payload = session._send.await_args.args[0]['payload']
+    assert payload['turn_id'] == 'turn-2'
+    assert payload['trigger_response'] is False

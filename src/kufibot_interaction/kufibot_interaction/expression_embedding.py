@@ -77,12 +77,14 @@ class EmbeddingSelector:
 class ExpressionWorker:
     """Own the model on one thread; never wait for inference in submit/poll."""
 
-    def __init__(self, library, factory, warning):
+    def __init__(self, library, factory, warning, suspended=False):
         self.library = library
         self.factory = factory
         self.warning = warning
         self.condition = threading.Condition()
         self.ready = False
+        self.suspended = suspended
+        self.busy = False
         self.closed = False
         self.current = None
         self.pending = None
@@ -101,12 +103,22 @@ class ExpressionWorker:
         with self.condition:
             if self.closed or generation != self.current:
                 return
-            if not self.ready:
+            if not self.ready or self.suspended:
                 self.results.append((generation, self.library.classify(text),
                                      None, 0.0))
             else:
                 self.pending = (generation, text)
                 self.condition.notify()
+
+    def suspend(self, value):
+        with self.condition:
+            self.suspended = value
+            self.pending = None
+            self.condition.notify_all()
+
+    def wait_idle(self, timeout=30):
+        with self.condition:
+            return self.condition.wait_for(lambda: not self.busy, timeout)
 
     def poll(self):
         with self.condition:
@@ -115,6 +127,11 @@ class ExpressionWorker:
     def _run(self):
         selector = None
         try:
+            with self.condition:
+                self.condition.wait_for(lambda: self.closed or not self.suspended)
+                if self.closed:
+                    return
+                self.busy = True
             try:
                 selector = self.factory()
             except Exception as error:
@@ -122,13 +139,16 @@ class ExpressionWorker:
                 return
             with self.condition:
                 self.ready = not self.closed
+                self.busy = False
+                self.condition.notify_all()
             while True:
                 with self.condition:
-                    self.condition.wait_for(lambda: self.closed or self.pending is not None)
+                    self.condition.wait_for(lambda: self.closed or (not self.suspended and self.pending is not None))
                     if self.closed:
                         return
                     generation, text = self.pending
                     self.pending = None
+                    self.busy = True
                 started = time.monotonic()
                 try:
                     name, score = selector.select(text)
@@ -137,9 +157,14 @@ class ExpressionWorker:
                     name, score = self.library.classify(text), None
                 elapsed = time.monotonic() - started
                 with self.condition:
-                    if not self.closed and generation == self.current:
+                    self.busy = False
+                    self.condition.notify_all()
+                    if not self.closed and not self.suspended and generation == self.current:
                         self.results.append((generation, name, score, elapsed))
         finally:
+            with self.condition:
+                self.busy = False
+                self.condition.notify_all()
             if selector is not None:
                 selector.close()
 

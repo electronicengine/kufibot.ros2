@@ -12,7 +12,7 @@ ROS 2 Jazzy ve proje bağımlılıkları kurulu olmalıdır. Proje kökündeki
 
 ```bash
 sudo apt-get install pulseaudio-utils alsa-utils
-./tools/ros2_build.sh
+./tools/ros2_build_sim.sh
 ```
 
 Proje kökündeki `.env` dosyasına kendi değerlerinizi yazın; mevcut dosyayı

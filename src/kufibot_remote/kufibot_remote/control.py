@@ -31,6 +31,7 @@ class Control:
         self.ai_trigger_uuid = None
         self.ai_workflow_requested = False
         self.ai_settings_requested = None
+        self.local_workflow_enabled = False
         self.navigation_enabled = False
         self.navigation_epoch = uuid.uuid4().hex
         self.navigation_provider = None
@@ -54,6 +55,9 @@ class Control:
     def release(self, owner, reason='owner_released'):
         if self.owner is owner:
             self.stop()
+            if self.local_workflow_enabled:
+                self.mode = 'remote'
+                self.targets.clear()
             self.disable_navigation(reason)
             self.owner = None
 
@@ -75,6 +79,9 @@ class Control:
             self.last_heartbeat = self.clock()
         elif kind == 'stop':
             self.stop()
+            if self.local_workflow_enabled:
+                self.mode = 'remote'
+                self.targets.clear()
             self.disable_navigation('stop_requested')
         elif kind == 'setNavigationEnabled':
             enabled = data.get('enabled')
@@ -139,7 +146,13 @@ class Control:
             self.stop()
             self.calibration_requested = True
         elif kind == 'setAiSettings':
-            self.ai_settings_requested = validate(data.get('settings'))
+            settings = data.get('settings')
+            self.ai_settings_requested = validate(settings)
+            self.local_workflow_enabled = bool(self.ai_settings_requested.get('workflow_id')
+                                               and self.ai_settings_requested['provider'] == 'local')
+            # Preserve the robot's existing choice when an older client saves.
+            if 'camera_attach_to_every_user_turn' not in settings:
+                self.ai_settings_requested.pop('camera_attach_to_every_user_turn')
             self.disable_navigation('ai_settings_changed')
         elif kind == 'setAiTrigger':
             self.disable_navigation('workflow_changed')

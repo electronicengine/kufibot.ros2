@@ -119,3 +119,22 @@ VERASIST_API_KEY=sk-...                  # sent as X-API-Key
 ## License
 
 BSD 2-Clause — see `LICENSE`.
+
+
+### Turn-bound robot camera (0.1.8)
+
+`LiveSession.on_voice_event` receives `{type, payload}` dictionaries, including
+`rtf-bot-interrupted`, speaking/mute changes and `rtf-user-turn-started`.
+Use `await session.configure_camera_turns(True)` to opt in after connecting.
+For each server-issued `turn_id`, send at most one image with
+`await session.send_image(image_bytes=jpeg, turn_id=turn_id, trigger_response=False)`,
+then `await session.complete_camera_turn(turn_id)`. Complete the turn even when
+the camera is unavailable. Disable with `configure_camera_turns(False)`.
+
+The server waits at most two seconds after the turn boundary and rejects stale
+IDs. STT/LLM/TTS pipelines and opted-in device Gemini Live sessions support this
+contract; unsupported realtime backends reject configuration explicitly.
+For robot sessions, `connect(call_context_vars={"device_barge_in": True})` enables
+full-duplex interruption during greetings and tool work without changing other
+clients' mute policy. AEC belongs in the device audio path; the Python SDK does
+not automatically echo-cancel raw audio tracks.
