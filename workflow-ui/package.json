@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "esbuild src/editor.tsx --bundle --minify --format=esm --outfile=../src/kufibot_remote/kufibot_remote/web/workflow/editor.js",
+    "build": "esbuild src/editor.tsx src/archive.tsx --bundle --minify --format=esm --outdir=../src/kufibot_remote/kufibot_remote/web/workflow",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

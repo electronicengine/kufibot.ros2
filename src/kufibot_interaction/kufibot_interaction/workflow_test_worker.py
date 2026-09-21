@@ -5,10 +5,11 @@ import uuid
 
 from .workflows import WorkflowEngine
 from .workflow_inference import make_decider, ToolChannel
+from .workflow_routing import SemanticRouter
 
 
 def main():
-    model = None
+    model = router = None
     def emit(kind, **fields):
         print(json.dumps({'type': kind, **fields}, ensure_ascii=False), flush=True)
     try:
@@ -17,10 +18,9 @@ def main():
         model = Llama(model_path=config['llm'], n_ctx=2048, n_threads=3, verbose=False)
         channel = ToolChannel(emit, uuid.uuid4().hex)
         workflow = config['workflow']
-        settings = workflow['settings']
-        engine = WorkflowEngine(workflow, make_decider(model, settings.get('system_prompt', ''),
-            settings.get('language', 'tr')), channel.call,
-            lambda event: emit('trace', event=event))
+        router = SemanticRouter(workflow, config.get('embedding'), notify=lambda event: emit('trace', event=event))
+        engine = WorkflowEngine(workflow, make_decider(model), channel.call,
+            lambda event: emit('trace', event=event), router=router)
         text = config['text']
         while True:
             channel.turn_id += 1
@@ -35,8 +35,12 @@ def main():
     except Exception as exc:
         emit('error', message=str(exc))
     finally:
-        if model:
-            model.close()
+        try:
+            if model:
+                model.close()
+        finally:
+            if router:
+                router.close()
 
 
 if __name__ == '__main__':

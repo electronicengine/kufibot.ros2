@@ -23,7 +23,7 @@ from std_srvs.srv import Trigger
 
 from kufibot_interfaces.msg import (
     DetectionArray, JointCommand, TrackingTarget, Transcript, VoiceState)
-from .ai_settings import catalog, read_settings, save_settings, validate, settings_path
+from .ai_settings import workflow_voice_settings, catalog, read_settings, save_settings, validate, settings_path
 from .joint_limits import JOINT_LIMITS, validate_joint_targets
 from .expression_engine import ExpressionConfigError, ExpressionLibrary
 from .expression_embedding import EmbeddingSelector, ExpressionWorker
@@ -555,9 +555,18 @@ class VoiceAgentNode(Node):
                 await self._restart_ai_session(self.mode_generation)
         self._publish_ai_settings()
 
+    async def _enforce_local_session_limit(self, process, seconds):
+        # Give the worker's own deadline time to finalize its recording. A native
+        # inference call holding the GIL must not keep the session alive forever.
+        await asyncio.sleep(seconds + 2)
+        if self.local_process is process:
+            await self._stop_session()
+            self._publish_state('idle', 'Azami görüşme süresine ulaşıldı')
+
     async def _local_events(self, process):
         error = None
         workflow_complete = False
+        completion_detail = 'Yerel workflow tamamlandı'
         previous_phase = None
         first_event = True
         startup_at = time.monotonic()
@@ -581,8 +590,14 @@ class VoiceAgentNode(Node):
                 if self.local_process is not process:
                     return
                 kind = event['type']
-                if kind == 'workflow_complete':
+                if kind in ('workflow_complete', 'session_complete'):
                     workflow_complete = True
+                    if kind == 'session_complete':
+                        completion_detail = 'Azami görüşme süresine ulaşıldı'
+                elif kind == 'recording' and event.get('status') == 'started':
+                    seconds = getattr(self, 'local_session_max_sec', 0)
+                    if seconds:
+                        self.local_session_deadline = asyncio.create_task(self._enforce_local_session_limit(process, seconds))
                 elif kind == 'workflow_tool':
                     identity = {k: event[k] for k in ('session_id', 'turn_id', 'call_id')}
                     if identity['session_id'] != getattr(self, 'workflow_session_id', None):
@@ -650,7 +665,7 @@ class VoiceAgentNode(Node):
             if self.local_process is process:
                 await self._stop_session()
                 if workflow_complete:
-                    self._publish_state('idle', 'Yerel workflow tamamlandı')
+                    self._publish_state('idle', completion_detail)
                 else:
                     self._publish_state('error', error or 'Yerel ses süreci durdu')
 
@@ -670,17 +685,20 @@ class VoiceAgentNode(Node):
                 from .workflows import WorkflowStore
                 workflow = WorkflowStore().snapshot(value['workflow_id'])
                 self.active_workflow_revision = workflow['revision']
-                value = validate({**value, **workflow.get('settings', {}), 'provider': 'local'})
+                value = validate({**value, **workflow_voice_settings(workflow), 'provider': 'local'})
             models = {m['id']: m for m in catalog()}
-            config = {kind: models[value[kind]]['path'] for kind in ('stt', 'llm', 'tts')}
+            config = {kind: models[value[kind]]['path'] for kind in ('stt', 'llm', 'tts', 'embedding')}
             config.update({key: self.get_parameter('local_' + key).value for key in LOCAL_DEFAULTS})
+            from .local_voice_settings import apply_voice_options
+            config = apply_voice_options(config, workflow)
             config['stt_backend'] = models[value['stt']].get('backend', 'vosk')
             config = validate_runtime(config)
             self.expression_worker.suspend(True)
             if not await asyncio.to_thread(self.expression_worker.wait_idle):
                 raise RuntimeError('Expression model did not yield CPU for Local AI')
-            config.update(language=value['language'], system_prompt=value['system_prompt'],
-                          mic=self.mic_device, speaker=self.speaker_device)
+            from .audio_devices import local_audio_devices
+            mic, speaker = await local_audio_devices(config.get('aec_mode', 'system'), self.mic_device, self.speaker_device)
+            config.update(language=value['language'], system_prompt=value['system_prompt'], mic=mic, speaker=speaker)
             if workflow:
                 import uuid
                 self.workflow_session_id = uuid.uuid4().hex
@@ -693,6 +711,7 @@ class VoiceAgentNode(Node):
             self._reset_expression_turn(enabled=self.expressions_available)
             self._publish_state('connecting', 'Yerel modeller yükleniyor')
             self.local_phase_pub.publish(String(data=json.dumps({'phase': 'loading'})))
+            self.local_session_max_sec = config.get('max_session_sec', 0)
             self.local_process = await asyncio.create_subprocess_exec(
                 sys.executable, '-m', 'kufibot_interaction.local_voice_worker',
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -1304,6 +1323,10 @@ class VoiceAgentNode(Node):
         if self.stopping:
             return
         self.stopping = True
+        deadline, self.local_session_deadline = getattr(self, 'local_session_deadline', None), None
+        if deadline and deadline is not asyncio.current_task():
+            deadline.cancel()
+            await asyncio.gather(deadline, return_exceptions=True)
         if hasattr(self, 'navigation'):
             self.navigation.disconnect()
         self._reset_expression_turn(enabled=False)

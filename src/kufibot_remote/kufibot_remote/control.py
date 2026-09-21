@@ -140,6 +140,12 @@ class Control:
             low, high = JOINT_LIMITS[name]
             self.cancel_mimic('manual_override')
             self.targets[name] = max(low, min(high, float(value)))
+        elif kind == 'prepareMapping':
+            if self.mode != 'remote':
+                raise ValueError('Kumanda modu gerekli')
+            self.stop()
+            self.targets.update(MAPPING_SENSOR_ANGLES)
+            self.targets['headLeftRight'] = 90.0
         elif kind == 'calibrateCompass':
             if self.mode != 'remote':
                 raise ValueError('Kumanda modu gerekli')

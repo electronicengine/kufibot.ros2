@@ -11,15 +11,19 @@ import queue
 import threading
 from pathlib import Path
 
-from .local_voice_runtime import Reporter, SileroVad, SpeechGate, validate_runtime
+from .local_voice_runtime import Reporter, SileroVad, SpeechGate, validate_runtime, SessionDeadline, SessionTimeout
 from .sentence_stream import SentenceBuffer
+from .audio_devices import audio_command
 
 
 _output_lock = multiprocessing.get_context('fork').RLock()
+_session_recording = None
 
 
 def emit(kind, **values):
     with _output_lock:
+        if _session_recording is not None:
+            _session_recording.record_event(kind, **values)
         print(json.dumps(dict(type=kind, **values)), flush=True)
 
 
@@ -30,9 +34,7 @@ def listen(config, recognizer, notify=emit):
     # A file avoids a stderr pipe filling up while PCM is being consumed.
     with tempfile.TemporaryFile() as errors:
         mic = subprocess.Popen(
-            ['arecord', '-q', '-D', config['mic'], '-f', 'S16_LE',
-             '-r', '16000', '-c', '1', '-t', 'raw',
-             '--buffer-time=200000', '--period-time=20000'],
+            audio_command(True, config['mic'], 16000, 1),
             stdout=subprocess.PIPE, stderr=errors, bufsize=0)
         try:
             recognizer.Reset()
@@ -119,17 +121,18 @@ def create_stt(config):
     raise ValueError('Unsupported STT backend')
 
 
-def listen_vad(config, backend, vad, reporter, recorder=None):
+def listen_vad(config, backend, vad, reporter, recorder=None, *, pcm_transform=None, trace=None):
     """Endpoint with VAD, release capture before batch STT (Hailo) starts."""
     import numpy as np
+    if recorder:
+        recorder.begin_utterance('user')
     backend.reset()
     vad.reset()
     gate = SpeechGate(config)
     reporter.set_phase('listening')
     with tempfile.TemporaryFile() as errors:
         mic = subprocess.Popen(
-            ['arecord', '-q', '-D', config['mic'], '-f', 'S16_LE', '-r', '16000',
-             '-c', '1', '-t', 'raw', '--buffer-time=200000', '--period-time=20000'],
+            audio_command(True, config['mic'], 16000, 1),
             stdout=subprocess.PIPE, stderr=errors, bufsize=0)
         try:
             buffered = b''
@@ -137,6 +140,7 @@ def listen_vad(config, backend, vad, reporter, recorder=None):
             diagnostic_at = time.monotonic() + 5
             partial_at, last_partial = 0.0, ''
             sample_count, energy, clipped, peak = 0, 0.0, 0, 0.0
+            capture_index = 0
             while True:
                 if not select.select([mic.stdout], [], [], 5)[0]:
                     raise RuntimeError(f'Microphone {config["mic"]}: no PCM for 5 seconds')
@@ -152,8 +156,15 @@ def listen_vad(config, backend, vad, reporter, recorder=None):
                     emit('ready')
                     reporter.mark('capture_ready')
                     ready = True
+                if pcm_transform is not None:
+                    pcm = pcm_transform(pcm)
                 probability = vad(pcm)
+                was_active = gate.active
                 frames, done = gate.push(pcm, probability, time.monotonic())
+                if trace is not None:
+                    from .vad_trace import frame_trace
+                    trace(pcm, frame_trace(pcm, probability, gate, was_active, frames, done, capture_index))
+                capture_index += 1
                 for frame in frames:
                     if recorder:
                         recorder.write('user', frame)
@@ -268,8 +279,7 @@ def speak_sentences(config, voice, sentences, reporter, *, concurrent=False, sto
                         recorder.write('assistant', chunk.audio_int16_bytes, chunk.sample_rate)
                     if player is None:
                         player = subprocess.Popen(
-                            ['aplay', '-q', '-D', config['speaker'], '-t', 'raw', '-f', 'S16_LE',
-                             '-r', str(chunk.sample_rate), '-c', str(chunk.sample_channels)],
+                            audio_command(False, config['speaker'], chunk.sample_rate, chunk.sample_channels),
                             stdin=subprocess.PIPE, stderr=errors, bufsize=0)
                         if on_player:
                             on_player(player)
@@ -393,6 +403,8 @@ class SentenceSpeaker:
 def generate_and_speak(config, llm, messages, voice, reporter, *, sampling=None, recorder=None):
     """Speak completed sentences while later LLM deltas are still arriving."""
     from .speech_guard import validate_speech
+    if recorder:
+        recorder.begin_utterance('assistant')
     reporter.set_phase('thinking')
     emit('compute', active=True)
     emit('state', state='thinking')
@@ -439,9 +451,11 @@ def generate_and_speak(config, llm, messages, voice, reporter, *, sampling=None,
 
 
 def run(config, max_turns=None):
+    global _session_recording
     config = validate_runtime(config)
     reporter = Reporter(emit)
-    backend = llm = recorder = None
+    backend = llm = recorder = router = None
+    deadline = SessionDeadline(config.get('max_session_sec', 0))
     try:
         reporter.set_phase('loading')
         reporter.mark('load_start', language=config['language'], stt_backend=config.get('stt_backend', 'vosk'),
@@ -460,33 +474,34 @@ def run(config, max_turns=None):
         voice = load_voice(config)
         reporter.mark('load_tts_end')
         from .local_recording import SessionRecording
-        recorder = SessionRecording(config.get('recording_root'))
+        recorder = SessionRecording(config.get('recording_root'), config.get('workflow'))
+        _session_recording = recorder
         emit('recording', status='started', id=recorder.id)
-        language = {'tr': 'Turkish', 'en': 'English'}.get(config['language'], config['language'])
-        system = {'role': 'system', 'content': config['system_prompt'].strip() + f'\nReply in {language} ({config["language"]}).'}
+        deadline.start()
+        system = {'role': 'system', 'content': config.get('system_prompt', '')}
         history = []
         workflow = None
         reply_streamed = False
         if config.get('workflow'):
             from .workflow_inference import make_decider, ToolChannel
             from .workflows import WorkflowEngine
+            from .workflow_routing import SemanticRouter
             channel = ToolChannel(emit, config['workflow_session_id'])
             def stream_reply(messages):
                 nonlocal reply_streamed
                 reply_streamed = True
                 return generate_and_speak(config, llm, messages, voice, reporter,
                     sampling={'temperature': .3, 'top_k': 40, 'top_p': .9, 'min_p': 0, 'repeat_penalty': 1}, recorder=recorder)
-            workflow = WorkflowEngine(config['workflow'], make_decider(llm,
-                config.get('system_prompt', ''), config['language'], reply_generator=stream_reply,
+            router = SemanticRouter(config['workflow'], config.get('embedding'),
+                notify=lambda event: emit('workflow_event', event=event), metric=reporter.mark)
+            workflow = WorkflowEngine(config['workflow'], make_decider(llm, reply_generator=stream_reply,
                 reply_max_tokens=config['llm_max_tokens'], metric=reporter.mark), channel.call,
-                lambda event: emit('workflow_event', event=event))
+                lambda event: emit('workflow_event', event=event), router=router)
             emit('workflow_event', event={'type': 'node', 'node_id': workflow.current})
         reporter.mark('load_end')
-        # Do not run query-dependent fixed tools with an empty user question.
-        opening_turn = bool(workflow and (
-            workflow.nodes[workflow.current]['data'].get('prompt',
-                workflow.nodes[workflow.current]['data'].get('message', ''))
-            or workflow.nodes[workflow.outgoing(workflow.current)[0]['target']]['type'] == 'agent'))
+        # Every session begins with the start node's own LLM reply. Its outgoing
+        # condition is evaluated only after that reply and a user utterance.
+        opening_turn = bool(workflow)
         while max_turns is None or reporter.turn < max_turns:
             reporter.turn += 1
             opening = opening_turn
@@ -508,6 +523,7 @@ def run(config, max_turns=None):
                     emit('compute', active=False)
                 emit('workflow_event', event={'type': 'answer', **result})
                 if not reply_streamed:
+                    recorder.begin_utterance('assistant')
                     emit('transcript', role='assistant', text=result['text'])
                     if result['text']:
                         sentences = SentenceBuffer()
@@ -522,10 +538,15 @@ def run(config, max_turns=None):
             answer = generate_and_speak(config, llm, messages, voice, reporter, recorder=recorder)
             history = (messages[1:] + [{'role': 'assistant', 'content': answer}])[-4:]
             emit('state', state='connecting', detail='Mikrofon yeniden açılıyor')
+    except SessionTimeout:
+        emit('session_complete', reason='max_duration')
     finally:
+        deadline.close()
+        _session_recording = None
         if recorder:
             try:
-                emit('recording', status='complete', **recorder.close())
+                info = recorder.close()
+                emit('recording', status='complete', **{key: value for key, value in info.items() if key not in ('events', 'workflow')})
             except Exception as error:
                 emit('diagnostic', message='Ses kaydı kapatılamadı: ' + str(error))
         try:
@@ -536,12 +557,28 @@ def run(config, max_turns=None):
                 if llm:
                     llm.close()
             finally:
-                reporter.close()
+                try:
+                    if router:
+                        router.close()
+                finally:
+                    reporter.close()
 
 
-if __name__ == '__main__':
+def main():
+    import signal
+    def stop_worker(signum, frame):
+        # Only the worker owns finalization; the forked heartbeat must exit directly.
+        if multiprocessing.current_process().name != 'MainProcess':
+            os._exit(0)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop_worker)
     try:
         run(json.loads(sys.stdin.readline()))
     except Exception as error:
         emit('error', message=str(error))
         sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

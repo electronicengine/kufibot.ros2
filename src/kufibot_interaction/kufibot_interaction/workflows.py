@@ -1,6 +1,7 @@
 """Versioned local workflows and a ROS-independent, bounded execution engine."""
 import copy
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -41,6 +42,17 @@ def validate_graph(document):
     errors = []
     if not isinstance(document, dict) or document.get('schema_version') != 1:
         return ['Workflow schema_version=1 gerekli']
+    settings = document.get('settings', {})
+    if not isinstance(settings, dict):
+        return ['Workflow ayarları nesne olmalı']
+    threshold = settings.get('semantic_threshold', .70)
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 0 < threshold <= 1:
+        errors.append('Anlamsal eşik 0 ile 1 arasında olmalı (0 hariç)')
+    from .local_voice_settings import workflow_voice_options
+    try:
+        workflow_voice_options(document)
+    except ValueError as error:
+        errors.append(str(error))
     nodes, edges = document.get('nodes'), document.get('edges')
     if not isinstance(nodes, list) or not isinstance(edges, list) or len(nodes) > 100 or len(edges) > 300:
         return ['En fazla 100 node ve 300 bağlantı kullanılabilir']
@@ -56,6 +68,8 @@ def validate_graph(document):
         if not isinstance(edge, dict) or edge.get('source') not in by_id or edge.get('target') not in by_id:
             errors.append('Bağlantı uçları bulunamadı')
             continue
+        if not isinstance(edge.get('label', ''), str):
+            errors.append('Geçiş tetikleme ifadeleri metin olmalı')
         source, target = by_id[edge['source']], by_id[edge['target']]
         resource = source['type'] in ('knowledge', 'toolResource')
         if resource and target['type'] != 'agent':
@@ -67,6 +81,11 @@ def validate_graph(document):
         outgoing = [e for e in edges if isinstance(e, dict) and e.get('source') == node['id']]
         if kind == 'start' and len(outgoing) != 1:
             errors.append('Başlangıç bir node’a bağlanmalı')
+        if kind in ('tool', 'toolResource') and not isinstance(data.get('arguments', {}), dict):
+            errors.append('Araç parametreleri nesne olmalı')
+        triggers = data.get('trigger_phrases', '')
+        if not isinstance(triggers, (str, list)) or isinstance(triggers, list) and any(not isinstance(t, str) for t in triggers):
+            errors.append('Tetikleme ifadeleri metin veya metin listesi olmalı')
         if kind in ('tool', 'toolResource') and data.get('tool') not in TOOLS:
             errors.append('Bilinmeyen araç: ' + str(data.get('tool')))
         if kind == 'condition':
@@ -96,6 +115,8 @@ class WorkflowStore:
             raise ValueError('Workflow schema_version=1 gerekli')
         if not isinstance(value.get('nodes'), list) or not isinstance(value.get('edges'), list):
             raise ValueError('Node ve bağlantı listeleri gerekli')
+        from .local_voice_settings import workflow_voice_options
+        workflow_voice_options(value)
         value = copy.deepcopy(value)
         key = identifier(value.get('id') or uuid.uuid4().hex)
         path = self.root / (key + '.json')
@@ -147,7 +168,7 @@ def arguments(value, context):
 
 
 class WorkflowEngine:
-    def __init__(self, document, decide, call_tool, notify=lambda event: None):
+    def __init__(self, document, decide, call_tool, notify=lambda event: None, *, router=None):
         errors = validate_graph(document)
         if errors:
             raise ValueError('; '.join(errors))
@@ -156,8 +177,10 @@ class WorkflowEngine:
         self.edges = document['edges']
         self.current = next(n['id'] for n in document['nodes'] if n['type'] == 'start')
         self.decide, self.call_tool, self.notify = decide, call_tool, notify
+        self.router = router
         self.context = {'user': '', 'results': {}, 'history': []}
         self.ended = False
+        self.has_replied = False
 
     def outgoing(self, node):
         return [e for e in self.edges if e['source'] == node]
@@ -172,6 +195,7 @@ class WorkflowEngine:
             raise ValueError('Geçiş tek bir izinli bağlantıyı seçmeli')
         previous = self.current
         self.current = choices[0]['target']
+        self.has_replied = False
         self.notify({'type': 'transition', 'from_node': previous, 'node_id': self.current})
 
     def turn(self, text):
@@ -181,16 +205,11 @@ class WorkflowEngine:
         self.context['results'] = {}
         self.context.pop('last_result', None)
         calls, speech, sources = 0, [], []
+        routed = False
         for _ in range(16):
             node = self.nodes[self.current]
             data, kind = node['data'], node['type']
             self.notify({'type': 'node', 'node_id': self.current})
-            if kind in ('start', 'end') and not data.get('prompt', data.get('message', '')):
-                if kind == 'end':
-                    self.ended = True
-                    break
-                self.advance()
-                continue
             if kind == 'condition':
                 a, b, op = lookup(self.context, data.get('field')), data.get('value'), data['operator']
                 outcome = (a is not None if op == 'exists' else a == b if op == 'eq'
@@ -205,41 +224,45 @@ class WorkflowEngine:
             collections = [n['data']['collection_id'] for n in attached if n['type'] == 'knowledge']
             if collections:
                 allowed.append('search_documents')
+            collections += [key for n in attached if n['type'] == 'toolResource' and n['data']['tool'] == 'search_documents'
+                            for key in n['data'].get('collection_ids', [])]
             if kind in ('agent', 'start', 'end'):
-                # Retrieved prose may inform the answer, but must not trigger
-                # additional model-selected actions in this turn.
-                document_answer = bool(sources)
-                # Entry has one validated outgoing edge. Speak its greeting
-                # first, then advance without an extra routing inference.
-                reply_only = document_answer or kind in ('start', 'end')
-                decision = self.decide(node, self.context, [] if reply_only else allowed,
-                                       collections, [] if reply_only else self.outgoing(self.current))
-                action = decision.get('action')
-                if document_answer and action != 'reply':
-                    raise ValueError('Belge sonucundan sonra yalnız kullanıcı yanıtı üretilebilir')
-                if action == 'reply':
+                # One semantic action per user utterance. After a transition,
+                # the target node replies with its own prompt; it cannot consume
+                # the same utterance again and skip across multiple agents.
+                decision = None
+                if (kind == 'agent' or kind == 'start' and self.has_replied) and not routed and 'last_result' not in self.context and self.router:
+                    routed = True
+                    decision = self.router(node, {**self.context, '_transition_allowed': self.has_replied})
+                    # Enforce the gate here too, independent of the router implementation.
+                    if decision and decision.get('action') == 'transition' and not self.has_replied:
+                        decision = None
+                if decision is not None:
+                    if decision.get('action') == 'transition':
+                        if not isinstance(decision.get('target'), str):
+                            raise ValueError('Geçiş hedefi gerekli')
+                        self.advance(target=decision.get('target'))
+                        continue
+                    if decision.get('action') != 'tool' or decision.get('tool') not in allowed:
+                        raise ValueError('Ajan izinli olmayan bir araç/işlem seçti')
+                    name, params = decision['tool'], decision.get('arguments', {})
+                else:
+                    decision = self.decide(node, {**self.context, '_require_llm': not self.has_replied}, [], collections, [])
+                    if decision.get('action') != 'reply':
+                        raise ValueError('Dil modeli yalnız kullanıcı yanıtı üretebilir')
                     if not isinstance(decision.get('text'), str) or not decision['text'].strip():
                         raise ValueError('Model boş workflow yanıtı üretti')
                     speech.append(decision['text'])
+                    self.has_replied = True
                     if kind == 'end':
                         self.ended = True
-                    elif kind == 'start':
+                    elif kind == 'start' and not str(self.outgoing(self.current)[0].get('label', '')).strip():
+                        # An unlabelled entry edge is unconditional, but even entry
+                        # must finish its own reply before advancing. Labelled entry
+                        # edges are evaluated on a later user turn by the router.
                         self.advance()
                         self.notify({'type': 'node', 'node_id': self.current})
                     break
-                if kind == 'end':
-                    raise ValueError('Bitiş node’u yalnız kullanıcı yanıtı üretebilir')
-                if action == 'transition':
-                    previous = self.current
-                    self.advance(target=decision.get('target'))
-                    self.notify({'type': 'tool_start', 'node_id': previous,
-                                 'name': 'transition_node', 'arguments': {'target': self.current}})
-                    self.notify({'type': 'tool_result', 'node_id': previous,
-                                 'name': 'transition_node', 'result': {'status': 'ok', 'node_id': self.current}})
-                    continue
-                if action != 'tool' or decision.get('tool') not in allowed:
-                    raise ValueError('Ajan izinli olmayan bir araç/işlem seçti')
-                name, params = decision['tool'], decision.get('arguments', {})
             else:
                 name, params = data['tool'], arguments(data.get('arguments', {}), self.context)
                 collections = data.get('collection_ids', [])

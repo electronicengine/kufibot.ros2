@@ -54,3 +54,27 @@ def test_every_control_loss_invalidates_enable_epoch(event):
     else:
         c.command(owner, {'type': 'stop'})
     assert not c.navigation_enabled and c.navigation_epoch != epoch
+
+
+def test_prepare_mapping_stops_motion_and_aligns_sensors_without_moving_arms():
+    c = Control(clock=lambda: 10.)
+    owner = object()
+    c.command(owner, {'type': 'claim'})
+    c.targets.update(leftArm=125., rightArm=40., neck=60., headLeftRight=30.)
+    c.command(owner, {'type': 'input', 'drive_y': 1., 'head_x': 1., 'head_y': 1.})
+    c.active_mimic = {'id': 'test'}
+    c.command(owner, {'type': 'prepareMapping'})
+    assert c.active_mimic is None
+    assert c.tick(.05, {}) == (0., 0.)
+    assert c.targets == dict(leftArm=125., rightArm=40., neck=10.,
+                             headLeftRight=90., eyeLeft=0., eyeRight=170.)
+
+
+def test_prepare_mapping_requires_owner_and_manual_mode():
+    c, owner = ready()
+    with pytest.raises(ValueError):
+        c.command(owner, {'type': 'prepareMapping'})
+    c.command(owner, {'type': 'mode', 'mode': 'remote'})
+    with pytest.raises(ValueError):
+        c.command(object(), {'type': 'prepareMapping'})
+    assert c.targets == {}

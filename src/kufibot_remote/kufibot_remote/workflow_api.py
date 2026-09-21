@@ -1,5 +1,6 @@
 """Workflow transport using the existing controller's ownership lease."""
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,12 +8,14 @@ import secrets
 import sys
 import tempfile
 import time
+import wave
 
 from aiohttp import web
-from kufibot_interaction.ai_settings import catalog, DEFAULT, validate
+from kufibot_interaction.ai_settings import workflow_voice_settings, catalog, DEFAULT, validate
 from kufibot_interaction.workflows import WorkflowStore, validate_graph, TOOLS, NODE_TYPES, MOTION_TOOLS
 from kufibot_interaction.knowledge import KnowledgeStore, MAX_BYTES
-from kufibot_interaction.local_recording import recording_root
+from kufibot_interaction.local_voice_settings import VOICE_FIELDS
+from kufibot_interaction.local_recording import recording_root, recording_waveform
 
 
 class WorkflowAPI:
@@ -31,6 +34,8 @@ class WorkflowAPI:
                 self.knowledge.queue(collection['id'])
         server.app.add_routes([
             web.get('/workflows', self.editor),
+            web.get('/recordings', self.archive),
+            web.get('/recordings/', self.archive),
             web.get('/workflow-assets/{name}', self.asset),
             web.get('/api/workflow-capabilities', self.capabilities),
             web.get('/api/workflows', self.list_workflows),
@@ -42,6 +47,8 @@ class WorkflowAPI:
             web.get('/api/knowledge/{id}/sources/{chunk}', self.source),
             web.get('/api/recordings', self.recordings),
             web.get('/api/recordings/{id}', self.recording),
+            web.get('/api/recordings/{id}/details', self.recording_details),
+            web.get('/api/recordings/{id}/waveform', self.waveform),
         ])
 
     def token(self, ws):
@@ -63,19 +70,34 @@ class WorkflowAPI:
             raise web.HTTPForbidden(text='Kumanda sahipliği ve geçerli yükleme yetkisi gerekli')
         return ws
 
+    @staticmethod
+    def page(filename):
+        root = Path(__file__).with_name('web') / 'workflow'
+        content = (root / filename).read_text()
+        for name in ('editor.js', 'editor.css', 'archive.js', 'archive.css'):
+            asset = f'/workflow-assets/{name}'
+            if asset in content:
+                version = hashlib.sha256((root / name).read_bytes()).hexdigest()[:12]
+                content = content.replace(asset, f'{asset}?v={version}')
+        return web.Response(text=content, content_type='text/html', headers={'Cache-Control': 'no-store'})
+
     async def editor(self, request):
-        return web.FileResponse(Path(__file__).with_name('web') / 'workflow' / 'index.html')
+        return self.page('index.html')
+
+    async def archive(self, request):
+        return self.page('recordings.html')
 
     async def asset(self, request):
         name = request.match_info['name']
-        if name not in ('editor.js', 'editor.css'):
+        if name not in ('editor.js', 'editor.css', 'archive.js', 'archive.css'):
             raise web.HTTPNotFound()
-        return web.FileResponse(Path(__file__).with_name('web') / 'workflow' / name)
+        return web.FileResponse(Path(__file__).with_name('web') / 'workflow' / name,
+                                headers={'Cache-Control': 'no-cache'})
 
     async def capabilities(self, request):
         return web.json_response({'nodes': NODE_TYPES, 'tools': TOOLS, 'models': catalog(),
                                   'model_notes': {'ufakzeka-1-q8_0': 'Türkçe sohbet modeli. Yerel testte otomatik araç seçimi 0/2; güvenilir araç çalıştırmak için sabit Araç Adımı kullanın.'},
-                                  'defaults': DEFAULT, 'max_upload_bytes': MAX_BYTES})
+                                  'defaults': DEFAULT, 'voice_fields': VOICE_FIELDS, 'max_upload_bytes': MAX_BYTES})
 
     async def list_workflows(self, request):
         return web.json_response(self.workflows.all())
@@ -122,10 +144,49 @@ class WorkflowAPI:
         for path in root.glob('*.json'):
             try:
                 item, _ = self._recording(path.stem)
-                result.append(item)
+                result.append({key: item[key] for key in ('id', 'created_at', 'duration_sec', 'channels') if key in item}
+                              | {'workflow_name': item.get('workflow', {}).get('name', 'Yerel görüşme')})
             except (ValueError, OSError, json.JSONDecodeError):
                 continue
-        return web.json_response(sorted(result, key=lambda item: item['created_at'], reverse=True)[:100])
+        return web.json_response(sorted(result, key=lambda item: item['created_at'], reverse=True),
+                                 headers={'Cache-Control': 'no-store'})
+
+    async def recording_details(self, request):
+        self.authorize(request)
+        try:
+            info, _ = self._recording(request.match_info['id'])
+            return web.json_response(info, headers={'Cache-Control': 'no-store'})
+        except (ValueError, OSError):
+            raise web.HTTPNotFound()
+
+    async def waveform(self, request):
+        self.authorize(request)
+        try:
+            _, path = self._recording(request.match_info['id'])
+            data = await asyncio.to_thread(self._waveform, path)
+            return web.json_response(data, headers={'Cache-Control': 'no-store'})
+        except (ValueError, OSError, EOFError, wave.Error):
+            raise web.HTTPNotFound()
+
+    @staticmethod
+    def _waveform(path):
+        cache = path.with_suffix('.peaks')
+        if cache.is_file() and cache.stat().st_mtime_ns >= path.stat().st_mtime_ns:
+            try:
+                return json.loads(cache.read_text())
+            except (ValueError, OSError):
+                pass
+        data = recording_waveform(path)
+        # Atomic publication; concurrent readers never see a partial cache.
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as output:
+                temporary = Path(output.name)
+                json.dump(data, output)
+            temporary.replace(cache)
+        except OSError:
+            if 'temporary' in locals():
+                temporary.unlink(missing_ok=True)
+        return data
 
     async def recording(self, request):
         self.authorize(request)
@@ -190,7 +251,7 @@ class WorkflowAPI:
             await self.stop_test(ws)
             workflow = self.workflows.save(workflow)
             self.workflows.publish(workflow)
-            settings = validate({**DEFAULT, **workflow['settings'], 'provider': 'local', 'workflow_id': workflow['id']})
+            settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': workflow['id']})
             self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
             self.server.control.command(ws, {'type': 'setAiSettings', 'settings': settings})
             self.live_tests.add(ws)
@@ -205,7 +266,7 @@ class WorkflowAPI:
             errors = self.validate(workflow)
             if errors:
                 raise ValueError('; '.join(errors))
-            settings = validate({**DEFAULT, **workflow['settings'], 'provider': 'local', 'workflow_id': ''})
+            settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''})
             self.workflows.publish(workflow)
             settings['workflow_id'] = workflow['id']
             self.server.control.command(ws, {'type': 'setAiSettings', 'settings': settings})
@@ -224,10 +285,16 @@ class WorkflowAPI:
         if action == 'collectionDelete':
             self.knowledge.delete_collection(data['id'])
             return {'status': 'deleted', 'recoverable': True}
-        if action == 'testStop':
-            await self.stop_test(ws)
+        if action in ('testStop', 'liveStop'):
+            await self.stop_test(ws, stop_local=action == 'liveStop')
             return {'status': 'stopped'}
         if action == 'test':
+            status = self.server.status()
+            active = (status.get('voiceStatus') or {}).get('active')
+            if not active and status.get('appliedMode') == 'remote' and ws not in self.live_starts:
+                self.live_tests.discard(ws)
+            if self.server.control.mode == 'ai' or ws in self.live_tests or ws in self.live_starts or active:
+                raise ValueError('Testten önce sesli görüşmeyi durdurun')
             if ws in self.tests:
                 channel = self.test_channels.get(ws)
                 if not channel or not channel['ready']:
@@ -235,20 +302,18 @@ class WorkflowAPI:
                 if channel['workflow'] != data.get('workflow') or channel['real'] != (data.get('real') is True):
                     raise ValueError('Akış değişti; testi durdurup yeniden başlatın')
                 text = data.get('text')
-                if not isinstance(text, str) or not 0 < len(text) <= 1500:
+                if not isinstance(text, str) or not text.strip() or len(text) > 1500:
                     raise ValueError('Test metni 1–1500 karakter olmalı')
                 channel['ready'] = False
                 channel['process'].stdin.write((json.dumps({'text': text}) + '\n').encode())
                 await channel['process'].stdin.drain()
                 return {'status': 'continued'}
-            if (self.server.status().get('voiceStatus') or {}).get('active'):
-                raise ValueError('Testten önce sesli görüşmeyi durdurun')
             workflow = data['workflow']
             errors = self.validate(workflow)
             if errors:
                 raise ValueError('; '.join(errors))
             text = data.get('text', '')
-            if not isinstance(text, str) or not 0 < len(text) <= 1500:
+            if not isinstance(text, str) or not text.strip() or len(text) > 1500:
                 raise ValueError('Test metni 1–1500 karakter olmalı')
             task = asyncio.create_task(self.test(ws, workflow, text, data.get('real') is True))
             self.tests[ws] = task
@@ -258,7 +323,7 @@ class WorkflowAPI:
     def validate(self, workflow):
         errors = validate_graph(workflow)
         try:
-            validate({**DEFAULT, **workflow.get('settings', {}), 'provider': 'local', 'workflow_id': ''})
+            validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''})
             for node in workflow.get('nodes', []):
                 data = node.get('data', {})
                 keys = ([data['collection_id']] if node.get('type') == 'knowledge' else data.get('collection_ids', []))
@@ -273,7 +338,8 @@ class WorkflowAPI:
         process = None
         try:
             models = {m['id']: m for m in catalog()}
-            config = {'workflow': workflow, 'llm': models[workflow['settings']['llm']]['path'], 'text': text}
+            config = {'workflow': workflow, 'llm': models[workflow['settings']['llm']]['path'],
+                      'embedding': models[workflow['settings']['embedding']]['path'], 'text': text}
             process = await asyncio.create_subprocess_exec(sys.executable, '-m',
                 'kufibot_interaction.workflow_test_worker', stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, limit=1024*1024)
@@ -295,11 +361,11 @@ class WorkflowAPI:
                     else:
                         if event.get('type') == 'answer':
                             self.test_channels[ws]['ready'] = not event.get('ended')
-                        await ws.send_json({'type': 'workflowEvent', 'event': event})
+                        await ws.send_json({'type': 'workflowEvent', 'event': {**event, 'test_mode': 'text', 'workflow_id': workflow.get('id')}})
             await asyncio.wait_for(read(), 120)
         except Exception as exc:
             if not ws.closed:
-                await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'error', 'message': str(exc)}})
+                await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'error', 'test_mode': 'text', 'workflow_id': workflow.get('id'), 'message': str(exc)}})
         finally:
             if process and process.returncode is None:
                 process.terminate()
@@ -310,6 +376,9 @@ class WorkflowAPI:
                     await process.wait()
             self.tests.pop(ws, None)
             self.test_channels.pop(ws, None)
+            if not ws.closed:
+                await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'test_session', 'test_mode': 'text',
+                    'workflow_id': workflow.get('id'), 'status': 'stopped'}})
 
     async def test_tool(self, ws, name, args, real):
         if self.server.control.owner is not ws or name not in TOOLS:
@@ -344,7 +413,12 @@ class WorkflowAPI:
         return {'status': 'ok'}
 
     async def start_live_when_ready(self, ws, settings):
+        async def report(status, message=''):
+            if not ws.closed:
+                await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'test_session',
+                    'test_mode': 'live', 'workflow_id': settings['workflow_id'], 'status': status, 'message': message}})
         try:
+            await report('starting', 'Ses ajanı ayarları uygulanıyor…')
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline and self.server.control.owner is ws:
                 status = self.server.status()
@@ -354,23 +428,43 @@ class WorkflowAPI:
                         and status.get('appliedMode') == 'remote'
                         and not (status.get('voiceStatus') or {}).get('active')):
                     self.server.control.command(ws, {'type': 'mode', 'mode': 'ai'})
-                    return
+                    break
                 await asyncio.sleep(.1)
-            if not ws.closed:
-                await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'error',
-                    'message': 'Ses ajanı ayarları onaylamadı. ROS ses düğümünü ve bağlantısını kontrol edin.'}})
+            else:
+                raise ValueError('Ses ajanı ayarları onaylamadı. ROS ses düğümünü ve bağlantısını kontrol edin.')
+            await report('starting', 'Yerel ses oturumu başlatılıyor…')
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and self.server.control.owner is ws:
+                voice = self.server.status().get('voiceStatus') or {}
+                if voice.get('active'):
+                    await report('running')
+                    return
+                if voice.get('state') == 'error':
+                    raise ValueError(voice.get('detail') or 'Ses oturumu başlatılamadı')
+                await asyncio.sleep(.1)
+            raise ValueError('Ses oturumu başlatılamadı. Yeniden deneyebilirsiniz.')
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.live_tests.discard(ws)
+            if self.server.control.owner is ws:
+                self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
+            await report('error', str(exc))
         finally:
             self.live_starts.pop(ws, None)
 
-    async def stop_test(self, ws):
+    async def stop_test(self, ws, *, stop_local=False):
         pending = self.live_starts.pop(ws, None)
         if pending:
             pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
-        if ws in self.live_tests:
+        local = (self.server.status().get('aiConfig') or {}).get('settings', {}).get('provider') == 'local'
+        if ws in self.live_tests or stop_local and local:
             self.live_tests.discard(ws)
             if self.server.control.owner is ws:
                 self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
+            if not ws.closed:
+                await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'test_session', 'test_mode': 'live', 'status': 'stopped'}})
         task = self.tests.get(ws)
         if task:
             task.cancel()

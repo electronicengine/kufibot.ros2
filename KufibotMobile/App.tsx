@@ -118,6 +118,11 @@ function Controller() {
               </View>}
             <Text style={styles.directionValue}>{headDirection === null ? '—°' : `${Math.round(headDirection)}°`}</Text>
           </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Haritalama pozisyonuna getir"
+            disabled={!enabled} style={[styles.mode, styles.selected, !enabled && styles.disabled]}
+            onPress={() => { if (enabled) { link.stop(); link.send({type: 'prepareMapping'}); } }}>
+            <Text style={styles.buttonText}>Haritalama</Text>
+          </Pressable>
           <Text style={styles.connection}>{link.connection}{selected ? ` · ${selected.host}` : ''}</Text>
           <Pressable disabled={!enabled} onPress={() => joint('headLeftRight', 90)}>
             <Text style={styles.hint}>Gövde {value('heading', '°')} · Kafa {typeof s?.joints.headLeftRight === 'number' ? Math.round(90-s.joints.headLeftRight) : '—'}° · Öne bak</Text>

@@ -7,21 +7,28 @@ const aiTriggerModal = $('ai-trigger-modal');
 const AI_TRIGGER_UUID_KEY = 'kufibot.aiTriggerUuid';
 const AI_TRIGGER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let windowActive = true;
-const pageTitles = {connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', workflows: 'Workflowlar', calibration: 'Kalibrasyon'};
+const pageTitles = {connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', workflows: 'Workflowlar', recordings: 'Kayıtlar', calibration: 'Kalibrasyon'};
 let activePage = location.hash.slice(1) || 'control';
-if (!['control', 'connection', 'voice', 'workflows', 'calibration'].includes(activePage)) activePage = 'control';
+if (!['control', 'connection', 'voice', 'workflows', 'recordings', 'calibration'].includes(activePage)) activePage = 'control';
 let imageLoaded = false;
 const keys = new Set();
 const canControl = () => link.ready && !menu.classList.contains('open') && activePage === 'control' && !$('mimics-modal').open && windowActive;
 
-function openDrawer() { link.stop(); menu.classList.add('open'); menu.setAttribute('aria-hidden', 'false'); $('drawer-backdrop').hidden = false; render(); }
+function openDrawer() { link.stopManualInput(); menu.classList.add('open'); menu.setAttribute('aria-hidden', 'false'); $('drawer-backdrop').hidden = false; render(); }
 function closeDrawer() { menu.classList.remove('open'); menu.setAttribute('aria-hidden', 'true'); $('drawer-backdrop').hidden = true; render(); }
 function selectPage(page, replace = false) {
-  link.stop(); closeDrawer();
+  link.stopManualInput(); closeDrawer();
   if (page === 'mimics') { openMimics(); return; }
+  if (page === 'recordings' && workflowDialog.open) workflowDialog.close();
   activePage = page;
   if (page === 'workflows') refreshWorkflowOptions();
   $('settings-page').hidden = page === 'control';
+  $('settings-page').classList.toggle('workflows-page', page === 'workflows');
+  $('settings-page').classList.toggle('recordings-page', page === 'recordings');
+  const recordings = $('recordings-frame');
+  if (page === 'recordings') {
+    showRecordings();
+  } else if (recordings.getAttribute('src') !== 'about:blank') recordings.src = 'about:blank';
   for (const article of document.querySelectorAll('[data-page-content]')) article.classList.toggle('active', article.dataset.pageContent === page);
   for (const button of document.querySelectorAll('[data-page]')) button.setAttribute('aria-current', String(button.dataset.page === page));
   if (page !== 'control') $('page-title').textContent = pageTitles[page];
@@ -291,7 +298,11 @@ $('save-ai-settings').addEventListener('click', () => {
 });
 
 const workflowDialog = document.createElement('dialog');
-workflowDialog.style.cssText = 'width:98vw;max-width:1800px;height:96vh;padding:0;border:1px solid #405064';
+workflowDialog.className = 'workflow-dialog';
+workflowDialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  workflowFrame.contentWindow?.postMessage({type:'workflowRequestClose'}, location.origin);
+});
 const workflowFrame = document.createElement('iframe');
 workflowFrame.title = 'Local Agent Workflow';
 workflowFrame.style.cssText = 'width:100%;height:100%;border:0';
@@ -301,27 +312,63 @@ workflowDialog.addEventListener('close', () => {
   workflowFrame.src='about:blank';
   refreshWorkflowOptions();
 });
+let workflowLoading = false;
+let workflowLoaded = false;
+let renderedWorkflowLink;
+function renderWorkflowList() {
+  const query = $('workflow-search').value.trim().toLocaleLowerCase('tr');
+  const workflows = localWorkflows.filter(w => w.name.toLocaleLowerCase('tr').includes(query))
+    .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  const linked = link.state?.aiConfig?.settings?.workflow_id;
+  renderedWorkflowLink = linked;
+  $('workflow-list').replaceChildren(...workflows.map(w => {
+    const card = document.createElement('div');
+    card.className = 'workflow-card';
+    const top = document.createElement('div'); top.className = 'workflow-card-top';
+    const icon = document.createElement('span'); icon.className = 'workflow-card-icon';
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="2"/><rect x="15" y="15" width="6" height="6" rx="2"/><path d="M6 9v6a3 3 0 0 0 3 3h6M9 6h6a3 3 0 0 1 3 3v6"/></svg>';
+    top.append(icon);
+    if (w.id === linked) { const badge = document.createElement('span'); badge.className = 'workflow-linked'; badge.textContent = 'Ses ajanına bağlı'; top.append(badge); }
+    const title = document.createElement('h4'); title.textContent = w.name;
+    const meta = document.createElement('p'); meta.textContent = `${w.nodes?.length || 0} düğüm · Revizyon ${w.revision}`;
+    const button = document.createElement('button'); button.className = 'workflow-card-open';
+    button.textContent = 'Düzenle →'; button.setAttribute('aria-label', `${w.name} · Düzenle`);
+    button.addEventListener('click', () => openWorkflowEditor(w.id));
+    card.append(top, title, meta, button); return card;
+  }));
+  $('workflow-list-status').textContent = workflowLoading ? 'Workflowlar yükleniyor…' : query ? `${workflows.length} / ${localWorkflows.length} workflow` : `${localWorkflows.length} kayıtlı workflow`;
+  $('workflow-empty').hidden = workflows.length > 0 || !workflowLoaded || workflowLoading;
+  $('workflow-empty').querySelector('h4').textContent = query ? 'Eşleşen workflow bulunamadı' : 'İlk akışınızı oluşturun';
+  $('workflow-empty').querySelector('p').textContent = query ? 'Başka bir ad arayın veya aramayı temizleyin.' : 'Yeni workflow ile başlayın; ajanınızı ekleyip araçlara bağlayın.';
+}
 async function refreshWorkflowOptions() {
+  if (workflowLoading) return;
+  workflowLoading = true;
+  $('refresh-workflows').disabled = true;
+  $('workflow-error').hidden = true;
+  $('workflow-list').setAttribute('aria-busy', 'true');
+  renderWorkflowList();
   try {
     const response = await fetch('/api/workflows', {cache:'no-store'});
-    if (!response.ok) throw new Error('Workflow servisine erişilemiyor. Robot sunucusunu güncel sürümle yeniden başlatın.');
-    const workflows = await response.json();
-    localWorkflows = workflows;
-    $('ai-workflow').replaceChildren(new Option('Workflow seçin', ''), ...workflows.map(w => new Option(w.name, w.id)));
+    if (!response.ok) throw new Error('Workflow servisine erişilemiyor. Bağlantınızı kontrol edip yeniden deneyin.');
+    localWorkflows = await response.json();
+    workflowLoaded = true;
+    $('ai-workflow').replaceChildren(new Option('Workflow seçin', ''), ...localWorkflows.map(w => new Option(w.name, w.id)));
     $('ai-workflow').value = aiDraft?.workflow_id || link.state?.aiConfig?.settings?.workflow_id || '';
-    $('workflow-list').replaceChildren(...workflows.map(w => {
-      const row = document.createElement('div');
-      const button = document.createElement('button');
-      button.className = 'secondary';
-      button.textContent = `${w.name} · Düzenle`;
-      button.addEventListener('click', () => openWorkflowEditor(w.id));
-      row.append(button);
-      return row;
-    }));
-    $('workflow-list-status').textContent = workflows.length ? `${workflows.length} kayıtlı workflow` : 'Henüz workflow yok. Yeni workflow oluşturarak başlayın.';
     renderAiSettings(link.state);
-  } catch (error) { $('workflow-list-status').textContent = error.message; }
+  } catch (error) {
+    $('workflow-error').hidden = false;
+    $('workflow-error').querySelector('span').textContent = error.message;
+  } finally {
+    workflowLoading = false;
+    $('refresh-workflows').disabled = false;
+    $('workflow-list').setAttribute('aria-busy', 'false');
+    renderWorkflowList();
+    if (!workflowLoaded) $('workflow-list-status').textContent = 'Liste yüklenemedi';
+  }
 }
+$('workflow-search').addEventListener('input', renderWorkflowList);
+$('workflow-retry').addEventListener('click', refreshWorkflowOptions);
 $('ai-workflow').addEventListener('change', event => {
   aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), workflow_id:event.target.value};
   aiDirty = true; aiSaved = null;
@@ -335,12 +382,88 @@ function openWorkflowEditor(id = '') {
 $('open-workflows').addEventListener('click', () => openWorkflowEditor());
 $('new-workflow').addEventListener('click', () => openWorkflowEditor());
 $('refresh-workflows').addEventListener('click', refreshWorkflowOptions);
+let recordingsBusy = false;
+let recordingsLoadedAt = 0;
+let recordingsToken = '';
+function showRecordings() {
+  const id = new URLSearchParams(location.search).get('recording');
+  $('recordings-list').hidden = !!id;
+  $('recordings-detail').hidden = !id;
+  const frame = $('recordings-frame');
+  const src = id ? `/recordings?embedded=1&recording=${encodeURIComponent(id)}` : 'about:blank';
+  if (frame.getAttribute('src') !== src) frame.src = src;
+  if (!id) refreshRecordings();
+}
+function openRecording(id) {
+  const url = new URL(location.href);
+  if (id) url.searchParams.set('recording', id);
+  else url.searchParams.delete('recording');
+  url.hash = 'recordings';
+  history.pushState(null, '', url);
+  showRecordings();
+}
+async function refreshRecordings(force = false) {
+  if (activePage !== 'recordings' || $('recordings-list').hidden || recordingsBusy) return;
+  const token = link.state?.workflowToken;
+  const status = $('recordings-status');
+  if (!token) {
+    $('recordings-rows').replaceChildren();
+    recordingsToken = '';
+    status.textContent = 'Kayıtları görüntülemek için robot bağlantısı ve kumanda sahipliği gerekli.';
+    return;
+  }
+  if (!force && token === recordingsToken && Date.now() - recordingsLoadedAt < 5000) return;
+  recordingsBusy = true;
+  $('recordings-refresh').disabled = true;
+  status.textContent = 'Kayıtlar yükleniyor…';
+  try {
+    const response = await fetch('/api/recordings', {headers: {Authorization: `Bearer ${token}`}, signal: AbortSignal.timeout(15000)});
+    if (!response.ok) throw new Error('recordings');
+    const records = await response.json();
+    if (link.state?.workflowToken !== token) return;
+    const rows = records.map(item => {
+      const row = document.createElement('tr');
+      const date = new Date(item.created_at * 1000).toLocaleString('tr-TR');
+      const seconds = Math.max(0, Math.floor(item.duration_sec || 0));
+      const duration = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      for (const value of [date, item.workflow_name || 'Yerel görüşme', duration]) {
+        const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+      }
+      const cell = document.createElement('td');
+      const anchor = document.createElement('a');
+      anchor.textContent = 'Sonuçları görüntüle ↗';
+      anchor.href = `/?recording=${encodeURIComponent(item.id)}#recordings`;
+      anchor.addEventListener('click', event => {
+        event.stopPropagation();
+        if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {event.preventDefault(); openRecording(item.id);}
+      });
+      cell.append(anchor); row.append(cell);
+      row.addEventListener('click', () => openRecording(item.id));
+      return row;
+    });
+    $('recordings-rows').replaceChildren(...rows);
+    status.textContent = records.length ? `${records.length} görüşme kaydı` : 'Henüz tamamlanmış ses kaydı yok.';
+    recordingsToken = token;
+  } catch {
+    status.textContent = 'Kayıtlar yüklenemedi. Bağlantıyı kontrol edip yeniden deneyin.';
+  } finally {
+    recordingsLoadedAt = Date.now();
+    recordingsBusy = false;
+    $('recordings-refresh').disabled = false;
+  }
+}
+$('recordings-refresh').addEventListener('click', () => refreshRecordings(true));
+$('recordings-back').addEventListener('click', () => openRecording(''));
+setInterval(() => refreshRecordings(), 5000);
+$('recordings-frame').addEventListener('load', () => {
+  if (activePage === 'recordings' && link.state) $('recordings-frame').contentWindow?.postMessage(link.state, location.origin);
+});
 workflowFrame.addEventListener('load', () => {
   if (link.state) workflowFrame.contentWindow?.postMessage(link.state, location.origin);
 });
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== workflowFrame.contentWindow || !workflowDialog.open) return;
-  if (event.data?.type === 'workflowClose') {workflowDialog.close(); workflowFrame.src='about:blank';refreshWorkflowOptions();}
+  if (event.data?.type === 'workflowClose') {workflowDialog.close();}
   if (event.data?.type === 'workflowCommand' && event.data.command?.type === 'workflow') link.send(event.data.command);
 });
 link.addEventListener('workflow', ({detail}) => {if(workflowDialog.open)workflowFrame.contentWindow?.postMessage(detail,location.origin)});
@@ -353,6 +476,11 @@ link.addEventListener('workflow', ({detail}) => {
 });
 link.addEventListener('state', ({detail}) => {
   if(workflowDialog.open)workflowFrame.contentWindow?.postMessage(detail,location.origin);
+  if(activePage === 'recordings') {
+    $('recordings-frame').contentWindow?.postMessage(detail, location.origin);
+    refreshRecordings();
+  }
+  if (activePage === 'workflows' && renderedWorkflowLink !== detail?.aiConfig?.settings?.workflow_id) renderWorkflowList();
   if(!aiDirty) $('ai-workflow').value=detail?.aiConfig?.settings?.workflow_id || '';
 });
 refreshWorkflowOptions();
@@ -393,6 +521,7 @@ function render() {
     : `${navLabels[nav.state] || nav.state}${!nav.calibrated ? ' · Hareket kalibrasyonu gerekli' : ''}`;
   drive.enable(enabled && !!state?.driveAvailable);
   head.enable(enabled);
+  $('prepare-mapping').disabled = !enabled;
   $('drive-label').textContent = state?.driveAvailable ? 'HAREKET · TAM GÜÇ' : 'HAREKET · MOTOR YOK';
   for (const name of ['leftArm', 'rightArm']) {
     const input = $(name);
@@ -536,6 +665,13 @@ link.addEventListener('toolResult', ({detail}) => {
   if (detail.result?.image_url) image.src = detail.result.image_url;
   if (!$('tool-modal').open) $('tool-modal').showModal();
 });
+$('prepare-mapping').addEventListener('click', () => {
+  if (!canControl()) return;
+  reset();
+  link.stop();
+  link.send({type: 'prepareMapping'});
+});
+
 $('navigation-toggle').addEventListener('click', () => {
   link.send({type: 'setNavigationEnabled', enabled: !link.state?.navigation?.enabled});
 });
@@ -619,6 +755,7 @@ render();
 link.connect();
 selectPage(activePage, true);
 window.addEventListener('popstate', () => selectPage(location.hash.slice(1) || 'control', true));
+window.addEventListener('hashchange', () => selectPage(location.hash.slice(1) || 'control', true));
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
 
 // Reuse this controller's ownership; the embedded editor has no second socket.

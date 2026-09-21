@@ -117,3 +117,18 @@ def test_hailo_backend_is_catalogued_without_changing_old_vosk(registry, tmp_pat
     assert ai.validate({**registry, 'stt': 'whisper'})['stt'] == 'whisper'
     (folder / 'decoder.hef').unlink()
     assert not next(model for model in ai.catalog() if model['id'] == 'whisper')['available']
+
+
+def test_workflow_threshold_stays_outside_voice_schema_and_shared_prompt_is_ignored(registry, tmp_path, monkeypatch):
+    from kufibot_interaction.workflows import WorkflowStore
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    document = {'id': 'semantic', 'schema_version': 1, 'settings': {
+        **registry, 'semantic_threshold': .75, 'system_prompt': 'Eski ortak talimat'},
+        'nodes': [{'id': 's', 'type': 'start', 'data': {}},
+                  {'id': 'a', 'type': 'agent', 'data': {'prompt': 'Düğüm talimatı'}}],
+        'edges': [{'source': 's', 'target': 'a'}]}
+    WorkflowStore().publish(document)
+    settings = ai.validate({**registry, 'workflow_id': 'semantic'})
+    assert settings['system_prompt'] == ''
+    assert 'semantic_threshold' not in settings
+    assert WorkflowStore().snapshot('semantic')['settings']['semantic_threshold'] == .75

@@ -5,6 +5,18 @@ from kufibot_interaction.workflow_inference import make_decider
 from kufibot_interaction.speech_guard import validate_speech
 
 
+@pytest.fixture
+def model(monkeypatch):
+    monkeypatch.setattr('kufibot_interaction.local_voice_worker.make_formatter',
+        lambda model: lambda **kwargs: SimpleNamespace(prompt='formatted'))
+    calls = []
+    def completion(**kwargs):
+        calls.append(kwargs)
+        return {'choices': [{'message': {'content': 'Adınız nedir?'}}]}
+    return SimpleNamespace(metadata={}, n_ctx=lambda: 2048, tokenize=lambda *a, **k: [1],
+                           create_chat_completion=completion, calls=calls)
+
+
 def test_internal_workflow_control_is_rejected():
     with pytest.raises(ValueError, match='seslendirme engellendi'):
         validate_speech('Bu gün görüşme başladı. Etkin node talimatına göre konuşmayı başlat.', [])
@@ -16,87 +28,114 @@ def test_persona_and_normal_reply_are_not_instruction_echo():
     validate_speech('Düğmeye bas ve bekle.', [{'role': 'user', 'content': 'Düğmeye bas ve bekle.'}])
 
 
-def test_opening_has_no_synthetic_user_instruction(monkeypatch):
-    monkeypatch.setattr('kufibot_interaction.local_voice_worker.make_formatter',
-        lambda model: lambda **kwargs: SimpleNamespace(prompt='formatted'))
-    model = SimpleNamespace(metadata={}, n_ctx=lambda: 2048, tokenize=lambda *a, **k: [1])
-    messages_seen = []
-    def reply(messages):
-        messages_seen.extend(messages)
-        return 'Merhaba!'
-    make_decider(model, reply_generator=reply)({'data': {'prompt': 'Selamla.'}},
-        {'user': ''}, [], [], [])
-    assert messages_seen[-1] == {'role': 'user', 'content': ''}
+def test_opening_has_no_synthetic_user_instruction(model):
+    make_decider(model)({'data': {'prompt': 'Selamla.'}}, {'user': ''}, [], [], [])
+    assert model.calls[0]['messages'] == [
+        {'role': 'system', 'content': 'Selamla.'},
+        {'role': 'user', 'content': ''}]
 
 
-def test_ufakzeka_document_answer_is_verbatim_and_does_not_infer():
-    model = SimpleNamespace(metadata={'tokenizer.ggml.pre': 'ufakzeka'})
-    decide = make_decider(model)
-    result = decide({'data': {}}, {'last_result': {'results': [
-        {'location': '$["temizlik"]', 'text': '$["temizlik"]: "Robot kuru bezle temizlenir."'}]}}, [], [], [])
-    assert result == {'action': 'reply', 'text': 'Belgede şu bilgi yer alıyor: Robot kuru bezle temizlenir.'}
+def test_quote_mode_is_explicit_and_has_no_static_spoken_prefix(model):
+    model.metadata = {'tokenizer.ggml.pre': 'ufakzeka'}
+    context = {'user': 'Nasıl temizlenir?', 'last_result': {'results': [
+        {'location': '$["temizlik"]', 'text': '$["temizlik"]: "Robot kuru bezle temizlenir."'}]}}
+    result = make_decider(model)({'data': {'answer_mode': 'quote'}}, context, [], [], [])
+    assert result == {'action': 'reply', 'text': 'Robot kuru bezle temizlenir.'}
+    assert not model.calls
+    make_decider(model)({'data': {'prompt': 'Kısa yanıt ver.'}}, context, [], [], [])
+    assert len(model.calls) == 1  # No tokenizer-dependent instruction/answer policy.
 
 
-def test_quote_mode_handles_empty_search_without_fabricating():
-    decide = make_decider(SimpleNamespace(metadata={}))
-    result = decide({'data': {'answer_mode': 'quote'}}, {'last_result': {'results': []}}, [], [], [])
-    assert 'bulunamadı' in result['text']
+def test_empty_search_uses_node_prompt_without_static_answer(model):
+    result = make_decider(model)({'data': {'answer_mode': 'quote', 'prompt': 'Kayıt yoksa söyle.'}},
+                                {'last_result': {'results': []}}, [], [], [])
+    assert result['text'] == 'Adınız nedir?'
+    assert model.calls[0]['messages'] == [
+        {'role': 'system', 'content': 'Kayıt yoksa söyle.'},
+        {'role': 'user', 'content': '\n\n{"tool_result": {"results": []}}'}]
 
 
-def test_active_node_prompt_is_system_and_user_text_is_not_control_json(monkeypatch):
-    monkeypatch.setattr('kufibot_interaction.local_voice_worker.make_formatter',
-        lambda model: lambda **kwargs: SimpleNamespace(prompt='formatted'))
-    calls = []
-    def completion(**kwargs):
-        calls.append(kwargs)
-        return {'choices': [{'message': {'content': 'Adınız nedir?'}}]}
-    model = SimpleNamespace(metadata={}, n_ctx=lambda: 2048, tokenize=lambda *a, **k: [1],
-                            create_chat_completion=completion)
-    decide = make_decider(model, 'Sen Kufi adlı robotsun.')
+def test_active_node_is_system_and_real_user_is_preserved_without_control_schema(model):
+    decide = make_decider(model, 'BU ORTAK TALİMAT EKLENMEMELİ', 'en')
     decide({'data': {'message': 'Eski başlangıç talimatı'}}, {'user': 'Merhaba'}, [], [], [])
-    decide({'data': {'prompt': 'Kullanıcının adını sor.'}}, {'user': 'Devam'}, [], [], [])
-    assert len(calls) == 2  # No unnecessary routing call without tools or exits.
-    messages = calls[-1]['messages']
-    assert 'Kullanıcının adını sor.' in messages[0]['content']
-    assert 'Eski başlangıç talimatı' not in messages[0]['content']
-    assert messages[-1] == {'role': 'user', 'content': 'Devam'}
-    assert 'Kufibot says' in messages[0]['content']
-    assert '<etkin_node_talimati>\nKullanıcının adını sor.' in messages[0]['content']
+    decide({'data': {'prompt': 'Kullanıcının adını sor.'}}, {'user': 'Devam'},
+           ['get_robot_status'], [], [{'target': 'next', 'label': 'Devam'}])
+    assert len(model.calls) == 2
+    assert model.calls[0]['messages'] == [
+        {'role': 'system', 'content': 'Eski başlangıç talimatı'},
+        {'role': 'user', 'content': 'Merhaba'}]
+    assert model.calls[-1]['messages'] == [
+        {'role': 'system', 'content': 'Kullanıcının adını sor.'},
+        {'role': 'user', 'content': 'Devam'}]
+    assert all('response_format' not in call and 'tools' not in call for call in model.calls)
 
 
-def test_opening_reply_resembling_a_node_instruction_is_speakable():
-    validate_speech('My name is Kufibot.', [{'role': 'system', 'content': 'Start by saying your name is Kufibot.'}])
-
-
-def test_router_generates_no_discarded_reply_and_delegates_stream_once(monkeypatch):
-    monkeypatch.setattr('kufibot_interaction.local_voice_worker.make_formatter',
-        lambda model: lambda **kwargs: SimpleNamespace(prompt='formatted'))
-    calls, streamed = [], []
-    def completion(**kwargs):
-        calls.append(kwargs)
-        return {'choices': [{'message': {'content': '{"action":"reply"}'}}]}
-    model = SimpleNamespace(metadata={}, n_ctx=lambda: 2048, tokenize=lambda *a, **k: [1],
-                            create_chat_completion=completion)
+def test_stream_once_without_router_llm_call(model):
+    streamed = []
     def reply(messages):
         streamed.append(messages)
         return 'Merhaba!'
-    decide = make_decider(model, reply_generator=reply, reply_max_tokens=160)
-    result = decide({'data': {'prompt': 'Selamla.'}}, {'user': 'Merhaba'}, [], [],
-                    [{'target': 'next', 'label': 'Devam edince geç.'}])
-    assert result == {'action': 'reply', 'text': 'Merhaba!'}
-    assert len(calls) == len(streamed) == 1
-    variant = calls[0]['response_format']['schema']['oneOf'][0]
-    assert set(variant['properties']) == {'action'}
-    assert 'text' not in variant['required']
+    result = make_decider(model, reply_generator=reply)({'data': {'prompt': 'Selamla.'}},
+        {'user': 'Merhaba'}, ['get_robot_status'], [], [{'target': 'next', 'label': 'Devam'}])
+    assert result == {'action': 'reply', 'text': 'Merhaba!', 'request_text': 'Merhaba'}
+    assert not model.calls
+    assert streamed == [[{'role': 'system', 'content': 'Selamla.'},
+                         {'role': 'user', 'content': 'Merhaba'}]]
 
 
-def test_transition_does_not_start_speech(monkeypatch):
-    monkeypatch.setattr('kufibot_interaction.local_voice_worker.make_formatter',
-        lambda model: lambda **kwargs: SimpleNamespace(prompt='formatted'))
-    model = SimpleNamespace(metadata={}, n_ctx=lambda: 2048, tokenize=lambda *a, **k: [1],
-        create_chat_completion=lambda **kw: {'choices': [{'message': {'content': '{"action":"transition","target":"next"}'}}]})
-    streamed = []
-    result = make_decider(model, reply_generator=lambda messages: streamed.append(messages))(
-        {'data': {}}, {'user': 'devam'}, [], [], [{'target': 'next'}])
-    assert result['action'] == 'transition'
-    assert not streamed
+def test_evidence_is_data_added_to_entry_request(model):
+    make_decider(model)({'data': {'prompt': 'Sensör sonucunu açıkla.'}},
+        {'user': 'Pil?', 'last_result': {'voltage': 12}}, [], [], [])
+    assert model.calls[0]['messages'] == [
+        {'role': 'system', 'content': 'Sensör sonucunu açıkla.'},
+        {'role': 'user', 'content': 'Pil?\n\n{"tool_result": {"voltage": 12}}'}]
+
+
+def test_context_budget_keeps_entire_node_prompt(model):
+    model.n_ctx = lambda: 100
+    model.tokenize = lambda *args, **kwargs: list(range(500))
+    with pytest.raises(ValueError, match='bağlamını aşıyor'):
+        make_decider(model)({'data': {'prompt': 'Uzun talimat'}}, {'user': 'merhaba'}, [], [], [])
+    assert not model.calls
+
+
+def test_first_reply_requires_llm_even_when_node_configures_quotes(model):
+    result = make_decider(model)({'data': {'prompt': 'Belgeye göre yanıtla.', 'answer_mode': 'quote'}},
+        {'_require_llm': True, 'user': 'pil?', 'last_result': {'results': [{'text': '12 volt'}]}}, [], [], [])
+    assert result['text'] == 'Adınız nedir?'
+    assert len(model.calls) == 1
+    assert model.calls[0]['messages'][0] == {'role': 'system', 'content': 'Belgeye göre yanıtla.'}
+    assert model.calls[0]['messages'][-1]['content'].startswith('pil?\n\n')
+
+
+def test_followup_uses_user_message_and_actual_entry_history(model):
+    make_decider(model)({'data': {'prompt': 'Adının Kufi olduğunu söyle.'}},
+        {'_require_llm': False, 'user': 'Nasılsın?', 'history': [
+            {'user': 'Adın ne?', 'assistant': 'Ben Kufi.'}]}, [], [], [])
+    assert model.calls[0]['messages'] == [
+        {'role': 'system', 'content': 'Adının Kufi olduğunu söyle.'},
+        {'role': 'user', 'content': 'Adın ne?'},
+        {'role': 'assistant', 'content': 'Ben Kufi.'},
+        {'role': 'user', 'content': 'Nasılsın?'}]
+
+
+def test_empty_entry_instruction_uses_real_utterance(model):
+    make_decider(model)({'data': {'prompt': ''}},
+        {'_require_llm': True, 'user': 'Merhaba'}, [], [], [])
+    assert model.calls[0]['messages'] == [{'role': 'user', 'content': 'Merhaba'}]
+
+
+def test_context_trimming_preserves_system_and_current_user(model, monkeypatch):
+    candidates = []
+    def format_messages(messages):
+        candidates.append(messages)
+        return SimpleNamespace(prompt='x' * (900 if len(messages) > 2 else 20))
+    monkeypatch.setattr('kufibot_interaction.local_voice_worker.make_formatter', lambda _: format_messages)
+    model.n_ctx = lambda: 400
+    model.tokenize = lambda value, **kwargs: list(value)
+    make_decider(model)({'data': {'prompt': 'Komut bütünüyle korunmalı.'}},
+        {'user': 'Güncel soru', 'history': [{'user': 'Eski soru', 'assistant': 'Eski yanıt'}]}, [], [], [])
+    assert len(candidates) == 2
+    assert model.calls[0]['messages'] == [
+        {'role': 'system', 'content': 'Komut bütünüyle korunmalı.'},
+        {'role': 'user', 'content': 'Güncel soru'}]

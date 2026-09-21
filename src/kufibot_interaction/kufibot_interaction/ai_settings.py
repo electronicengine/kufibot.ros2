@@ -4,10 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 
-DEFAULT_SYSTEM_PROMPT = (
-    'You are Kufibot, a friendly voice assistant. '
-    'Reply in the selected language. Keep replies brief, at most three sentences. '
-    'You cannot see the camera or control robot hardware in this local session.')
+DEFAULT_SYSTEM_PROMPT = ''
 DEFAULT = dict(provider='verasist', language='tr', stt='', llm='', embedding='', tts='',
                system_prompt=DEFAULT_SYSTEM_PROMPT, camera_attach_to_every_user_turn=False, workflow_id='')
 KINDS = ('stt', 'llm', 'embedding', 'tts')
@@ -110,6 +107,16 @@ def normalize(value):
     return value
 
 
+def workflow_voice_settings(document):
+    """Keep workflow routing settings separate from the voice provider schema."""
+    value = dict(document.get('settings', {}))
+    value.pop('semantic_threshold', None)
+    value.pop('voice', None)
+    # Workflow prompts live exclusively on nodes. Ignore old shared prompts.
+    value['system_prompt'] = ''
+    return value
+
+
 def validate(value, models=None):
     value = normalize(value)
     if not isinstance(value, dict) or set(value) != set(DEFAULT):
@@ -128,7 +135,7 @@ def validate(value, models=None):
     if value['provider'] == 'local' and value.get('workflow_id'):
         from .workflows import WorkflowStore
         document = WorkflowStore().snapshot(value['workflow_id'])
-        resolved = validate({**value, **document.get('settings', {}), 'provider': 'local', 'workflow_id': ''}, models)
+        resolved = validate({**value, **workflow_voice_settings(document), 'provider': 'local', 'workflow_id': ''}, models)
         return {**resolved, 'workflow_id': value['workflow_id']}
     if value['provider'] == 'local':
         models = catalog() if models is None else models

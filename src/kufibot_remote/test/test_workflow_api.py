@@ -95,3 +95,33 @@ def test_live_test_waits_for_voice_ack_and_can_be_stopped(tmp_path, monkeypatch)
             await api.stop_test(ws)
             await server.close()
     asyncio.run(scenario())
+
+
+def test_live_timeout_releases_session_and_reports_retryable_error(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setenv('KUFIBOT_KNOWLEDGE_ROOT', str(tmp_path / 'knowledge'))
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    moments = iter([0, 11])
+    monkeypatch.setattr('kufibot_remote.workflow_api.time', SimpleNamespace(monotonic=lambda: next(moments)))
+    async def scenario():
+        class Socket:
+            closed = False
+            events = []
+            async def send_json(self, value):
+                self.events.append(value['event'])
+        ws = Socket()
+        control = Control()
+        control.command(ws, {'type': 'claim'})
+        server = Server(control, lambda: {'appliedMode': 'remote', 'voiceStatus': {'active': False}})
+        api = server.workflow_api
+        api.live_tests.add(ws)
+        try:
+            await api.start_live_when_ready(ws, {'workflow_id': 'example'})
+            assert ws not in api.live_tests and ws not in api.live_starts
+            assert control.mode == 'remote'
+            assert ws.events[-1]['test_mode'] == 'live'
+            assert ws.events[-1]['status'] == 'error'
+            assert 'onaylamadı' in ws.events[-1]['message']
+        finally:
+            await server.close()
+    asyncio.run(scenario())

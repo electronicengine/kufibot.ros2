@@ -5,7 +5,6 @@ import {
   ReactFlowProvider,
   Background,
   Controls,
-  MiniMap,
   Handle,
   Position,
   addEdge,
@@ -19,25 +18,10 @@ import {
 import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
 import "./style.css";
+import { RecordingsTable, RecordingResult } from "./recordings";
+import { state, seenRuntimeEvents, send, command, get } from "./transport";
+import { VoiceSettings } from "./voice-settings";
 
-// LAN HTTP is not a secure context: randomUUID is absent, getRandomValues is available.
-if (!crypto.randomUUID)
-  crypto.randomUUID = () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    bytes[6] = (bytes[6] & 15) | 64;
-    bytes[8] = (bytes[8] & 63) | 128;
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
-      "",
-    );
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  };
-
-declare global {
-  interface Window {
-    ReactNativeWebView?: { postMessage(s: string): void };
-    kufibotWorkflowReceive?: (data: any) => void;
-  }
-}
 type Workflow = {
   id: string;
   schema_version: number;
@@ -57,117 +41,19 @@ const labels: Record<string, string> = {
   toolResource: "Araç kaynağı",
   knowledge: "Bilgi koleksiyonu",
 };
-const icons: Record<string, string> = {
-  start: "▶",
-  agent: "◈",
-  condition: "◇",
-  tool: "⚙",
-  end: "■",
-  toolResource: "⚒",
-  knowledge: "▤",
+const iconPaths: Record<string, string> = {
+  start: "m9 5 10 7-10 7Z", agent: "M5 8h14v12H5z M12 4v4 M8 12h1 M15 12h1 M8 16h8",
+  condition: "m12 3 9 9-9 9-9-9Z", tool: "m14 5 5 5 M4 20l9-9 M14 5l3-2 4 4-2 3-5 1-3-3Z",
+  end: "M6 6h12v12H6z", toolResource: "M9 7H5v12h12v-4 M12 3h9v9 M21 3l-9 9",
+  knowledge: "M4 5h6l2 2 2-2h6v14h-6l-2 2-2-2H4z M12 7v14",
 };
-const pending = new Map<
-  string,
-  { resolve: (x: any) => void; reject: (e: Error) => void }
->();
-let socket: WebSocket | undefined;
-let state: any = null;
-const seenRuntimeEvents = new Set<string>();
-function send(data: any) {
-  if (window.ReactNativeWebView)
-    window.ReactNativeWebView.postMessage(
-      JSON.stringify({ type: "workflowCommand", command: data }),
-    );
-  else if (window.parent !== window)
-    window.parent.postMessage(
-      { type: "workflowCommand", command: data },
-      location.origin,
-    );
-  else if (socket?.readyState === WebSocket.OPEN)
-    socket.send(JSON.stringify(data));
-  else throw new Error("Robot bağlantısı yok");
+function Icon({kind}: {kind: string}) {
+  return <svg className="flow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[kind] || iconPaths.agent}/></svg>;
 }
-function command(action: string, values: any = {}): Promise<any> {
-  const request_id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pending.delete(request_id);
-      reject(new Error("İşlem zaman aşımına uğradı"));
-    }, 15000);
-    pending.set(request_id, {
-      resolve: (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      },
-      reject: (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      },
-    });
-    try {
-      send({ type: "workflow", action, request_id, ...values });
-    } catch (e) {
-      clearTimeout(timeout);
-      pending.delete(request_id);
-      reject(e);
-    }
-  });
-}
-function receive(data: any) {
-  if (data.type === "state") {
-    state = data;
-    window.dispatchEvent(new CustomEvent("robot-state", { detail: data }));
-    const runtimeEvents = data.aiConfig?.workflow_events || [data.aiConfig?.workflow_event].filter(Boolean);
-    for (const event of runtimeEvents) {
-      const key = `${event.session_id}:${event.at}`;
-      if (seenRuntimeEvents.has(key)) continue;
-      seenRuntimeEvents.add(key);
-      if (seenRuntimeEvents.size > 256) seenRuntimeEvents.delete(seenRuntimeEvents.values().next().value!);
-      window.dispatchEvent(
-        new CustomEvent("workflow-event", {
-          detail: ["answer", "transcript"].includes(event.type) ? event : { type: "trace", event, workflow_id: event.workflow_id },
-        }),
-      );
-    }
-  }
-  if (data.type === "workflowResult") {
-    const p = pending.get(data.request_id);
-    pending.delete(data.request_id);
-    data.error ? p?.reject(new Error(data.error)) : p?.resolve(data.result);
-  }
-  if (data.type === "workflowEvent")
-    window.dispatchEvent(
-      new CustomEvent("workflow-event", { detail: data.event }),
-    );
-  if (data.type === "workflowUpload")
-    window.dispatchEvent(new CustomEvent("upload-event", { detail: data }));
-}
-window.kufibotWorkflowReceive = receive;
-window.addEventListener("message", (event) => {
-  if (event.origin === location.origin && event.source === window.parent)
-    receive(event.data);
-});
-if (!window.ReactNativeWebView && window.parent === window) {
-  socket = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/control`,
-  );
-  socket.onopen = () => send({ type: "claim" });
-  socket.onmessage = (e) => receive(JSON.parse(e.data));
-  socket.onclose = () => receive({ type: "state", owner: false });
-  setInterval(() => {
-    if (state?.owner && socket?.readyState === WebSocket.OPEN)
-      send({ type: "heartbeat" });
-  }, 500);
-}
-async function get(path: string) {
-  const response = await fetch(path, {
-    headers: state?.workflowToken
-      ? { Authorization: `Bearer ${state.workflowToken}` }
-      : {},
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
-}
+const descriptions: Record<string, string> = {
+  start: "Akışın giriş noktası", agent: "Konuşmayı ve davranışı yönetin", condition: "Bir koşula göre yolu ayırın",
+  tool: "Robotun bir işlemi yürütmesini sağlayın", end: "Akışı tamamlayın", toolResource: "Ajana kullanabileceği bir araç verin", knowledge: "Dosyalarınızdan bilgi sağlayın",
+};
 function Card({ id, data, type, selected }: any) {
   const resource = ["toolResource", "knowledge"].includes(type);
   const outputs =
@@ -184,7 +70,7 @@ function Card({ id, data, type, selected }: any) {
         <Handle type="target" position={Position.Left} />
       )}
       <div className="card-title">
-        <span>{icons[type]}</span>
+        <span className="node-icon"><Icon kind={type}/></span>
         {String(data.name || labels[type])}
       </div>
       <small>{labels[type]}</small>
@@ -251,21 +137,62 @@ function Editor() {
     [flow, setFlow] = useState<Workflow>(blank({}));
   const [list, setList] = useState<Workflow[]>([]),
     [collections, setCollections] = useState<any[]>([]),
-    [docs, setDocs] = useState<any[]>([]),
-    [recordings, setRecordings] = useState<any[]>([]);
+    [docs, setDocs] = useState<any[]>([]);
+  const [recordingId, setRecordingId] = useState(() => new URLSearchParams(location.search).get("recording") || "");
+  function openRecording(id: string) {
+    const url = new URL(location.href);
+    url.searchParams.set("recording", id);
+    window.history.pushState({}, "", url);
+    setRecordingId(id);
+  }
+  function backToRecordings() {
+    const url = new URL(location.href);
+    url.searchParams.delete("recording");
+    url.searchParams.set("tab", "recordings");
+    window.history.pushState({}, "", url);
+    setRecordingId(""); setPanel("test"); setTestTab("recordings");
+  }
+  useEffect(() => {
+    const navigate = () => {
+      setRecordingId(new URLSearchParams(location.search).get("recording") || "");
+      setPanel("test"); setTestTab("recordings");
+    };
+    window.addEventListener("popstate", navigate);
+    if (new URLSearchParams(location.search).get("tab") === "recordings") navigate();
+    return () => window.removeEventListener("popstate", navigate);
+  }, []);
   const [selected, setSelected] = useState(""),
-    [panel, setPanel] = useState("nodes"),
+    [panel, setPanel] = useState(""),
     [message, setMessage] = useState(""),
     [dirty, setDirty] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [nodeSearch, setNodeSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const mutationVersion = useRef(0);
+  const [saving, setSaving] = useState(false);
+  function showPanel(value: string) { setPanel(value); setLibraryOpen(false); }
   const [collection, setCollection] = useState(""),
     [collectionName, setCollectionName] = useState(""),
     [delimiter, setDelimiter] = useState("");
   const [testText, setTestText] = useState(""),
     [real, setReal] = useState(false),
-    [events, setEvents] = useState<any[]>([]),
-    [active, setActive] = useState("");
+    [events, setEvents] = useState<any[]>([]);
+  const [activeNodes, setActiveNodes] = useState<Record<string, string>>({live:"", text:""});
   const [argsText, setArgsText] = useState("{}");
   const [testMode, setTestMode] = useState("live");
+  const [testTab, setTestTab] = useState("live");
+  const [testExpanded, setTestExpanded] = useState(false);
+  const [livePhase, setLivePhase] = useState("idle");
+  const [textPhase, setTextPhase] = useState("idle");
+  const [testErrors, setTestErrors] = useState<Record<string, string>>({live:"", text:""});
+  const [liveDetail, setLiveDetail] = useState("");
+  const textSnapshot = useRef("");
+  const liveSince = useRef(0);
+  const active = activeNodes[testMode];
+  const visibleEvents = events.filter(e => (e.test_mode || "live") === testMode);
+  function selectTestTab(value: string) { setTestTab(value); if (["live", "text"].includes(value)) setTestMode(value); }
+
   const chatLog = useRef<HTMLDivElement>(null);
   const followChat = useRef(true);
   const [preview, setPreview] = useState<any>(null);
@@ -273,42 +200,70 @@ function Editor() {
     future = useRef<Workflow[]>([]),
     input = useRef<HTMLInputElement>(null);
   const rf = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => rf.fitView({padding:0.25, maxZoom:1}), 100);
+    });
+    observer.observe(canvasRef.current);
+    return () => { observer.disconnect(); clearTimeout(timer); };
+  }, [rf]);
   const flowId = useRef(flow.id);
   flowId.current = flow.id;
   const owner = !!robot?.owner;
+  const localVoice = robot?.aiConfig?.settings?.provider === "local";
+  const voiceActive = !!robot?.voiceStatus?.active;
+  const liveEngaged = ["starting", "running", "stopping"].includes(livePhase) || (localVoice && (voiceActive || robot?.appliedMode === "ai"));
+  const textEngaged = ["waiting", "ready"].includes(textPhase);
+  const testWorkflow = {...flow, nodes:flow.nodes.map(({selected, dragging, measured, ...node}) => node),
+    edges:flow.edges.map(({selected, ...edge}) => edge)};
+  const textChanged = !!textSnapshot.current && textSnapshot.current !== JSON.stringify(testWorkflow);
   const liveMessages = (robot?.voiceTranscripts || []).filter((item: any) =>
-    !item.workflow_id || item.workflow_id === flow.id);
-  const chatMessages = testMode === "live" && liveMessages.length ? liveMessages :
-    events.filter(e => ["answer", "transcript"].includes(e.type)).map((e, i) => ({
+    (!item.workflow_id || item.workflow_id === flow.id) && (!liveSince.current || item.timestamp_ms >= liveSince.current));
+  useEffect(() => {
+    if (voiceActive && localVoice && livePhase !== "stopping") setLivePhase("running");
+    else if (["running", "stopping"].includes(livePhase) && !voiceActive && robot?.appliedMode === "remote") setLivePhase("idle");
+    if (robot?.voiceStatus?.state === "error" && livePhase === "starting") {
+      setLivePhase("error"); setTestErrors(old => ({...old, live:robot.voiceStatus.detail || "Ses oturumu başlatılamadı"}));
+    }
+  }, [voiceActive, localVoice, robot?.appliedMode, robot?.voiceStatus?.state, livePhase]);
+  const chatMessages = testMode === "live" && liveMessages.length ? liveMessages.map((item: any) => ({
+    ...item, sources:[...visibleEvents].reverse().find(e => e.type === "answer" && e.text === item.text)?.sources,
+  })) :
+    visibleEvents.filter(e => ["answer", "transcript"].includes(e.type)).map((e, i) => ({
       id: `event-${i}`, role: e.type === "answer" ? "assistant" : e.role || "user", text:e.text, final:true,
-      timestamp_ms: e.timestamp_ms,
+      timestamp_ms: e.timestamp_ms, sources:e.sources, sequence:visibleEvents.indexOf(e),
     }));
   const nodeName = (id: string) => String(flow.nodes.find(n => n.id === id)?.data.name || id || "—");
-  const activity = events.flatMap((event, i) => {
+  const activity = visibleEvents.flatMap((event, i) => {
     const trace = event.event;
-    if (!trace || !["node", "transition", "tool_start", "tool_result"].includes(trace.type)) return [];
+    if (!trace || !["node", "transition", "tool_start", "tool_result", "semantic_match"].includes(trace.type)) return [];
     if (trace.name === "transition_node") return [];
     const transition = trace.type === "transition";
-    return [{id:`activity-${i}`, role:"activity", timestamp_ms:event.timestamp_ms,
-      title: transition ? `Node geçişi: ${nodeName(trace.from_node)} → ${nodeName(trace.node_id)}` :
-        trace.type === "node" ? `Etkin node: ${nodeName(trace.node_id)}` :
+    return [{id:`activity-${i}`, role:"activity", timestamp_ms:event.timestamp_ms, sequence:i,
+      title: trace.type === "semantic_match" ? `Anlamsal eşleşme: ${Number(trace.score).toFixed(2)} / ${Number(trace.threshold).toFixed(2)} · ${trace.matched ? "Seçildi" : trace.ambiguous ? "Eşit puan, işlem yapılmadı" : "Eşik altında"}` : transition ? `Düğüm geçişi: ${nodeName(trace.from_node)} → ${nodeName(trace.node_id)}` :
+        trace.type === "node" ? `Etkin düğüm: ${nodeName(trace.node_id)}` :
         `${trace.type === "tool_start" ? "Araç çağrısı" : trace.result?.status === "error" ? "Araç hatası" : "Araç sonucu"}: ${trace.name}`,
       trace}];
   });
   const timeline: any[] = [...chatMessages.filter((item: any) => item.text), ...activity]
-    .sort((a: any, b: any) => (a.timestamp_ms || Number(a.id)/1e6 || 0) - (b.timestamp_ms || Number(b.id)/1e6 || 0));
+    .sort((a: any, b: any) => ((a.timestamp_ms || Number(a.id)/1e6 || 0) - (b.timestamp_ms || Number(b.id)/1e6 || 0))
+      || (a.sequence ?? Number.MAX_SAFE_INTEGER) - (b.sequence ?? Number.MAX_SAFE_INTEGER));
   useEffect(() => {
     if (chatLog.current && followChat.current) chatLog.current.scrollTop = chatLog.current.scrollHeight;
   }, [robot?.voiceTranscripts, events, panel, testMode]);
   function restore(saved: Workflow) {
     seenRuntimeEvents.clear();
-    setEvents([]); setActive("");
+    setEvents([]); setActiveNodes({live:"",text:""});
     const ids = new Set(saved.nodes.map(n => n.id));
     const edges = saved.edges.filter(e => ids.has(e.source) && ids.has(e.target));
     setFlow({...saved, edges});
     setDirty(edges.length !== saved.edges.length);
     if (edges.length !== saved.edges.length)
-      setMessage("Silinmiş node’lara ait kopuk bağlantılar taslaktan kaldırıldı. Başlangıcı bir ajana bağlayın ve kaydedin.");
+      setMessage("Silinmiş düğümlere ait kopuk bağlantılar taslaktan kaldırıldı. Başlangıcı bir ajana bağlayın ve kaydedin.");
     history.current = [];
     future.current = [];
     rf.setViewport(saved.viewport);
@@ -316,8 +271,6 @@ function Editor() {
   async function refresh() {
     setList(await get("/api/workflows"));
     setCollections(await get("/api/knowledge/collections"));
-    if (state?.workflowToken)
-      setRecordings(await get("/api/recordings"));
     if (collection)
       setDocs(await get(`/api/knowledge/${collection}/documents`));
   }
@@ -352,9 +305,26 @@ function Editor() {
     const onState = (e: any) => setRobot(e.detail);
     const onEvent = (e: any) => {
       if (e.detail.workflow_id && e.detail.workflow_id !== flowId.current) return;
-      setEvents((old) => [...old.slice(-99), {...e.detail, timestamp_ms:e.detail.timestamp_ms || e.detail.event?.timestamp_ms || Date.now()}]);
-      if (e.detail.type === "trace" && e.detail.event.type === "node")
-        setActive(e.detail.event.node_id);
+      const value = e.detail;
+      const mode = value.test_mode || "live";
+      setEvents((old) => [...old.slice(-299), {...value, test_mode:mode, timestamp_ms:value.timestamp_ms || value.event?.timestamp_ms || Date.now()}]);
+      if (value.type === "trace" && value.event.type === "node")
+        setActiveNodes(old => ({...old, [mode]:value.event.node_id}));
+      if (value.type === "answer" && mode === "text") setTextPhase(value.ended ? "ended" : "ready");
+      if (value.type === "error") {
+        setTestErrors(old => ({...old, [mode]:value.message || "Test başarısız"}));
+        if (mode === "text") setTextPhase("error"); else setLivePhase("error");
+      }
+      if (value.type === "test_session") {
+        if (mode === "live") {
+          setLivePhase(value.status === "stopped" ? "stopping" : value.status);
+          setLiveDetail(value.message || "");
+          if (value.status === "error") setTestErrors(old => ({...old, live:value.message}));
+        } else if (value.status === "stopped") {
+          setTextPhase(old => ["ended", "error"].includes(old) ? old : "idle");
+          textSnapshot.current = "";
+        }
+      }
     };
     const onUpload = (e: any) => {
       setMessage(e.detail.error || "Dosya yüklendi; indeksleme sıraya alındı");
@@ -390,6 +360,7 @@ function Editor() {
   );
   function change(next: Workflow | ((previous: Workflow) => Workflow), record = true) {
     if (!owner) return;
+    mutationVersion.current++;
     if (record) {
       history.current = [...history.current.slice(-49), structuredClone(flow)];
       future.current = [];
@@ -407,6 +378,8 @@ function Editor() {
       });
   }
   async function run(action: () => Promise<any>) {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
     try {
       setMessage("İşleniyor…");
       const result = await action();
@@ -415,18 +388,71 @@ function Editor() {
       return result;
     } catch (e: any) {
       setMessage(e.message);
+    } finally { busyRef.current = false; setBusy(false); }
+  }
+  async function startLiveTest() {
+    setLivePhase("starting"); setLiveDetail("Ses oturumu hazırlanıyor…");
+    setTestErrors(old => ({...old, live:""}));
+    selectTestTab("live"); followChat.current = true;
+    liveSince.current = Date.now();
+    setEvents(old => old.filter(e => e.test_mode === "text"));
+    setActiveNodes(old => ({...old, live:""}));
+    const version = mutationVersion.current;
+    try {
+      const result = await command("liveStart", {workflow:flow, real});
+      setFlow(previous => version === mutationVersion.current ? result.workflow : {...previous, revision:result.workflow.revision});
+      setDirty(version !== mutationVersion.current);
+      textSnapshot.current = ""; setTextPhase("idle");
+      return result;
+    } catch (error: any) {
+      setLivePhase("error"); setTestErrors(old => ({...old, live:error.message})); throw error;
+    }
+  }
+  async function stopLiveTest() {
+    setLivePhase("stopping"); setLiveDetail("Ses oturumu sonlandırılıyor…");
+    try { return await command("liveStop"); }
+    catch (error: any) { setLivePhase("error"); setTestErrors(old => ({...old, live:error.message})); throw error; }
+  }
+  async function resetTextTest() {
+    const result = await command("testStop");
+    setTextPhase("idle"); textSnapshot.current = "";
+    setTestErrors(old => ({...old, text:""}));
+    setEvents(old => old.filter(e => (e.test_mode || "live") !== "text"));
+    setActiveNodes(old => ({...old, text:""}));
+    return result;
+  }
+  async function sendTextTest() {
+    const text = testText.trim();
+    if (!owner || !text || textPhase === "waiting" || liveEngaged || voiceActive) return;
+    setTestErrors(old => ({...old, text:""}));
+    try {
+      if (textChanged || ["ended", "error"].includes(textPhase)) await resetTextTest();
+      setTextPhase("waiting"); followChat.current = true;
+      textSnapshot.current = JSON.stringify(testWorkflow);
+      setEvents(old => [...old, {type:"transcript",role:"user",text,test_mode:"text",timestamp_ms:Date.now()}]);
+      const result = await command("test", {workflow:testWorkflow, text, real});
+      setTestText("");
+      return result;
+    } catch (error: any) {
+      setTextPhase("error"); setTestErrors(old => ({...old, text:error.message})); throw error;
     }
   }
   async function save() {
-    const result = await command("save", {
-      workflow: { ...flow, viewport: rf.getViewport() },
-    });
-    setFlow(result);
-    setDirty(false);
-    return result;
+    const version = mutationVersion.current;
+    setSaving(true);
+    try {
+      const result = await command("save", { workflow: { ...flow, viewport: rf.getViewport() } });
+      setFlow(previous => version === mutationVersion.current ? result : {...previous, revision: result.revision});
+      setDirty(version !== mutationVersion.current);
+      return result;
+    } finally { setSaving(false); }
   }
   function add(kind: string) {
     const id = crypto.randomUUID();
+    const bounds = canvasRef.current!.getBoundingClientRect();
+    const position = rf.screenToFlowPosition({x:bounds.left + bounds.width / 2 - 115, y:bounds.top + bounds.height / 2 - 65});
+    const occupied = rf.getNodes();
+    while (occupied.some(n => Math.abs(n.position.x - position.x) < 270 && position.y < n.position.y + (n.measured?.height || 180) + 30 && position.y + 210 > n.position.y)) position.y += 220;
     change({
       ...flow,
       nodes: [
@@ -434,10 +460,7 @@ function Editor() {
         {
           id,
           type: kind,
-          position: rf.screenToFlowPosition({
-            x: window.innerWidth * 0.5,
-            y: window.innerHeight * 0.5,
-          }),
+          position,
           data: {
             name: labels[kind],
             ...(kind === "condition"
@@ -452,7 +475,8 @@ function Editor() {
       ],
     });
     setSelected(id);
-    setPanel("edit");
+    showPanel("edit");
+    setTimeout(() => rf.fitView({padding:0.25, maxZoom:1}), 100);
   }
   async function upload(files: FileList | null) {
     if (!files || !collection) return;
@@ -487,9 +511,10 @@ function Editor() {
         position: { x: graph.node(n.id).x, y: graph.node(n.id).y },
       })),
     });
-    setTimeout(() => rf.fitView(), 50);
+    setTimeout(() => rf.fitView({padding:0.25,maxZoom:1}), 50);
   }
   const close = () => {
+    if (busyRef.current) return;
     if (dirty && !confirm("Kaydedilmeyen değişiklikler var. Kapatılsın mı?"))
       return;
     const value = { type: "workflowClose" };
@@ -499,114 +524,62 @@ function Editor() {
       window.parent.postMessage(value, location.origin);
     else location.href = "/";
   };
+  useEffect(() => {
+    const requestClose = (event: MessageEvent) => {
+      if (event.origin === location.origin && event.source === window.parent && event.data?.type === "workflowRequestClose") close();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (panel || libraryOpen) { setPanel(""); setLibraryOpen(false); }
+      else close();
+    };
+    window.addEventListener("message", requestClose);
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("message", requestClose); window.removeEventListener("keydown", escape); };
+  }, [dirty, panel, libraryOpen]);
+  const newWorkflow = () => {
+    if (!dirty || confirm("Taslak değişiklikleri bırakılsın mı?")) {
+      restore(blank(flow.settings)); setDirty(true); mutationVersion.current++;
+    }
+  };
+  if (recordingId) return <RecordingResult key={recordingId} id={recordingId} token={robot?.workflowToken} get={get} back={backToRecordings}/>;
   return (
-    <main>
-      <header>
-        <button onClick={close}>←</button>
-        <strong>◈ Local Agent</strong>
-        <input
-          aria-label="Workflow adı"
-          value={flow.name}
-          onChange={(e) => change({ ...flow, name: e.target.value })}
-        />
-        <span className="badge">
-          {dirty ? "Taslak •" : "Kaydedildi"} · r{flow.revision}
-        </span>
-        <button disabled={!owner} onClick={() => run(save)}>
-          Kaydet
-        </button>
-        <button
-          disabled={!owner}
-          onClick={() => run(() => command("validate", { workflow: flow }))}
-        >
-          Doğrula
-        </button>
-        <button
-          className="primary"
-          disabled={!owner}
-          onClick={() =>
-            run(async () => {
-              const saved = await save();
-              return command("activate", { id: saved.id });
-            })
-          }
-        >
-          Etkinleştir
-        </button>
+    <main lang="tr">
+      <header className="editor-header">
+        <button className="back-button" aria-label="Workflow listesine dön" disabled={busy} onClick={close}>←</button>
+        <div className="editor-identity"><span className="editor-eyebrow">WORKFLOW STUDIO</span>
+          <input aria-label="Workflow adı" disabled={!owner} value={flow.name} onChange={e => change({...flow, name:e.target.value})}/>
+        </div>
+        <span className={`save-state ${dirty ? "is-dirty" : ""}`} role="status">{saving ? "Kaydediliyor…" : dirty ? "Kaydedilmemiş değişiklikler" : "Kaydedildi"}<small>Revizyon {flow.revision}</small></span>
+        <div className="header-actions">
+          <button disabled={!owner || busy} onClick={() => run(() => command("validate", {workflow:flow}))}>Doğrula</button>
+          <button className="primary" disabled={!owner || busy} onClick={() => run(save)}>{saving ? "Kaydediliyor…" : "Kaydet"}</button>
+          <button disabled={!owner || busy} onClick={() => run(async () => { const saved = await save(); return command("activate", {id:saved.id}); })}>Etkinleştir</button>
+        </div>
       </header>
-      <nav>
-        {[
-          ["nodes", "＋ Node"],
-          ["edit", "Node ayarları"],
-          ["models", "Modeller"],
-          ["knowledge", "▤ Dosyalar"],
-          ["test", "▷ Test"],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            className={panel === key ? "chosen" : ""}
-            onClick={() => setPanel(panel === key ? "" : key)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      <div className="editor-subbar">
+        <div className="workflow-switcher"><select aria-label="Workflow değiştir" disabled={busy} value={flow.id} onChange={e => {
+          if (dirty && !confirm("Taslak değişiklikleri bırakılsın mı?")) return;
+          const next = list.find(w => w.id === e.target.value); if (next) { restore(next); mutationVersion.current++; }
+        }}><option value={flow.id}>{flow.name}</option>{list.filter(w => w.id !== flow.id).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
+        <button aria-label="Yeni workflow" disabled={!owner || busy} onClick={newWorkflow}>＋ Yeni</button></div>
+        <nav aria-label="Editör panelleri">
+          <button className={`library-toggle ${libraryOpen ? "chosen" : ""}`} aria-expanded={libraryOpen} onClick={() => {setLibraryOpen(!libraryOpen); setPanel("");}}>＋ Düğümler</button>
+          {[["edit", "Özellikler"], ["models", "Modeller"], ["settings", "Ayarlar"], ["knowledge", "Dosyalar"], ["test", "Test"]].map(([key,label]) => <button key={key} aria-pressed={panel === key} className={panel === key ? "chosen" : ""} onClick={() => showPanel(panel === key ? "" : key)}>{label}</button>)}
+        </nav>
+      </div>
       <div className="workspace">
-        <aside hidden={!panel}>
-          {panel === "nodes" && (
-            <>
-              <h3>Workflow’lar</h3>
-              <select
-                value={flow.id}
-                onChange={(e) => {
-                  if (dirty && !confirm("Taslak değişiklikleri bırakılsın mı?"))
-                    return;
-                  const next = list.find((w) => w.id === e.target.value);
-                  if (next) {
-                    restore(next);
-                  }
-                }}
-              >
-                <option value={flow.id}>{flow.name}</option>
-                {list
-                  .filter((w) => w.id !== flow.id)
-                  .map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-              </select>
-              <button
-                disabled={!owner}
-                onClick={() => {
-                  if (
-                    !dirty ||
-                    confirm("Taslak değişiklikleri bırakılsın mı?")
-                  ) {
-                    setFlow(blank(flow.settings));
-                    setDirty(true);
-                  }
-                }}
-              >
-                Yeni workflow
-              </button>
-              <h3>Node ekle</h3>
-              {Object.entries(labels).map(([kind, label]) => (
-                <button
-                  key={kind}
-                  className={`palette ${kind}`}
-                  disabled={!owner}
-                  onClick={() => add(kind)}
-                >
-                  {icons[kind]} {label}
-                </button>
-              ))}
-              <p>
-                Kaynak node’unun çıkışını ajanın girişine bağlayın. Akış
-                çizgileri yürütme sırasını belirler.
-              </p>
-            </>
-          )}
+        <aside className={`node-library ${libraryOpen ? "mobile-open" : ""}`} aria-label="Düğüm kütüphanesi">
+          <div className="panel-heading"><div><small>OLUŞTUR</small><h3>Düğüm kütüphanesi</h3></div><button className="mobile-close" aria-label="Düğüm kütüphanesini kapat" onClick={() => setLibraryOpen(false)}>×</button></div>
+          <input type="search" aria-label="Düğüm ara" placeholder="Düğüm ara…" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)}/>
+          <div className="palette-list">{Object.entries(labels).filter(([kind,label]) => `${label} ${descriptions[kind]}`.toLocaleLowerCase("tr").includes(nodeSearch.toLocaleLowerCase("tr"))).map(([kind,label]) => <button key={kind} className={`palette ${kind}`} aria-label={label} disabled={!owner} onClick={() => add(kind)}><Icon kind={kind}/><span>{label}<small>{descriptions[kind]}</small></span><span className="palette-plus">＋</span></button>)}</div>
+          {Object.keys(labels).every(kind => !`${labels[kind]} ${descriptions[kind]}`.toLocaleLowerCase("tr").includes(nodeSearch.toLocaleLowerCase("tr"))) && <p>Eşleşen düğüm bulunamadı.</p>}
+          <div className="library-tip"><strong>Bir bağlantıyla başlayın</strong><p>Düğüm ekleyin, ardından çıkış noktasını diğer düğümün girişine sürükleyin.</p></div>
+        </aside>
+        {(panel || libraryOpen) && <button className="panel-backdrop" aria-label="Paneli kapat" onClick={() => {setPanel("");setLibraryOpen(false);}}/>}
+        <aside className={`inspector ${panel === "test" ? "test-inspector" : ""} ${testExpanded && panel === "test" ? "test-expanded" : ""}`} hidden={!panel} aria-label="Workflow özellikleri">
+          <div className="panel-heading"><div><small>ÇALIŞMA ALANI</small><h3>{{edit:"Özellikler",models:"Model ayarları",settings:"Görüşme ayarları",knowledge:"Dosyalar",test:"Test alanı"}[panel]}</h3></div><button aria-label="Özellik panelini kapat" onClick={() => setPanel("")}>×</button></div>
           {panel === "edit" &&
             (node ? (
               <>
@@ -620,7 +593,7 @@ function Editor() {
                 </label>
                 {["agent", "start", "end"].includes(node.type!) && (
                   <label>
-                    Sistem mesajı · davranış talimatı (sesli okunmaz)
+                    Düğüm komutu · sistem mesajı olarak gönderilir
                     <textarea
                       rows={7}
                       value={String(node.data.prompt ?? node.data.message ?? "")}
@@ -635,7 +608,7 @@ function Editor() {
                       value={String(node.data.answer_mode || "auto")}
                       onChange={(e) => update({ answer_mode: e.target.value })}
                     >
-                      <option value="auto">Otomatik (ufakzeka: alıntı)</option>
+                      <option value="auto">Otomatik (modelle yanıtla)</option>
                       <option value="quote">Kaynağı doğrudan alıntıla</option>
                       <option value="generate">
                         Model kaynaklardan yanıt üretsin
@@ -664,7 +637,7 @@ function Editor() {
                     </select>
                   </label>
                 )}
-                {node.type === "tool" && (
+                {["tool", "toolResource"].includes(node.type!) && (
                   <>
                     <label>
                       Parametreler (JSON)
@@ -708,6 +681,15 @@ function Editor() {
                       </label>
                     )}
                   </>
+                )}
+                {["toolResource", "knowledge"].includes(node.type!) && (
+                  <label>
+                    Tetikleme ifadeleri
+                    <textarea rows={4} placeholder="Her satıra örnek bir kullanıcı ifadesi yazın"
+                      value={Array.isArray(node.data.trigger_phrases) ? node.data.trigger_phrases.join("\n") : String(node.data.trigger_phrases || "")}
+                      onChange={e => update({trigger_phrases:e.target.value})}/>
+                    <small>Kullanıcı bu ifadelere anlamsal olarak yakın konuştuğunda çalışır. Boşsa otomatik seçilmez.</small>
+                  </label>
                 )}
                 {node.type === "knowledge" && (
                   <label>
@@ -765,6 +747,7 @@ function Editor() {
                   </>
                 )}
                 <h4>Çıkışlar</h4>
+                {["start", "agent"].includes(node.type!) && <p>Geçişler, bu düğümün ilk LLM yanıtından sonraki kullanıcı mesajlarında değerlendirilir.{node.type === "start" && " Başlangıç çıkışı boşsa ilk yanıttan sonra otomatik ilerler; koşul yazılırsa eşleşme bekler."}</p>}
                 {flow.edges
                   .filter((e) => e.source === node.id)
                   .map((edge) => (
@@ -774,8 +757,9 @@ function Editor() {
                         flow.nodes.find((n) => n.id === edge.target)?.data
                           .name as string
                       }
-                      <input
-                        placeholder="Geçiş açıklaması"
+                      <textarea rows={3}
+                        aria-label="Geçiş tetikleme ifadeleri"
+                        placeholder="Örnek kullanıcı ifadesi (her satıra bir örnek)"
                         value={String(edge.label || "")}
                         onChange={(e) =>
                           change({
@@ -830,12 +814,14 @@ function Editor() {
                     setSelected("");
                   }}
                 >
-                  Node’u sil
+                  Düğümü sil
                 </button>
               </>
             ) : (
-              <p>Canvas üzerinde bir node seçin.</p>
+              <p>Canvas üzerinde bir düğüm seçin.</p>
             ))}
+          {panel === "settings" && <VoiceSettings value={flow.settings.voice || {}} fields={caps?.voice_fields} disabled={!owner || busy}
+            change={voice => change({...flow, settings:{...flow.settings, voice}})}/>}
           {panel === "models" && (
             <>
               <h3>Yerel modeller</h3>
@@ -878,21 +864,13 @@ function Editor() {
                 </label>
               ))}
               <label>
-                Ortak talimat
-                <textarea
-                  rows={6}
-                  value={flow.settings.system_prompt || ""}
-                  onChange={(e) =>
-                    change({
-                      ...flow,
-                      settings: {
-                        ...flow.settings,
-                        system_prompt: e.target.value,
-                      },
-                    })
-                  }
-                />
+                Anlamsal eşleşme eşiği
+                <input type="number" min="0.01" max="1" step="0.01" aria-label="Anlamsal eşleşme eşiği"
+                  value={flow.settings.semantic_threshold ?? 0.70}
+                  onChange={e => change({...flow, settings:{...flow.settings, semantic_threshold:Number(e.target.value)}})}/>
+                <small>Varsayılan 0,70. Geçişler ve bağlı araçlar aynı eşiği kullanır. Bu değer bir olasılık yüzdesi değildir.</small>
               </label>
+              <p>Düğüm komutu, etkin olduğu her turda sistem mesajı olarak gönderilir. Kullanıcının mesajı ayrı bir kullanıcı mesajı olarak eklenir. Geçiş için çıkışlara, araç seçimi için kaynak düğümlerine tetikleme ifadeleri yazın.</p>
             </>
           )}
           {panel === "knowledge" && (
@@ -1097,112 +1075,73 @@ function Editor() {
             </>
           )}
           {panel === "test" && (
-            <>
-              <h3>Workflow testi</h3>
-              <p>Sesli test, bu taslağı kaydedip etkinleştirir ve robotu YZ moduna geçirir. Robotun mikrofonuna konuşun.</p>
-              <button disabled={!owner} onClick={() => run(async () => {
-                setTestMode("live");
-                setEvents([]); setActive("");
-                const result = await command("liveStart", {workflow: flow, real});
-                setFlow(result.workflow); setDirty(false);
-                return result;
-              })}>Test et · Sesli görüşmeyi başlat</button>
-              <p role="status">{robot?.voiceStatus?.detail || robot?.voiceStatus?.state || "Ses ajanı bekleniyor"}</p>
-              <p>Etkin node: <strong>{flow.nodes.find(n => n.id === active)?.data.name as string || active || "—"}</strong></p>
-              <h3>Canlı konuşma</h3>
-              <div ref={chatLog} className="live-chat" role="log" aria-label="Canlı konuşmalar" aria-live="polite"
-                onScroll={() => {const el=chatLog.current; if(el) followChat.current=el.scrollHeight-el.scrollTop-el.clientHeight<40;}}>
-                {!timeline.length && <p>Konuşmalar, araç çağrıları ve node geçişleri burada görünecek.</p>}
-                {timeline.map((item: any) => item.role === "activity" ? <div key={item.id} className="chat-activity">
-                  <strong>{item.title}</strong>
-                  <small>{new Date(item.timestamp_ms).toLocaleTimeString()}</small>
-                  {["tool_start", "tool_result"].includes(item.trace.type) && <details><summary>Parametreler ve sonuç</summary>
-                    <pre>{JSON.stringify(item.trace.arguments ?? item.trace.result, null, 2)}</pre></details>}
-                </div> : <div key={item.id} className={`chat-message ${item.role}`}>
-                  <strong>{item.role === "user" ? "Sen" : "Kufi"}</strong>
-                  <p>{item.text}</p>
-                  {item.final === false && <small>{item.role === "user" ? "Dinleniyor…" : "Yanıt hazırlanıyor…"}</small>}
-                </div>)}
+            <div className="test-workspace">
+              <div className="test-tabs" role="tablist" aria-label="Test bölümleri">
+                {[["live", "Canlı"], ["text", "Metin"], ["recordings", "Kayıtlar"], ["events", "Olaylar"]].map(([key,label]) =>
+                  <button key={key} id={`test-tab-${key}`} role="tab" aria-selected={testTab === key} aria-controls={`test-pane-${key}`} tabIndex={testTab === key ? 0 : -1}
+                    onClick={() => selectTestTab(key)} onKeyDown={e => {
+                      const tabs = ["live", "text", "recordings", "events"];
+                      if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+                        e.preventDefault(); const index = tabs.indexOf(key);
+                        const next = e.key === "Home" ? tabs[0] : e.key === "End" ? tabs[3] : tabs[(index + (e.key === "ArrowRight" ? 1 : 3)) % 4];
+                        selectTestTab(next); document.getElementById(`test-tab-${next}`)?.focus();
+                      }
+                    }}>{label}</button>)}
               </div>
-              <h3>Çalıştırma kayıtları</h3>
-              <p>Tek WAV dosyasının sol kanalı kullanıcı mikrofonu, sağ kanalı Kufibot’un TTS sesidir.</p>
-              <button onClick={() => refresh().catch((e) => setMessage(e.message))}>Kayıtları yenile</button>
-              {!recordings.length && <p>Henüz tamamlanmış ses kaydı yok.</p>}
-              {recordings.map((recording) => <section key={recording.id}>
-                <b>{new Date(recording.created_at * 1000).toLocaleString()}</b>
-                <small> · {Math.ceil(recording.duration_sec)} sn · sol: kullanıcı / sağ: Kufi</small>
-                <audio controls preload="none" src={`/api/recordings/${encodeURIComponent(recording.id)}?token=${encodeURIComponent(robot?.workflowToken || "")}`} />
-              </section>)}
-              <p>{caps?.model_notes?.[flow.settings.llm]}</p>
-              <textarea
-                rows={4}
-                value={testText}
-                onChange={(e) => setTestText(e.target.value)}
-                placeholder="Türkçe bir soru yazın…"
-              />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={real}
-                  onChange={(e) => setReal(e.target.checked)}
-                />{" "}
-                Gerçek robot hareketleri
-              </label>
-              <button
-                disabled={!owner || !testText}
-                onClick={() =>
-                  run(async () => {
-                    setTestMode("text");
-                    setEvents(old => [...old, {type:"transcript",role:"user",text:testText,timestamp_ms:Date.now()}]);
-                    return command("test", { workflow: flow, text: testText, real });
-                  })
-                }
-              >
-                Metin testi gönder
-              </button>
-              <button
-                disabled={!owner}
-                onClick={() => run(() => command("testStop"))}
-              >
-                Testi durdur
-              </button>
-              <button onClick={() => setEvents([])}>Günlüğü temizle</button>
-              <details><summary>Teknik olay günlüğü ve kaynaklar</summary>
-              <div role="log" aria-label="Araçlar ve node geçişleri">
-              {events.map((event, i) => (
-                <section key={i}>
-                  <b>{event.type === "transcript" ? "Sen" : event.type === "answer" ? "Kufi" :
-                    event.event?.type === "node" ? `Etkin node: ${flow.nodes.find(n => n.id === event.event.node_id)?.data.name || event.event.node_id}` :
-                    event.event?.name === "transition_node" ? `Node geçişi: ${event.event.node_id} → ${event.event.arguments?.target || event.event.result?.node_id}` : event.type}</b>
-                  {event.text && !["answer", "transcript"].includes(event.type) && <p>{event.text}</p>}
-                  {event.message && <p>{event.message}</p>}
-                  {event.sources?.map((s: any) => (
-                    <details key={s.chunk_id}>
-                      <summary>
-                        {s.filename} · {s.location} · {s.score.toFixed(3)}
-                      </summary>
-                      <p>{s.text}</p>
-                    </details>
-                  ))}
-                  {event.event && (
-                    <pre>{JSON.stringify(event.event, null, 2)}</pre>
-                  )}
-                </section>
-              ))}
-              </div>
-              </details>
-            </>
+              <div className="test-view-tools"><span>{testMode === "live" ? "Ses oturumu" : "Metin oturumu"} · {nodeName(active)}</span><button className="test-expand" aria-label={testExpanded ? "Test panelini daralt" : "Test panelini genişlet"} onClick={() => setTestExpanded(!testExpanded)}>{testExpanded ? "Daralt" : "Genişlet"}</button></div>
+              {["live", "text"].includes(testTab) && <div className="test-conversation" role="tabpanel" id={`test-pane-${testTab}`} aria-labelledby={`test-tab-${testTab}`}>
+                <div className="test-session-controls">
+                  {testTab === "live" ? <>
+                    <div className="test-session-actions">
+                      <button className="primary" disabled={!owner || busy || liveEngaged || voiceActive || textEngaged} onClick={() => run(startLiveTest)}>{livePhase === "starting" ? "Başlatılıyor…" : "Sesli görüşmeyi başlat"}</button>
+                      <button className="danger" disabled={!owner || busy || !liveEngaged || livePhase === "stopping"} onClick={() => run(stopLiveTest)}>{livePhase === "stopping" ? "Sonlandırılıyor…" : "Sesli görüşmeyi sonlandır"}</button>
+                    </div>
+                    <p className="test-status" role="status">{livePhase === "starting" || livePhase === "stopping" ? liveDetail : livePhase === "running" ? robot?.voiceStatus?.detail || "Ses oturumu açık · Robotun mikrofonuna konuşun" : "Hazır · Başlatıldığında taslak kaydedilir ve etkinleştirilir"}</p>
+                    {textEngaged && <p className="test-hint">Sesli görüşmeden önce Metin sekmesindeki testi durdurun.</p>}
+                  </> : <>
+                    <div className="test-session-actions"><button disabled={!owner || busy || liveEngaged || voiceActive} onClick={() => run(resetTextTest)}>Yeni metin oturumu</button><button className="danger" disabled={!owner || busy || !textEngaged} onClick={() => run(async () => {const result = await command("testStop");setTextPhase("idle");textSnapshot.current="";return result;})}>Metin testini durdur</button></div>
+                    <p className="test-status" role="status">{textPhase === "waiting" ? "Yanıt hazırlanıyor…" : textPhase === "ended" ? "Akış tamamlandı · Sonraki mesaj yeni oturum açar" : textPhase === "ready" ? "Sonraki mesajı yazın · Etkin düğüm korunur" : "Taslağı metinle deneyin · Mikrofon ve hoparlör kullanılmaz"}</p>
+                    {(liveEngaged || voiceActive) && <p className="test-hint">Metin testi için önce Canlı sekmesinden sesli görüşmeyi sonlandırın.</p>}
+                    {textChanged && <p className="test-hint">Akış değişti; sonraki mesaj yeni bir metin oturumu açar.</p>}
+                  </>}
+                  <label className="test-motion"><input type="checkbox" checked={real} disabled={liveEngaged || textEngaged || busy} onChange={e => setReal(e.target.checked)}/>Gerçek robot hareketleri</label>
+                  {testErrors[testTab] && <p className="test-error" role="alert">{testErrors[testTab]}</p>}
+                </div>
+                <div className="conversation-heading"><h3>{testTab === "live" ? "Canlı konuşma" : "Metin konuşması"}</h3><small>Etkin düğüm: {nodeName(active)}</small></div>
+                <div ref={chatLog} className="live-chat" role="log" aria-label={testTab === "live" ? "Canlı konuşmalar" : "Metin test konuşmaları"} aria-live="polite"
+                  onScroll={() => {const el=chatLog.current; if(el) followChat.current=el.scrollHeight-el.scrollTop-el.clientHeight<40;}}>
+                  {!timeline.length && <div className="conversation-empty"><strong>{testTab === "live" ? "Konuşmayı buradan takip edin" : "İlk test mesajınızı gönderin"}</strong><p>Yanıtlar, düğüm geçişleri, eşleşme puanları ve belge kaynakları burada görünecek.</p></div>}
+                  {timeline.map((item: any) => item.role === "activity" ? <div key={item.id} className="chat-activity">
+                    <strong>{item.title}</strong><small>{new Date(item.timestamp_ms).toLocaleTimeString()}</small>
+                    {["tool_start", "tool_result"].includes(item.trace.type) && <details><summary>Parametreler ve sonuç</summary><pre>{JSON.stringify(item.trace.arguments ?? item.trace.result, null, 2)}</pre></details>}
+                    {item.trace.type === "semantic_match" && <small>{item.trace.trigger}</small>}
+                  </div> : <div key={item.id} className={`chat-message ${item.role}`}>
+                    <strong>{item.role === "user" ? "Sen" : "Kufi"}</strong><p>{item.text}</p>
+                    {item.final === false && <small>{item.role === "user" ? "Dinleniyor…" : "Yanıt hazırlanıyor…"}</small>}
+                    {!!item.sources?.length && <div className="chat-sources"><small>Belge kaynakları</small>{item.sources.map((source: any, i: number) => <details key={source.chunk_id || i}><summary>{source.filename || "Belge"} · {source.location} {Number.isFinite(source.score) ? `· ${source.score.toFixed(3)}` : ""}</summary><p>{source.text}</p></details>)}</div>}
+                  </div>)}
+                </div>
+                {testTab === "text" && <form className="test-composer" onSubmit={e => {e.preventDefault();run(sendTextTest);}}>
+                  <textarea aria-label="Metin test mesajı" rows={2} maxLength={1500} value={testText} onChange={e => setTestText(e.target.value)} placeholder="Geçişi veya belge aramasını deneyecek bir mesaj yazın…" onKeyDown={e => {if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {e.preventDefault();run(sendTextTest);}}}/>
+                  <div><small>Ctrl / ⌘ + Enter · {testText.length}/1500</small><button className="primary" disabled={!owner || busy || textPhase === "waiting" || liveEngaged || voiceActive || !testText.trim()} type="submit">{textPhase === "waiting" ? "Yanıt bekleniyor…" : "Metin testi gönder"}</button></div>
+                </form>}
+              </div>}
+              {testTab === "recordings" && <div className="test-scroll" role="tabpanel" id="test-pane-recordings" aria-labelledby="test-tab-recordings"><RecordingsTable token={robot?.workflowToken} get={get} open={openRecording}/></div>}
+              {testTab === "events" && <div className="test-scroll" role="tabpanel" id="test-pane-events" aria-labelledby="test-tab-events"><h3>Olaylar ve kaynaklar</h3><button onClick={() => setEvents(old => old.filter(e => (e.test_mode || "live") !== testMode))}>Günlüğü temizle</button><div role="log" aria-label="Araçlar ve düğüm geçişleri">{visibleEvents.map((event,i) => <section key={i}><b>{event.type}</b>{event.message && <p>{event.message}</p>}{event.event && <pre>{JSON.stringify(event.event,null,2)}</pre>}{event.sources?.map((source:any,j:number) => <details key={source.chunk_id || j}><summary>{source.filename} · {source.location}</summary><p>{source.text}</p></details>)}</section>)}</div></div>}
+            </div>
           )}
         </aside>
-        <div className="canvas">
+        <div className="canvas" ref={canvasRef}>
           <div className="canvas-toolbar">
             <button
-              disabled={!owner || !history.current.length}
+              aria-label="Geri al" title="Geri al"
+              disabled={!owner || busy || !history.current.length}
               onClick={() => {
                 const previous = history.current.pop();
                 if (previous) {
                   future.current.push(flow);
-                  setFlow(previous);
+                  mutationVersion.current++;
+                  setFlow({...previous, revision:flow.revision});
                   setDirty(true);
                 }
               }}
@@ -1210,18 +1149,21 @@ function Editor() {
               ↶
             </button>
             <button
-              disabled={!owner || !future.current.length}
+              aria-label="Yinele" title="Yinele"
+              disabled={!owner || busy || !future.current.length}
               onClick={() => {
                 const next = future.current.pop();
                 if (next) {
                   history.current.push(flow);
-                  setFlow(next);
+                  mutationVersion.current++;
+                  setFlow({...next, revision:flow.revision});
                   setDirty(true);
                 }
               }}
             >
               ↷
             </button>
+            <button onClick={() => rf.fitView({padding:0.25,maxZoom:1})}>Sığdır</button>
             <button onClick={arrange} disabled={!owner}>
               Otomatik yerleşim
             </button>
@@ -1233,14 +1175,19 @@ function Editor() {
             }))}
             edges={flow.edges}
             nodeTypes={nodeTypes}
+            colorMode="dark"
             defaultViewport={flow.viewport}
             nodesDraggable={owner}
             nodesConnectable={owner}
             onNodeClick={(_, n) => {
               setSelected(n.id);
-              setPanel("edit");
+              showPanel("edit");
             }}
             onNodesChange={(changes) => {
+              if (changes.every(c => c.type === "select" || c.type === "dimensions")) {
+                setFlow(previous => ({...previous, nodes:applyNodeChanges(changes, previous.nodes)}));
+                return;
+              }
               if (owner)
                 change(
                   previous => {
@@ -1256,6 +1203,10 @@ function Editor() {
               future.current = [];
             }}
             onEdgesChange={(changes) => {
+              if (changes.every(c => c.type === "select")) {
+                setFlow(previous => ({...previous, edges:applyEdgeChanges(changes, previous.edges)}));
+                return;
+              }
               if (owner)
                 change(previous => ({
                   ...previous,
@@ -1278,26 +1229,40 @@ function Editor() {
               }))
             }
             fitView
+            fitViewOptions={{padding:0.25,maxZoom:1}}
             minZoom={0.15}
             maxZoom={2}
             deleteKeyCode={owner ? ["Backspace", "Delete"] : null}
           >
             <Background color="#334155" gap={24} />
-            <Controls />
-            <MiniMap pannable zoomable />
+            <Controls fitViewOptions={{padding:0.25,maxZoom:1}} />
           </ReactFlow>
         </div>
       </div>
       <footer role="status">
         {!owner ? "İzleyici · düzenlemek için kumandayı devralın. " : ""}
         {message ||
-          "Node’ları ekleyin, çıkış noktalarından sürükleyerek bağlayın."}
+          "Düğümleri ekleyin, çıkış noktalarından sürükleyerek bağlayın."}
       </footer>
     </main>
   );
 }
-createRoot(document.getElementById("root")!).render(
-  <ReactFlowProvider>
-    <Editor />
-  </ReactFlowProvider>,
-);
+// Also handle old open tabs and cached HTML that still load the editor entry.
+function openArchiveRoute() {
+  if (location.pathname.replace(/\/$/, "") !== "/recordings" && location.hash !== "#recordings") return false;
+  const url = new URL(location.href);
+  url.pathname = "/recordings";
+  url.hash = "";
+  url.searchParams.delete("workflow");
+  url.searchParams.delete("tab");
+  location.replace(url.href);
+  return true;
+}
+window.addEventListener("hashchange", openArchiveRoute);
+if (!openArchiveRoute()) {
+  createRoot(document.getElementById("root")!).render(
+    <ReactFlowProvider>
+      <Editor />
+    </ReactFlowProvider>,
+  );
+}

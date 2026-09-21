@@ -10,6 +10,8 @@ import time
 from kufibot_interaction.knowledge import KnowledgeStore
 from kufibot_interaction.workflows import WorkflowEngine
 from kufibot_interaction.workflow_inference import make_decider
+from kufibot_interaction.workflow_routing import SemanticRouter
+from kufibot_interaction.ai_settings import catalog
 
 
 def main():
@@ -40,15 +42,26 @@ def main():
         model = Llama(model_path=args.llm, n_ctx=2048, n_threads=3, verbose=False)
         try:
             decide = make_decider(model)
-            for question, tool in [('Pilin durumu nedir?', 'get_sensor_data'),
-                                   ('Kılavuza göre robot nasıl temizlenir?', 'search_documents')]:
-                started = time.monotonic()
-                result = decide({'data': {'prompt': 'Soruyu yanıtlamak için bağlı aracı kullan.'}},
-                                {'user': question, 'results': {}}, [tool], [key] if tool == 'search_documents' else [], [])
-                print(json.dumps({'event': 'decision', 'question': question,
-                    'seconds': time.monotonic()-started, 'expected_tool': tool,
-                    'correct': result.get('action') == 'tool' and result.get('tool') == tool,
-                    'decision': result}, ensure_ascii=False), flush=True)
+            embedding_path = next(m['path'] for m in catalog() if m['id'] == args.embedding and m['kind'] == 'embedding')
+            routing_flow = {'nodes': [
+                {'id': 'a', 'type': 'agent', 'data': {}},
+                {'id': 'sensor', 'type': 'toolResource', 'data': {'tool': 'get_sensor_data',
+                    'arguments': {'sensor': 'battery'}, 'trigger_phrases': 'Pil ne kadar dolu?\nPilin durumu nedir?'}},
+                {'id': 'k', 'type': 'knowledge', 'data': {'collection_id': key,
+                    'trigger_phrases': 'Robot nasıl temizlenir?\nKılavuza göre temizlik'}}],
+                'edges': [{'source': 'sensor', 'target': 'a'}, {'source': 'k', 'target': 'a'}]}
+            router = SemanticRouter(routing_flow, embedding_path)
+            try:
+                for question, tool in [('Şarj seviyesi nedir?', 'get_sensor_data'),
+                                       ('Kılavuza göre robot nasıl temizlenir?', 'search_documents')]:
+                    started = time.monotonic()
+                    result = router(routing_flow['nodes'][0], {'user': question})
+                    print(json.dumps({'event': 'semantic_decision', 'question': question,
+                        'seconds': time.monotonic()-started, 'expected_tool': tool,
+                        'correct': bool(result and result.get('tool') == tool),
+                        'decision': result}, ensure_ascii=False), flush=True)
+            finally:
+                router.close()
             workflow = {'schema_version': 1, 'nodes': [
                 {'id': 's', 'type': 'start', 'data': {}},
                 {'id': 'search', 'type': 'tool', 'data': {'tool': 'search_documents',
@@ -59,6 +72,7 @@ def main():
                           {'source': 'search', 'target': 'a', 'sourceHandle': 'success'},
                           {'source': 'search', 'target': 'error', 'sourceHandle': 'error'}]}
             engine = WorkflowEngine(workflow, decide, lambda name, params: store.search(**params))
+            engine.turn('Merhaba')  # Complete the mandatory start-node reply first.
             started = time.monotonic()
             print(json.dumps({'event': 'fixed_retrieval', 'result': engine.turn('Robot nasıl temizlenir?'),
                               'seconds': time.monotonic()-started}, ensure_ascii=False), flush=True)

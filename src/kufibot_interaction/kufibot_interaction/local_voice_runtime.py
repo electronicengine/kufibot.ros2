@@ -3,6 +3,7 @@ from collections import deque
 from pathlib import Path
 import json
 import math
+import signal
 import resource
 import multiprocessing
 import os
@@ -19,13 +20,13 @@ DEFAULTS = dict(vad_model='/usr/local/ai.models/vad/silero_vad.onnx',
                 vad_threshold=0.5, vad_pre_roll_ms=300, vad_silence_ms=600,
                 vad_min_speech_ms=96, max_utterance_sec=30.0,
                 llm_threads=3, llm_batch_threads=4, llm_context=2048,
-                llm_max_tokens=160, tts_threads=1, hailo_timeout_sec=30.0)
+                llm_max_tokens=160, tts_threads=1, hailo_timeout_sec=30.0, max_session_sec=0)
 
 
 def validate_runtime(config):
     result = {**DEFAULTS, **config}
     for name in DEFAULTS:
-        if name == 'vad_model':
+        if name in ('vad_model', 'max_session_sec'):
             continue
         value = result[name]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
@@ -39,7 +40,37 @@ def validate_runtime(config):
         raise ValueError('max_utterance_sec cannot exceed the 120-second buffer bound')
     if result['llm_context'] <= result['llm_max_tokens'] + 64:
         raise ValueError('LLM context must leave space for the prompt')
+    from .local_voice_settings import validate_voice_options
+    validate_voice_options({key: result[key] for key in ('max_session_sec', 'aec_mode') if key in result})
     return result
+
+
+class SessionTimeout(BaseException):
+    """Normal session completion that inference/tool error handlers must not swallow."""
+
+
+class SessionDeadline:
+    """Interrupt listening, tool waits and generation on the worker's main thread."""
+    def __init__(self, seconds):
+        self.seconds = seconds
+        self.previous = None
+
+    def start(self):
+        if not self.seconds:
+            return
+        self.previous = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, self.expire)
+        signal.setitimer(signal.ITIMER_REAL, self.seconds)
+
+    @staticmethod
+    def expire(signum, frame):
+        raise SessionTimeout()
+
+    def close(self):
+        if self.previous is not None:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, self.previous)
+            self.previous = None
 
 
 class PhaseLease:

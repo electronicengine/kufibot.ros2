@@ -42,6 +42,7 @@
           <div id="body-direction" class="direction-arrow" style="opacity:.6; filter:grayscale(1)"><i></i></div>
           <strong id="direction-value">—°</strong>
         </div>
+        <button id="prepare-mapping" class="claim" title="Kafayı ve gözleri haritalama pozisyonuna getir" disabled>Haritalama</button>
         <div class="connection"><i id="connection-dot"></i><span id="connection" role="status">Bağlanıyor…</span></div>
         <div id="mode-notice" class="notice" hidden>Servo kontrolü bekleniyor</div>
         <button id="claim" class="claim" hidden>Kumandayı devral</button>
@@ -107,6 +108,7 @@
       <button data-page="control"><b>⌁</b><span>Kontrol Arayüzü<small>Canlı sürüş ve kamera</small></span></button>
       <button data-page="connection"><b>⌘</b><span>Bağlantı Ayarları<small>Robot ve ağ erişimi</small></span></button>
       <button data-page="voice"><b>◉</b><span>Ses Ajanı<small>Sağlayıcı ve iş akışı</small></span></button>
+      <button data-page="recordings"><b>≋</b><span>Kayıtlar<small>Tüm yerel sesli görüşmeler</small></span></button>
       <button data-page="workflows"><b>◈</b><span>Workflowlar<small>Canvas, araçlar ve dosyalar</small></span></button>
       <button data-page="calibration"><b>◌</b><span>Kalibrasyon<small>Pusula ölçümleri</small></span></button>
       <button data-page="mimics"><b>✦</b><span>Mimik Editörü<small>3D hareket düzenleme</small></span></button>
@@ -115,13 +117,21 @@
   <section id="settings-page" class="settings-page" hidden aria-live="polite">
     <header class="settings-header"><button id="page-back" aria-label="Kontrol arayüzüne dön">←</button><div><p id="page-kicker">KUFIBOT CONTROL</p><h2 id="page-title"></h2></div><button id="page-menu" aria-label="Menüyü aç">☰</button></header>
     <div class="settings-content">
+      <article data-page-content="recordings">
+        <div id="recordings-list" class="records-list">
+          <div class="records-heading"><div><small>GÖRÜŞME ARŞİVİ</small><h2>Tüm yerel görüşmeler</h2><p>Test oturumları ve diğer tüm yerel sesli görüşmeler.</p></div><button id="recordings-refresh">Kayıtları yenile</button></div>
+          <p id="recordings-status" role="status">Kayıtlar yükleniyor…</p>
+          <div class="records-table-scroll"><table class="records-table"><thead><tr><th>Tarih / saat</th><th>Workflow</th><th>Süre</th><th>Sonuç</th></tr></thead><tbody id="recordings-rows"></tbody></table></div>
+        </div>
+        <div id="recordings-detail" hidden><button id="recordings-back">← Kayıtlara dön</button><iframe id="recordings-frame" title="Yerel görüşme kaydı" src="about:blank"></iframe></div>
+      </article>
       <article data-page-content="workflows">
-        <h3>Local Agent Workflowlar</h3>
-        <p>Akışınızı canvas üzerinde oluşturun. Ajanlara araç ve bilgi koleksiyonu node'ları bağlayın; Dosyalar panelinden PDF, CSV veya JSON yükleyin.</p>
-        <button id="new-workflow" class="secondary">＋ Yeni workflow oluştur</button>
-        <button id="refresh-workflows" class="secondary">Listeyi yenile</button>
+        <div class="workflow-heading"><div><p class="workflow-eyebrow">AKIŞ KÜTÜPHANESİ</p><h3>Fikirden etkileşime.</h3><p>Ajanları, araçları ve bilgiyi bir araya getirin.<br>Robotunuzun nasıl yanıt vereceğini tasarlayın.</p></div><button id="new-workflow" class="workflow-primary">＋ Yeni workflow</button></div>
+        <div class="workflow-browser-bar"><label class="workflow-search"><span aria-hidden="true">⌕</span><input id="workflow-search" type="search" placeholder="Workflow ara…" aria-label="Workflow ara"></label><span class="workflow-sort">Ada göre · A–Z</span><button id="refresh-workflows" class="workflow-quiet">Yenile</button></div>
         <p id="workflow-list-status" role="status"></p>
+        <div id="workflow-error" role="alert" hidden><span></span><button id="workflow-retry" class="workflow-quiet">Yeniden dene</button></div>
         <div id="workflow-list" aria-label="Kayıtlı workflowlar"></div>
+        <div id="workflow-empty" hidden><span class="workflow-empty-icon" aria-hidden="true">◇</span><h4></h4><p></p></div>
       </article>
       <article data-page-content="connection">
         <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>

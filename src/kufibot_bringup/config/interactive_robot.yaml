@@ -11,11 +11,14 @@ voice_agent_node:
   ros__parameters:
     api_endpoint: "http://localhost:8000"
     trigger_uuid: "b1c382e1-63cc-406e-b556-7caf8bcb4d60"
-    mic_device: "pulse:kufibot_aec_source"
-    speaker_device: "pulse:kufibot_aec_sink"
+    # PipeWire's echo-cancel virtual source can occasionally link correctly
+    # while emitting only zero PCM.  Use the verified physical camera source
+    # for speech recognition; playback is handled half-duplex below.
+    mic_device: "pulse:alsa_input.usb-Generic_HD_camera_20181212000000-02.mono-fallback"
+    speaker_device: "pulse:bluez_output.04_57_91_5A_8E_B7.1"
     ice_timeout_sec: 30.0
     sensor_max_age_sec: 2.0
-    mute_mic_during_playback: false
+    mute_mic_during_playback: true
     mic_noise_gate_rms: 0.0
     mic_noise_gate_hangover_sec: 0.5
     # Adaptive noise postfilter after PipeWire AEC; 0 disables it.
@@ -42,6 +45,8 @@ voice_agent_node:
     local_vad_silence_ms: 600
     local_vad_min_speech_ms: 96
     local_max_utterance_sec: 30.0
+    # 0 keeps existing sessions unlimited; a workflow may override this.
+    local_max_session_sec: 0
     local_llm_threads: 3
     local_llm_batch_threads: 4
     local_llm_context: 2048

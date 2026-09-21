@@ -1,6 +1,7 @@
 """Low-latency ALSA tracks used by the Verasist WebRTC session."""
 
 import asyncio
+from .audio_devices import audio_command, check_aec_devices
 import fractions
 import json
 import math
@@ -17,20 +18,6 @@ SAMPLE_RATE = 16000
 FRAME_SAMPLES = 160
 
 
-def audio_command(capture, device, rate, channels):
-    """A pulse: device uses WSLg audio without requiring an ALSA plugin."""
-    if device == 'pulse' or device.startswith('pulse:'):
-        command = ['parec' if capture else 'pacat', '--raw', '--format=s16le',
-                   f'--rate={rate}', f'--channels={channels}', '--latency-msec=20']
-        source = device.partition(':')[2]
-        if source and source != 'default':
-            command.append(f'--device={source}')
-        return command
-    command = ['arecord' if capture else 'aplay', '-D', device,
-               '-f', 'S16_LE', '-r', str(rate), '-c', str(channels), '-t', 'raw']
-    if capture:
-        command.extend(['--buffer-time=200000', '--period-time=20000'])
-    return command
 
 
 class AlsaMicTrack(MediaStreamTrack):
@@ -219,36 +206,6 @@ class AlsaMicTrack(MediaStreamTrack):
         super().stop()
 
 
-async def check_aec_devices(mic_device, speaker_device):
-    """Check physical targets as well as virtual endpoints; never accept dummy audio."""
-    if 'kufibot_aec_' not in mic_device + speaker_device:
-        return
-    if (mic_device, speaker_device) != ('pulse:kufibot_aec_source', 'pulse:kufibot_aec_sink'):
-        raise RuntimeError('AEC requires both kufibot_aec_source and kufibot_aec_sink')
-    async def devices(kind):
-        process = await asyncio.create_subprocess_exec(
-            'pactl', '--format=json', 'list', kind,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), 3)
-        finally:
-            if process.returncode is None:
-                try:
-                    process.kill()
-                except ProcessLookupError:
-                    pass
-                await process.communicate()
-        if process.returncode:
-            raise RuntimeError(stderr.decode(errors='replace'))
-        return json.loads(stdout)
-    sources, sinks = await asyncio.gather(devices('sources'), devices('sinks'))
-    source_names = {v['name'] for v in sources}
-    sink_names = {v['name'] for v in sinks}
-    if not {'kufibot_aec_source', 'alsa_input.usb-Generic_HD_camera_20181212000000-02.mono-fallback'} <= source_names:
-        raise RuntimeError('AEC camera source is unavailable')
-    if 'kufibot_aec_sink' not in sink_names or not any(
-            name.startswith('bluez_output.04_57_91_5A_8E_B7') for name in sink_names):
-        raise RuntimeError('MI BT 18I Bluetooth speaker is disconnected; AEC unavailable')
 
 
 class AlsaSpeaker:
