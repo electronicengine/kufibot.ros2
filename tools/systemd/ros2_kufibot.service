@@ -1,0 +1,27 @@
+[Unit]
+Description=Kufibot ROS 2 robot
+Wants=network-online.target
+Requires=user@1000.service
+After=network-online.target user@1000.service sound.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=kufi
+Group=kufi
+WorkingDirectory=/home/kufi/workspace/ros2_kufibot
+Environment=HOME=/home/kufi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash /home/kufi/workspace/ros2_kufibot/tools/ros2_launch.sh
+Restart=on-failure
+RestartSec=10
+# Let ROS launch shut down its nodes with SIGINT before killing leftovers.
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target
