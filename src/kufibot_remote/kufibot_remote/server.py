@@ -25,7 +25,8 @@ class Discovery(asyncio.DatagramProtocol):
 
 
 class Server:
-    def __init__(self, control, status, video_track=None, tool_call=None, tool_image=None):
+    def __init__(self, control, status, video_track=None, tool_call=None, tool_image=None, publish_toolset=None):
+        self.publish_toolset = publish_toolset
         self.control, self.status = control, status
         self.video_track = video_track
         self.tool_call, self.tool_image = tool_call, tool_image
@@ -33,10 +34,15 @@ class Server:
         control.mimic_store = self.mimics
         self.clients = set()
         self.peers = set()
+        self.https_port = None
+        self.https_ca = None
         self.app = web.Application(client_max_size=21 * 1024 * 1024)
         from .workflow_api import WorkflowAPI
         self.workflow_api = WorkflowAPI(self)
         self.app.add_routes([web.get('/', self.index),
+                             web.get('/pwa-setup', self.pwa_setup),
+                             web.get('/api/pwa-setup', self.pwa_setup_info),
+                             web.get('/kufibot-root-ca.crt', self.pwa_certificate),
                              web.get('/manifest.webmanifest', self.manifest),
                              web.get('/service-worker.js', self.service_worker),
                              web.get('/assets/{name}', self.asset),
@@ -47,6 +53,24 @@ class Server:
                              web.get('/model/{name}', self.model_asset),
                              web.get('/control', self.controller),
                              web.post('/offer', self.offer), web.get('/tool-image/{image_id}', self.image)])
+
+    async def pwa_setup_info(self, request):
+        return web.json_response({'https_port': self.https_port,
+                                 'certificate_available': bool(self.https_ca and self.https_ca.is_file())},
+                                 headers={'Cache-Control': 'no-store'})
+
+    @staticmethod
+    async def pwa_setup(request):
+        return web.FileResponse(Path(__file__).with_name('web') / 'pwa-setup.html',
+                                headers={'Cache-Control': 'no-cache'})
+
+    async def pwa_certificate(self, request):
+        if not self.https_ca or not self.https_ca.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(self.https_ca, headers={
+            'Content-Type': 'application/x-x509-ca-cert',
+            'Content-Disposition': 'attachment; filename="kufibot-root-ca.crt"',
+            'Cache-Control': 'no-store'})
 
     async def list_mimics(self, request):
         try:
@@ -109,7 +133,7 @@ class Server:
     @staticmethod
     async def asset(request):
         name = request.match_info['name']
-        if name not in {'app.js', 'connection.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js', 'icon.svg'}:
+        if name not in {'app.js', 'connection.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'pwa.js'}:
             raise web.HTTPNotFound()
         return web.FileResponse(Path(__file__).with_name('web') / name,
                                 headers={'Cache-Control': 'no-cache',

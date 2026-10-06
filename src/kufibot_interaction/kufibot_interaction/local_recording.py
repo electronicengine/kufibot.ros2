@@ -60,10 +60,15 @@ class SessionRecording:
                 pcm, self._states[role] = audioop.ratecv(pcm, 2, 1, sample_rate,
                                                          SAMPLE_RATE, self._states[role])
             target = round((time.monotonic() - self.started_mono) * SAMPLE_RATE)
-            if target > self._frames[role]:
+            utterance = self._utterances.get(role)
+            # User PCM is contiguous within an utterance, even when VAD/STT
+            # processing delivers chunks late. Align its first chunk only;
+            # padding every chunk inserts artificial gaps into the recording.
+            continuing_user = (role == 'user' and utterance is not None
+                               and utterance['offset_ms'] is not None)
+            if not continuing_user and target > self._frames[role]:
                 self._files[role].writeframesraw(b'\0\0' * (target - self._frames[role]))
                 self._frames[role] = target
-            utterance = self._utterances.get(role)
             if utterance is not None and utterance['offset_ms'] is None:
                 utterance['offset_ms'] = round(self._frames[role] / SAMPLE_RATE * 1000)
                 # Short TTS can start after its final transcript was emitted.

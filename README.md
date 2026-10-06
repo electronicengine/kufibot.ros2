@@ -2,6 +2,51 @@
 
 # Kufibot ROS 2
 
+## Açılışta otomatik başlatma (systemd)
+
+Yeni sistemde önce ROS 2 Jazzy, proje `.venv` bağımlılıkları ve colcon
+derlemesini tamamlayın; ses için PipeWire/WirePlumber kurulumunu yapın.
+Önce elle çalışan launch'u Ctrl+C ile kapatın, ardından proje kökünden çalıştırın:
+
+```bash
+sudo python3 tools/install_ros2_service.py
+```
+
+Kurulum betiği sudo çağıran kullanıcıyı, UID'yi ve proje yolunu otomatik bulur;
+önkoşulları ve servis dosyasını doğrular. Kullanıcıyı sistemde bulunan ses,
+kamera, seri port ve GPIO/I²C/SPI gruplarına ekler, linger'ı etkinleştirir,
+servisi kurar, açılışta başlatmayı açar ve hemen başlatır. Tekrar çalıştırmak
+servisi güncelleyip yeniden başlatır. ROS, Python bağımlılıkları ve ses
+paketlerini kurmaz. Launch betiği ROS, `.venv`, workspace ve mevcut `.env`
+ayarlarını yükler.
+
+Linger, kullanıcıya ait etkin PipeWire servislerinin giriş yapılmadan
+açılmasını sağlar. Robot servisi seçilen kullanıcıyla çalışır.
+
+```bash
+sudo python3 tools/install_ros2_service.py --user robot  # Farklı kullanıcı
+sudo python3 tools/install_ros2_service.py --no-start    # Şimdi başlatmadan kur
+python3 tools/install_ros2_service.py --user "$USER" --dry-run  # Değişikliksiz kontrol
+```
+
+`--no-start` çalışan servisi yeniden başlatmaz; güncel ayarlar sonraki
+başlatmada uygulanır. Yeni makinede kaynak dosyadaki sabit yolları elle
+düzenlemek gerekmez; kurucu `tools/systemd/ros2_kufibot.service` dosyasını
+şablon olarak kullanır.
+
+```bash
+sudo systemctl start ros2_kufibot    # Başlat
+sudo systemctl stop ros2_kufibot     # Durdur
+sudo systemctl restart ros2_kufibot  # Yeniden başlat
+sudo systemctl status ros2_kufibot   # Durumu göster
+journalctl -u ros2_kufibot -f        # Canlı günlükler
+sudo systemctl disable --now ros2_kufibot  # Otomatik başlatmayı kapat ve durdur
+```
+
+`stop` sonraki açılıştaki otomatik başlatmayı kapatmaz. Servis, launch süreci
+hata koduyla çıkarsa yeniden başlar; tek bir ROS node'unun arızası launch'u
+sonlandırmıyorsa servis hâlâ active görünebilir. Node hataları için günlüklere bakın.
+
 ROS 2 Jazzy packages for Kufibot sensors, actuators, USB-camera perception,
 MediaPipe tracking, Verasist veya yerelde çalışan sesli ajan ve Android/web
 remote control.
@@ -110,9 +155,9 @@ flowchart LR
     Browser -->|sağlayıcı · dil · model<br/>sistem mesajı| Remote
     Remote -->|WebRTC video| Mobile
     Remote -->|WebRTC video| Browser
-    Camera -->|/camera/image_raw| MP
-    Camera -->|/camera/image_raw| Voice
-    Camera -->|/camera/image_raw| Remote
+    Camera -->|/camera/stream · örneklenmiş 15 FPS| MP
+    Camera -->|/camera/stream · örneklenmiş| Voice
+    Camera -->|/camera/stream · 30 FPS| Remote
     Sensors -->|batarya · pusula · mesafe| Voice
     Sensors -->|batarya · pusula · mesafe| Remote
     MP -->|yüz · el · takip hedefi| Voice
@@ -148,8 +193,9 @@ Sesli Ajan Ayarları'nda seçilen sağlayıcı, dil, modeller ve yalnızca Local
 sistem mesajı köprüden `voice_agent_node`'a gider. YZ modu seçildiğinde node,
 seçime göre Verasist oturumunu veya ayrı `local_voice_worker` sürecini başlatır.
 Yerel işçinin LLM çıkarımı olayıyla `voice_agent_node`
-`local_ai/compute_active` yayınlar; kamera, MediaPipe ve köprünün canlı görüntü
-kodlaması geçici olarak durur. Bu sinyal Verasist akışında yayınlanmaz.
+`local_ai/compute_active` yayınlar; MediaPipe'ın örneklemeli işleme akışı
+geçici olarak durur. Köprünün `camera/stream` üzerinden aldığı canlı WebRTC
+görüntüsü kesintisiz devam eder. Bu sinyal Verasist akışında yayınlanmaz.
 
 Arbiter varsayılan olarak Kumanda modunda başlar. Köprü başlatıldığında ajan ve
 takip servo komutları engellenir, uzaktan gelen
@@ -230,8 +276,9 @@ sequenceDiagram
     L->>S: başlat
     L->>X: başlat
     X-->>V: battery_state, compass/heading_deg, lidar/range
-    C-->>M: camera/image_raw (Image)
-    C-->>V: camera/image_raw (Image)
+    C-->>M: camera/stream · örneklenmiş 15 FPS (Image)
+    C-->>V: camera/stream · örneklenmiş (Image)
+    C-->>R: camera/stream · 30 FPS (Image)
     M-->>V: perception/faces, perception/hands, tracking_target
     M-->>A: servo/tracking_targets (JointCommand)
     V->>G: mikrofon sesi, metin ve gerektiğinde kamera görüntüsü
@@ -342,7 +389,7 @@ sequenceDiagram
     R-->>U: Kontrol sahipliği ve durum
     Note over U,R: İlk istemci kontrol sahibidir<br/>diğerleri izleyicidir
     U->>R: POST /offer · WebRTC SDP teklifi
-    N-->>R: camera/image_raw, battery_state, compass/heading_deg, lidar/range
+    N-->>R: camera/stream, battery_state, compass/heading_deg, lidar/range
     N-->>R: servo/joint_states (JointState)
     R-->>U: WebRTC video<br/>/control üzerinden sensör ve eklem durumu
 
@@ -373,7 +420,7 @@ sequenceDiagram
 | `/remote/applied_mode` | `std_msgs/String` | Arbiter → köprü; uygulanan mod veya `unavailable` |
 | `/cmd_vel` | `geometry_msgs/Twist` | Köprü → DC motor; sürüş ve durma komutları |
 | `/control` | WebSocket JSON | İstemci ↔ köprü; sahiplik, heartbeat, mod, girişler ve sensör/eklem durumu |
-| `/offer` | HTTP SDP signaling | WebRTC video; varsayılan 480 piksel genişlik ve 15 FPS hedefi |
+| `/offer` | HTTP SDP signaling | WebRTC video; varsayılan kaynak çözünürlüğü ve 30 FPS |
 
 Bir telefon veya tarayıcı kontrol sahibiyken diğer istemciler izleyici olur.
 Kontrol sahibi ayrılınca **Kumandayı devral** ile kontrol alınabilir. Uygulama veya
@@ -419,10 +466,35 @@ YAML içindeki model ve hareket dosyaları ile `requirements.txt` içindeki öze
 SDK yolu hâlâ bu robota özgüdür; başka makinede bunları uyarlayın.
 `VERASIST_ENV_FILE`, `VERASIST_SDK_SRC` ve `ROS_SETUP` ortam değişkenleri
 başlatma betiğinin ilgili yollarını değiştirebilir. Paylaşılan YAML içine token
-koymayın. Mevcut YAML'de `auto_start: false` ve
-`remote_mode_controls_voice: true` olduğundan ses oturumu yalnızca YZ modu
-onaylandığında başlar. Bağımsız ses ajanı davranışı istenirse
-`remote_mode_controls_voice: false` ve gerekirse `auto_start: true` ayarlanır.
+koymayın. Robot `remote` (Uzaktan kumanda) modunda açılır. Kontrol modları yalnızca
+Uzaktan kumanda, YZ ve Araç çağırmadır. Web ve mobilde Sesli Ajan →
+Uyanma ve karşılama bölümünden dinleme anahtarını, uyanma ifadesini, yerel STT/TTS
+modellerini ve açılış/kapanış metinleriyle mimiklerini ayarlayın. Bunlar robotun
+`~/.config/kufibot/ai.json` dosyasında `activation` alanında saklanır ve workflow
+seçimiyle değişmez. Varsayılan ifade “Kufi”dir; karşılama “Evet, seni dinliyorum.”,
+kapanış “Görüşmek üzere.” olarak gelir. Mimikler başlangıçta seçilmemiştir.
+
+Kumanda modunda yerel STT çalışır. Uyanma ifadesi duyulunca kumanda
+hareketleri durur, karşılama sesi ve mimiği bir kez tamamlanır, ardından seçili
+Local veya Verasist oturumu açılır. YZ modu seçimi de aynı akışı elle başlatır.
+Görüşme süresi dolduğunda veya “Görüşmeyi bitir” kullanıldığında kapanış oynar ve
+robot kumanda moduna dönerek yeniden kelimeyi dinler. Kumandaya geçiş ve hatalarda kapanış atlanır.
+Araç/workflow testleri sırasında otomatik uyanma askıya alınır. Açık görüşmede
+kaydedilen yeni ayarlar sonraki döngüde uygulanır.
+
+Verasist için de uyanma dinleyicisi ve sabit sesler robotta çalışır; yerel STT,
+Silero VAD ve Piper modelleri gerekir. Otomatik STT seçiminde Vosk önceliklidir.
+İfade Vosk sözlüğünde yoksa (kurulu Türkçe modelde “Kufi” gibi), kurulu Hailo
+Whisper modeline geçilir. Açıkça Vosk seçildiğinde desteklenmeyen ifade hata olarak
+gösterilir. Model eksikliği robotu kumanda modunda tutar; kurulum gereksinimi
+arayüzde görünür. Eski `auto_start` ve `remote_mode_controls_voice` parametreleri
+yeni yaşam döngüsünü yönetmez.
+
+Sabit sesler `~/.cache/kufibot/voice-cues` altında metin/dil/model sürümüne göre
+önbelleklenir. Uyanma dinleyicisinin son çözümlediği metin ve eşleşme sonucu Sesli Ajan bölümünde
+gösterilir; yalnızca bellekte tutulur, diske kaydedilmez veya buluta gönderilmez.
+Kontrol protokolü `remote`, `ai`, `tools` modlarını ve `stopVoice` komutunu destekler; mevcut
+`voice_session/start` ve `voice_session/stop` servisleri de yaşam döngüsünü kullanır.
 
 ## Geliştirme doğrulaması
 
@@ -553,7 +625,7 @@ per-run image rate limit. Set the parameter to `false` for tool-only capture.
 The voice agent can also send an on-demand camera snapshot to Verasist's
 multimodal LLM. Ask, for example, "Kameraya bakıp ne gördüğünü anlat" or
 "Elimdeki nesne nedir?". The agent invokes `analyze_camera`, encodes the most
-recent `/camera/image_raw` frame as a bounded JPEG, and sends it through the
+recent `/camera/stream` frame as a bounded JPEG, and sends it through the
 SDK with `trigger_response=true`. This explicit tool path is the correct way to
 request a new visual response when the speech-start snapshot is unavailable or
 the user explicitly asks the robot to look again.
@@ -651,21 +723,14 @@ Yerel Vosk / llama.cpp / Piper sesli ajanı ve web-mobil sağlayıcı/model seç
 
 ### 3B robot simülasyonu
 
-LLM yerine araçları kendiniz çağırabileceğiniz görsel navigasyon paneli:
+Simülasyonu başlatın:
 
 ```bash
-./tools/navigation_sim_demo.sh
-# eşdeğer kısa ad:
-./tools/navigation_sim.sh
+./tools/ros2_sim_launch.sh sim
 ```
 
-Araç seçip parametrelerini girin ve Çağır düğmesine basın. `read_sensor_values`
-temiz kamera görüntüsü ve sayısal harita verir; `follow_route` tüm waypoint’leri tek çağrıda otomatik takip eder. Rota web/mobil haritasında gösterilir. `goto` ve `look_at` düşük seviyeli tanılama için korunur. Ayrıntılar: [Waypoint navigasyonu](docs/waypoint-navigation.md).
-Ev planı, robotun yolu, canlı kamera, teslim edilen fotoğraflar ve tam JSON
-sonuçları aynı pencerede görünür. Yanıtınızı da yazıp kaydedebilirsiniz.
-Başlangıçta otomatik çağrı yapılmaz; hazır mutfak rotası için `--auto` ekleyin.
-Esc ile durdurulur.
-[Demo ve test ayrıntıları](docs/navigation-simulation-tests.md).
+Navigasyon araçları ve rota takibi için [Waypoint navigasyonu](docs/waypoint-navigation.md),
+testler için [Navigasyon simülasyon testleri](docs/navigation-simulation-tests.md).
 
 `tools/ros2_sim_launch.sh sim` donanımsız ROS simülasyonunu ve Panda3D
 üçüncü şahıs penceresini açar. Görüntüleyici için proje sanal ortamında

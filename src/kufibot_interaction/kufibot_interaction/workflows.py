@@ -45,6 +45,8 @@ def validate_graph(document):
     settings = document.get('settings', {})
     if not isinstance(settings, dict):
         return ['Workflow ayarları nesne olmalı']
+    if type(settings.get('llm_enabled', True)) is not bool:
+        errors.append('LLM kullanımı boolean olmalı')
     threshold = settings.get('semantic_threshold', .70)
     if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 0 < threshold <= 1:
         errors.append('Anlamsal eşik 0 ile 1 arasında olmalı (0 hariç)')
@@ -97,6 +99,10 @@ def validate_graph(document):
             errors.append('Araç adımı success ve error çıkışları gerekli')
         if kind == 'knowledge' and not data.get('collection_id'):
             errors.append('Bilgi koleksiyonu seçilmeli')
+        if not settings.get('llm_enabled', True) and kind in ('start', 'agent', 'end'):
+            content = data.get('prompt', data.get('message', ''))
+            if not isinstance(content, str) or not content.strip():
+                errors.append('LLM kapalıyken konuşma node içeriği gerekli')
     return errors
 
 
@@ -173,6 +179,7 @@ class WorkflowEngine:
         if errors:
             raise ValueError('; '.join(errors))
         self.document = copy.deepcopy(document)
+        self.llm_enabled = self.document.get('settings', {}).get('llm_enabled', True)
         self.nodes = {n['id']: n for n in document['nodes']}
         self.edges = document['edges']
         self.current = next(n['id'] for n in document['nodes'] if n['type'] == 'start')
@@ -247,12 +254,18 @@ class WorkflowEngine:
                         raise ValueError('Ajan izinli olmayan bir araç/işlem seçti')
                     name, params = decision['tool'], decision.get('arguments', {})
                 else:
-                    decision = self.decide(node, {**self.context, '_require_llm': not self.has_replied}, [], collections, [])
-                    if decision.get('action') != 'reply':
-                        raise ValueError('Dil modeli yalnız kullanıcı yanıtı üretebilir')
-                    if not isinstance(decision.get('text'), str) or not decision['text'].strip():
-                        raise ValueError('Model boş workflow yanıtı üretti')
-                    speech.append(decision['text'])
+                    if self.llm_enabled:
+                        decision = self.decide(node, {**self.context, '_require_llm': not self.has_replied}, [], collections, [])
+                        if decision.get('action') != 'reply':
+                            raise ValueError('Dil modeli yalnız kullanıcı yanıtı üretebilir')
+                        if not isinstance(decision.get('text'), str) or not decision['text'].strip():
+                            raise ValueError('Model boş workflow yanıtı üretti')
+                        text = decision['text']
+                    else:
+                        text = data.get('prompt', data.get('message', ''))
+                        if not isinstance(text, str) or not text.strip():
+                            raise ValueError('LLM kapalıyken konuşma node içeriği gerekli')
+                    speech.append(text)
                     self.has_replied = True
                     if kind == 'end':
                         self.ended = True

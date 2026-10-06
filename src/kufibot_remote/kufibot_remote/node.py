@@ -3,6 +3,7 @@ import asyncio
 import json
 import math
 import time
+from pathlib import Path
 from collections import OrderedDict
 
 from aiohttp import web
@@ -18,6 +19,7 @@ from geometry_msgs.msg import Twist
 from kufibot_interaction.local_voice_runtime import attach_phase_lease
 from kufibot_interfaces.msg import VoiceState, Transcript
 from .control import Control
+from .calibration_status import valid_coverage
 from .server import Discovery, Server
 from .video import LatestCameraTrack
 from kufibot_interaction.navigation_tools import NavigationTools
@@ -38,14 +40,15 @@ class RemoteController(Node):
     def __init__(self):
         super().__init__('remote_controller')
         self.declare_parameter('port', 8080)
+        self.declare_parameter('https_port', 8443)
+        self.declare_parameter('https_directory', str(Path.home() / '.config/kufibot/https'))
         self.declare_parameter('discovery_port', 8888)
         self.declare_parameter('robot_name', 'Kufibot')
-        # The remote view is intentionally smaller/lighter than the camera
-        # stream used by local perception.  Keeping this configurable lets a
-        # fast LAN use a sharper image without making the default Pi profile
-        # fall behind real time.
-        self.declare_parameter('video_max_width', 480)
-        self.declare_parameter('video_fps', 15.0)
+        # Keep the LAN view at the camera's native resolution and frame rate.
+        # Deployments that cannot encode this in real time can lower either
+        # parameter explicitly.
+        self.declare_parameter('video_max_width', 0)
+        self.declare_parameter('video_fps', 30.0)
         self.control = Control()
         from kufibot_interaction.mimics import default_store
         for parameter in ('gesture_config_file', 'motion_config_file', 'joint_angles_file'):
@@ -67,6 +70,8 @@ class RemoteController(Node):
         self.mode_time = 0.0
         self.calibration = {'active': False, 'samples': 0, 'target': 500,
                     'message': 'Pusula sensörü bekleniyor'}
+        from kufibot_interaction.toolset_publish import ToolsetPublishClient
+        self.toolset_publisher = ToolsetPublishClient(self)
         self.ai_trigger_uuid = ''
         self.ai_config = None
         self.voice_status = None
@@ -81,6 +86,12 @@ class RemoteController(Node):
         self.local_phase_lease = attach_phase_lease(
             self, lambda active: self._local_compute(Bool(data=active)))
         self.remote_pub = self.create_publisher(String, 'remote/command', 10)
+        self.voice_control_ack = self.create_publisher(String, 'voice_session/control_ack', 10)
+        self.voice_control_state = self.create_publisher(String, 'voice_session/control_state', 10)
+        self.voice_finish_pub = self.create_publisher(String, 'voice_session/finish', 10)
+        self.voice_control_pending = None
+        self.voice_control_ids = set()
+        self.create_subscription(String, 'voice_session/control_request', self._voice_control_request, 10)
         self.drive_pub = self.create_publisher(Twist, 'drive/manual_cmd', 1)
         self.navigation = None
         self.navigation_at = 0.0
@@ -91,7 +102,7 @@ class RemoteController(Node):
         self.ai_trigger_pub = self.create_publisher(String, 'voice_session/trigger_uuid', 10)
         self.create_subscription(String, 'remote/applied_mode', self._mode, 10)
         self.create_subscription(JointState, 'servo/joint_states', self._joints, 10)
-        self.create_subscription(Image, 'camera/image_raw', self._image,
+        self.create_subscription(Image, 'camera/stream', self._video_image,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.create_subscription(BatteryState, 'battery_state', self._battery,
                                  qos_profile_sensor_data)
@@ -216,13 +227,11 @@ class RemoteController(Node):
         if self.control.mode != 'tools' and (not msg.session_active or msg.state != 'connected'):
             self.control.disable_navigation('voice_' + msg.state)
         self.voice_status = {'state': msg.state, 'detail': msg.detail,
-                             'active': msg.session_active}
+                             'active': msg.session_active,
+                             'end_reason': (getattr(self, 'ai_config', None) or {}).get('activation_status', {}).get('end_reason', '')}
 
     def _local_compute(self, msg):
         self.local_compute_active = bool(msg.data)
-        if self.local_compute_active:
-            self.video_frame = None
-            self.video_frame_time = 0.0
 
     def _ai_trigger_uuid(self, msg):
         self.ai_trigger_uuid = msg.data
@@ -233,15 +242,33 @@ class RemoteController(Node):
             if (isinstance(status, dict) and isinstance(status.get('active'), bool)
                     and isinstance(status.get('samples'), int) and isinstance(status.get('target'), int)
                     and isinstance(status.get('message'), str)):
-                for name in ('raw', 'minimum', 'maximum'):
-                    values = status.get(name)
-                    if values is not None and (not isinstance(values, dict)
-                                               or not all(isinstance(values.get(axis), (int, float))
-                                                          for axis in ('x', 'y'))):
-                        return
+                if not valid_coverage(status):
+                    return
                 self.calibration = status
         except (TypeError, ValueError):
             self.get_logger().warning('Invalid compass calibration status')
+
+    def _voice_control_request(self, msg):
+        try:
+            value = json.loads(msg.data)
+            if not isinstance(value, dict) or not isinstance(value.get('id'), str):
+                return
+            if value['id'] in self.voice_control_ids:
+                return
+            if len(self.voice_control_ids) >= 256:
+                self.voice_control_ids.clear()
+            self.voice_control_ids.add(value['id'])
+            accepted = self.control.voice_mode(value)
+            if accepted:
+                self.voice_control_pending = {**value, 'epoch': self.control.mode_epoch,
+                                              'deadline': time.monotonic() + 4}
+                # Stop drive immediately; do not wait for the next controller tick.
+                self.drive_pub.publish(Twist())
+            else:
+                self.voice_control_ack.publish(String(data=json.dumps({
+                    'id': value['id'], 'mode': self.control.mode, 'accepted': False})))
+        except (ValueError, TypeError):
+            return
 
     def _mode(self, msg):
         self.applied_mode = msg.data
@@ -260,9 +287,7 @@ class RemoteController(Node):
             self.current = {n: math.degrees(v) for n, v in
                             zip(msg.name, msg.position) if math.isfinite(v)}
 
-    def _image(self, msg):
-        if getattr(self, 'local_compute_active', False):
-            return
+    def _video_image(self, msg):
         now = time.monotonic()
         if msg.encoding not in ('bgr8', 'rgb8'):
             return
@@ -288,8 +313,7 @@ class RemoteController(Node):
         navigation = getattr(self, 'navigation', None) if now - getattr(self, 'navigation_at', 0) < .5 else None
         return {'navigation': navigation, 'navigationRequested': self.control.navigation_enabled,
                 'version': 1, 'mode': self.control.mode, 'appliedMode': applied,
-                'camera': (not getattr(self, 'local_compute_active', False)
-                           and now - self.video_frame_time < 2),
+                'camera': now - self.video_frame_time < 2,
                 'driveAvailable': bool(navigation and navigation.get('motor_available')),
                 'joints': self.current,
                 'calibration': self.calibration,
@@ -302,6 +326,20 @@ class RemoteController(Node):
                             for name, (value, stamp) in self.sensors.items()}}
 
     def tick(self, dt):
+        if hasattr(self, 'voice_control_state'):
+            self.voice_control_state.publish(String(data=json.dumps({'epoch': self.control.mode_epoch, 'mode': self.control.mode, 'at': time.monotonic(), 'inhibited': self.control.voice_test_active})))
+            pending = self.voice_control_pending
+            if pending:
+                valid = pending['epoch'] == self.control.mode_epoch
+                applied = self.applied_mode == pending['mode'] and time.monotonic() - self.mode_time < .5
+                if not valid or applied or time.monotonic() > pending['deadline']:
+                    self.voice_control_ack.publish(String(data=json.dumps({
+                        'id': pending['id'], 'mode': self.control.mode, 'accepted': valid and applied,
+                        'epoch': self.control.mode_epoch, 'at': time.monotonic()})))
+                    self.voice_control_pending = None
+            if self.control.voice_stop_requested:
+                self.control.voice_stop_requested = False
+                self.voice_finish_pub.publish(String(data='manual'))
         voice = getattr(self, 'voice_status', None) or {}
         now = time.monotonic()
         readiness_reason = next((reason for valid, reason in (
@@ -353,13 +391,24 @@ async def serve(node):
                     lambda: LatestCameraTrack(
                         lambda: node.video_frame if time.monotonic() - node.video_frame_time < 2 else None,
                         node.get_parameter('video_fps').value), node.run_tool,
-                    lambda image_id: node.tool_images.get(image_id))
+                    lambda image_id: node.tool_images.get(image_id),
+                    publish_toolset=node.toolset_publisher.publish)
     runner = web.AppRunner(server.app)
     await runner.setup()
     transport = None
     try:
         port = node.get_parameter('port').value
         await web.TCPSite(runner, '0.0.0.0', port).start()
+        from .local_https import start_local_https
+        try:
+            https_port = node.get_parameter('https_port').value
+            https_directory = node.get_parameter('https_directory').value
+            if await start_local_https(runner, https_directory, https_port):
+                server.https_port = https_port
+                server.https_ca = Path(https_directory).expanduser() / 'root-ca.crt'
+                node.get_logger().info(f'Local PWA: https://<robot-ip>:{https_port}/; setup: /pwa-setup')
+        except (OSError, ValueError) as error:
+            node.get_logger().warning(f'Local HTTPS unavailable: {error}')
         try:
             transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
                 lambda: Discovery(port, node.get_parameter('robot_name').value),

@@ -27,7 +27,7 @@ def test_options_persist_without_changing_provider_schema_or_robot_defaults(tmp_
     saved = store.save(flow(options))
     store.publish(saved)
     assert store.snapshot(saved['id'])['settings']['voice'] == options
-    assert workflow_voice_settings(saved) == DEFAULT
+    assert workflow_voice_settings(saved) == {k: v for k, v in DEFAULT.items() if k != 'activation'}
     assert apply_voice_options({'vad_threshold': .4, 'tts_threads': 2}, saved) == {
         **options, 'tts_threads': 2}
     assert apply_voice_options({'vad_threshold': .4}, flow({})) == {'vad_threshold': .4}
@@ -177,3 +177,20 @@ def test_parent_deadline_never_stops_a_replacement_session(monkeypatch):
     asyncio.run(node._enforce_local_session_limit(node.local_process, 10))
     node._stop_session.assert_awaited_once()
     node._publish_state.assert_called_once_with('idle', 'Azami görüşme süresine ulaşıldı')
+
+
+def test_voice_node_waits_for_new_sdk_connection_state():
+    from kufibot_interaction.voice_agent_node import VoiceAgentNode
+
+    callbacks = []
+    session = SimpleNamespace(
+        on_connection_state=lambda callback: callbacks.append(callback) or callback)
+
+    async def scenario():
+        ready = VoiceAgentNode._connection_ready_future(session)
+        callbacks[0]('connecting')
+        assert not ready.done()
+        callbacks[0]('connected')
+        await ready
+
+    asyncio.run(scenario())

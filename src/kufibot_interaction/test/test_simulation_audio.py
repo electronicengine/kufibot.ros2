@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -141,6 +142,102 @@ def test_interrupt_discards_player_but_keeps_receiving():
 
 def test_legacy_pulse_alias_uses_native_pulse_playback():
     assert audio_command(False, 'pulse', 48000, 1) == audio_command(False, 'pulse:default', 48000, 1)
+
+
+def test_playback_has_room_for_network_and_scheduler_jitter():
+    assert '--latency-msec=100' in audio_command(False, 'pulse:default', 48000, 1)
+
+
+def test_capture_batches_do_not_insert_silence(monkeypatch):
+    async def run():
+        process = Mock(returncode=None, wait=AsyncMock())
+        process.stdout = asyncio.StreamReader()
+        process.stderr = asyncio.StreamReader()
+        process.stderr.feed_eof()
+        monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
+        mic = AlsaMicTrack('pulse:test', noise_gate_rms=0)
+        pcm = b'\x00\x10' * 160
+        process.stdout.feed_data(pcm * 2)
+        try:
+            await mic.start_capture()
+            frames = [await mic.recv(), await mic.recv()]
+            async def batch():
+                # A healthy recorder may take several frame durations to flush.
+                await asyncio.sleep(0.06)
+                process.stdout.feed_data(pcm * 4)
+            feeder = asyncio.create_task(batch())
+            for _ in range(4):
+                frames.append(await mic.recv())
+            await feeder
+            assert all(bytes(frame.planes[0]) == pcm for frame in frames)
+            assert [frame.pts for frame in frames] == list(range(0, 960, 160))
+            assert mic.silence_frames == 0
+        finally:
+            await mic.close_capture()
+    asyncio.run(run())
+
+
+def test_short_encoder_delays_do_not_accumulate_sample_clock_drift(monkeypatch):
+    async def run():
+        now = [10.0]
+        monkeypatch.setattr('kufibot_interaction.audio.time',
+                            SimpleNamespace(monotonic=lambda: now[0]))
+        mic = AlsaMicTrack('pulse:test', noise_gate_rms=0)
+        try:
+            for index in range(100):
+                # 1 ms late per frame must not become 100 ms of lost audio.
+                now[0] = 10.0 + index * 0.011
+                mic.queue.put_nowait(b'\x00\x10' * 160)
+                frame = await mic.recv()
+                assert frame.pts == index * 160
+            assert mic.next_frame_at == pytest.approx(11.0)
+            # A genuine long outage must not trigger seconds of catch-up.
+            now[0] = 20.0
+            mic.queue.put_nowait(b'\x00\x10' * 160)
+            await mic.recv()
+            assert mic.next_frame_at == pytest.approx(20.01)
+        finally:
+            await mic.close_capture()
+    asyncio.run(run())
+
+
+def test_half_duplex_mutes_echo_tail_then_restores_quiet_speech(monkeypatch):
+    async def run():
+        process = Mock(returncode=None, wait=AsyncMock())
+        process.stdout = asyncio.StreamReader()
+        process.stderr = asyncio.StreamReader()
+        process.stderr.feed_eof()
+        monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
+        mic = AlsaMicTrack('pulse:test', mute_during_playback=True,
+                           noise_gate_rms=0, playback_echo_tail_sec=0.02)
+        pcm = b'\x64\x00' * 160
+        mic.protect_playback_until(asyncio.get_running_loop().time())
+        process.stdout.feed_data(pcm)
+        try:
+            await mic.start_capture()
+            assert not any(bytes((await mic.recv()).planes[0]))
+            await asyncio.sleep(0.03)
+            process.stdout.feed_data(pcm)
+            assert bytes((await mic.recv()).planes[0]) == pcm
+        finally:
+            await mic.close_capture()
+    asyncio.run(run())
+
+
+def test_speaker_does_not_unmute_before_queued_voice_finishes():
+    from kufibot_interaction.audio import AlsaSpeaker
+    async def run():
+        async def pending():
+            await asyncio.Event().wait()
+        mic = Mock(bot_speaking=False)
+        speaker = AlsaSpeaker(Mock(recv=pending), 'pulse:test', mic)
+        try:
+            speaker._update_speaking(b'\x00\x10' * 48000)
+            await asyncio.sleep(0.45)
+            assert mic.bot_speaking
+        finally:
+            await speaker.close()
+    asyncio.run(run())
 
 
 def test_bluetooth_startup_longer_than_half_second_does_not_abort(monkeypatch):

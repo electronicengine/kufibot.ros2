@@ -66,6 +66,10 @@ class Config:
     lidar_yaw_offset_deg: float = 0.0
     camera_yaw_offset_deg: float = 0.0
     heading_tolerance_deg: float = 5.0
+    heading_correction_deadband_deg: float = 1.0
+    heading_correction_limit_deg: float = 20.0
+    heading_correction_gain_rad_per_deg: float = 0.02
+    heading_correction_max_angular_rad_s: float = 0.20
     scan_heading_tolerance_deg: float = 5.0
     reference_jump_m: float = 0.12
     no_progress_sec: float = 1.5
@@ -96,6 +100,10 @@ class Config:
         if self.head_sign not in (-1, 1) or self.compass_turn_sign not in (-1, 1):
             raise ValueError('direction signs must be -1 or +1')
         if (self.latency_margin_sec < 0 or self.heading_tolerance_deg <= 0
+                or self.heading_correction_deadband_deg < 0
+                or self.heading_correction_limit_deg <= self.heading_correction_deadband_deg
+                or self.heading_correction_gain_rad_per_deg <= 0
+                or self.heading_correction_max_angular_rad_s <= 0
                 or self.scan_heading_tolerance_deg <= 0 or self.reference_jump_m <= 0):
             raise ValueError("invalid safety margins")
         if (not 0 <= self.head_center_deg <= 180 or not 0 <= self.neck_horizontal_deg <= 120
@@ -1066,7 +1074,8 @@ class Navigator:
             self.finish_goto_with_snapshot('error', 'no_measured_progress')
             return
         self.state = 'advancing'
-        if abs(delta(self.body_heading(), s['origin_heading'])) > self.c.heading_tolerance_deg:
+        heading_error = delta(s['origin_heading'], self.body_heading())
+        if abs(heading_error) > self.c.heading_correction_limit_deg:
             self.finish_goto_with_snapshot('error', 'heading_deviation')
             return
         if self.sensors['range'][1] != s['range_at']:
@@ -1083,7 +1092,13 @@ class Navigator:
         if s['moved_m'] >= s['distance_m']:
             self.finish_goto_with_snapshot('ok')
         else:
-            self.drive = (self.c.linear_speed, 0.0)
+            correction = 0.0
+            if abs(heading_error) > self.c.heading_correction_deadband_deg:
+                correction = math.copysign(
+                    min(self.c.heading_correction_max_angular_rad_s,
+                        abs(heading_error) * self.c.heading_correction_gain_rad_per_deg),
+                    heading_error) * self.c.compass_turn_sign
+            self.drive = (self.c.linear_speed, correction)
 
     def _wait_for_obstacle(self, blocked, reason):
         s, now = self.step, self.clock()

@@ -44,7 +44,7 @@ class ObstacleNode(Node):
         self.publisher = self.create_publisher(String, 'perception/navigation_obstacles', 1)
         self.latest = None
         self.last_timestamp_ms = -1
-        self.create_subscription(Image, 'camera/image_raw', self._image, qos_profile_sensor_data)
+        self.create_subscription(Image, 'camera/stream', self._image, qos_profile_sensor_data)
         self.create_timer(1./self.settings['inference_fps'], self._detect)
 
     def _image(self, msg):

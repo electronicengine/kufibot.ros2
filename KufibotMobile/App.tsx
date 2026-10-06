@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import {CalibrationChart} from './src/CalibrationChart';
+import {HeardText} from './src/HeardText';
+import React, { useEffect, useRef, useState } from 'react';
 import { RTCView } from 'react-native-webrtc';
 import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +12,7 @@ import { useRobot } from './src/useRobot';
 import { DistanceMap } from './src/DistanceMap';
 import { MimicEditor } from './src/MimicEditor';
 import { AiSettingsPanel } from './src/AiSettingsPanel';
+import { VerasistAudioSettingsPanel } from './src/VerasistAudioSettings';
 import { WorkflowEditor } from './src/WorkflowEditor';
 
 
@@ -18,12 +21,15 @@ function Controller() {
   const [robots, setRobots] = useState<Robot[]>([]);
   const [selected, setSelected] = useState<Robot | null>(null);
   const [menu, setMenu] = useState(false);
-  const [page, setPage] = useState<'control' | 'connection' | 'voice' | 'calibration' | 'mimics'>('control');
+  const [page, setPage] = useState<'control' | 'connection' | 'voice' | 'verasist-audio' | 'calibration' | 'mimics'>('control');
   const [host, setHost] = useState('');
   const [discoveryError, setDiscoveryError] = useState('');
   const [aiTriggerUuid, setAiTriggerUuid] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
   const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [driveSpeed, setDriveSpeed] = useState(1);
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const detailsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const link = useRobot(selected);
   const s = link.state;
   const enabled = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !menu && page === 'control';
@@ -37,6 +43,17 @@ function Controller() {
       }, setDiscoveryError);
     } catch (error) { setDiscoveryError(`Keşif başlatılamadı: ${String(error)}`); }
   }, []);
+  useEffect(() => () => {
+    if (detailsTimer.current) clearTimeout(detailsTimer.current);
+  }, []);
+  const showDetails = () => {
+    if (detailsTimer.current) clearTimeout(detailsTimer.current);
+    setDetailsVisible(true);
+    detailsTimer.current = setTimeout(() => {
+      detailsTimer.current = null;
+      setDetailsVisible(false);
+    }, 6000);
+  };
   const value = (key: string, unit: string) => {
     const v = s?.sensors[key];
     return typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)} ${unit}` : `— ${unit}`;
@@ -83,16 +100,21 @@ function Controller() {
       <View style={styles.top}>
         <View style={styles.sensorGroup}>
           <Pressable accessibilityLabel="Bağlantı menüsü" onPress={openMenu}><Text style={styles.brand}>☰  KUFIBOT</Text></Pressable>
-          <Text style={styles.sensor}>AKIM       {value('current', 'A')}</Text>
-          <Text style={styles.sensor}>GERİLİM  {value('voltage', 'V')}</Text>
+          <Pressable accessibilityLabel="Ayrıntıları altı saniye göster" onPress={showDetails} style={styles.detailsButton}>
+            <Text style={styles.buttonText}>BİLGİ</Text>
+          </Pressable>
+          {detailsVisible && <><Text style={styles.sensor}>AKIM       {value('current', 'A')}</Text>
+            <Text style={styles.sensor}>GERİLİM  {value('voltage', 'V')}</Text>
+            <HeardText config={s?.aiConfig}/></>}
         </View>
         <View style={styles.centerTop}>
-          <View style={styles.modes}>{(['remote', 'ai'] as const).map(mode =>
+          {detailsVisible && <View style={styles.modes}>{(['remote', 'ai', 'tools'] as const).map(mode =>
             <Pressable key={mode} disabled={!s?.owner} onPress={() => {link.stop(); link.send({type: 'mode', mode});}}
               style={[styles.mode, s?.mode === mode && s.appliedMode === mode && styles.selected]}>
-              <Text style={styles.buttonText}>{mode === 'remote' ? 'KUMANDA' : 'YZ MODU'}</Text>
-            </Pressable>)}</View>
-          {s?.mode === 'ai' && <>
+              <Text style={styles.buttonText}>{mode === 'remote' ? 'KUMANDA' : mode === 'ai' ? 'YZ MODU' : 'ARAÇ ÇAĞIR'}</Text>
+            </Pressable>)}</View>}
+          {detailsVisible && s?.mode === 'ai' && <>
+            <Pressable disabled={!s.owner} style={styles.mode} onPress={() => link.send({type:'stopVoice'})}><Text style={styles.buttonText}>Görüşmeyi bitir</Text></Pressable>
             <Pressable accessibilityRole="switch" accessibilityState={{checked: !!s.navigation?.enabled}}
               accessibilityLabel="Serbest gezinme"
               disabled={!s.owner || s.aiConfig?.settings.provider !== 'verasist' ||
@@ -118,46 +140,57 @@ function Controller() {
               </View>}
             <Text style={styles.directionValue}>{headDirection === null ? '—°' : `${Math.round(headDirection)}°`}</Text>
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Haritalama pozisyonuna getir"
+          {detailsVisible && <Pressable accessibilityRole="button" accessibilityLabel="Haritalama pozisyonuna getir"
             disabled={!enabled} style={[styles.mode, styles.selected, !enabled && styles.disabled]}
             onPress={() => { if (enabled) { link.stop(); link.send({type: 'prepareMapping'}); } }}>
             <Text style={styles.buttonText}>Haritalama</Text>
-          </Pressable>
-          <Text style={styles.connection}>{link.connection}{selected ? ` · ${selected.host}` : ''}</Text>
-          <Pressable disabled={!enabled} onPress={() => joint('headLeftRight', 90)}>
-            <Text style={styles.hint}>Gövde {value('heading', '°')} · Kafa {typeof s?.joints.headLeftRight === 'number' ? Math.round(90-s.joints.headLeftRight) : '—'}° · Öne bak</Text>
-          </Pressable>
-          {!!s && s.appliedMode !== s.mode && <Text style={styles.warning}>Servo kontrolü bekleniyor</Text>}
-          {!!link.error && <Text style={styles.warning}>{link.error}</Text>}
+          </Pressable>}
+          {detailsVisible && <><Text style={styles.connection}>{link.connection}{selected ? ` · ${selected.host}` : ''}</Text>
+            <Pressable disabled={!enabled} onPress={() => joint('headLeftRight', 90)}>
+              <Text style={styles.hint}>Gövde {value('heading', '°')} · Kafa {typeof s?.joints.headLeftRight === 'number' ? Math.round(90-s.joints.headLeftRight) : '—'}° · Öne bak</Text>
+            </Pressable>
+            {!!s && s.appliedMode !== s.mode && <Text style={styles.warning}>Servo kontrolü bekleniyor</Text>}
+            {!!link.error && <Text style={styles.warning}>{link.error}</Text>}</>}
         </View>
-        <View style={styles.sensorGroup}>
+        {detailsVisible && <View style={styles.sensorGroup}>
           <Text style={[styles.brand, {textAlign: 'right'}]}>CANLI GÖRÜNTÜ</Text>
           <Text style={styles.sensor}>PUSULA  {value('heading', '°')}</Text>
           <Text style={styles.sensor}>MESAFE  {value('distance', 'm')}</Text>
-        </View>
+        </View>}
       </View>
       <View style={styles.bottom}>
         <View style={styles.controls}>
-          <View style={styles.eye}><Text style={styles.small}>SOL GÖZ</Text><Switch disabled={!enabled}
+          {detailsVisible && <View style={styles.eye}><Text style={styles.small}>SOL GÖZ</Text><Switch disabled={!enabled}
             value={(s?.joints.eyeLeft ?? 30) < 20} onValueChange={v => joint('eyeLeft', v ? 0 : 30)} trackColor={{true: '#4b6fd4'}}/></View>
-          <Joystick label={s?.driveAvailable ? 'HAREKET · TAM GÜÇ' : 'HAREKET · MOTOR YOK'} disabled={!enabled || !s?.driveAvailable} fourWay
-            onChange={(x, y) => link.input('drive', x, y)}/>
-          <Text style={styles.small}>SOL KOL</Text><Slider style={styles.slider} disabled={!enabled}
+          }
+          <View style={styles.driveControls}>
+            <View style={styles.speedControl}>
+              <Text style={styles.small}>HIZ</Text><Text style={styles.speedValue}>{Math.round(driveSpeed * 100)}%</Text>
+              <Slider accessibilityLabel="Sürüş hızı" style={styles.speedSlider}
+                disabled={!enabled || !s?.driveAvailable} minimumValue={.25} maximumValue={1} step={.05}
+                value={driveSpeed} minimumTrackTintColor="#4b6fd4" thumbTintColor="#7d9ef0"
+                onValueChange={setDriveSpeed}/>
+            </View>
+            <Joystick label={s?.driveAvailable ? `HAREKET · %${Math.round(driveSpeed * 100)} HIZ` : 'HAREKET · MOTOR YOK'} disabled={!enabled || !s?.driveAvailable} fourWay
+              onChange={(x, y) => link.input('drive', x * driveSpeed, y * driveSpeed)}/>
+          </View>
+          {detailsVisible && <><Text style={styles.small}>SOL KOL</Text><Slider style={styles.slider} disabled={!enabled}
             minimumValue={109} maximumValue={180} value={s?.joints.leftArm ?? 170}
-            minimumTrackTintColor="#4b6fd4" thumbTintColor="#7d9ef0" onSlidingComplete={v => joint('leftArm', v)}/>
+            minimumTrackTintColor="#4b6fd4" thumbTintColor="#7d9ef0" onSlidingComplete={v => joint('leftArm', v)}/></>}
         </View>
-        <View style={styles.centerBottom}>
+        {detailsVisible && <View style={styles.centerBottom}>
           <Pressable onPress={() => setMapOpen(true)} accessibilityLabel="Mesafe haritasını büyüt" style={styles.mapCard}>
             <DistanceMap map={s?.distanceMap} routePlan={s?.navigation?.route_plan} distance={s?.sensors.distance}/><Text style={styles.mapLabel}>CANLI MESAFE HARİTASI</Text>
           </Pressable>
-        </View>
+        </View>}
         <View style={styles.controls}>
-          <View style={styles.eye}><Text style={styles.small}>SAĞ GÖZ</Text><Switch disabled={!enabled}
+          {detailsVisible && <View style={styles.eye}><Text style={styles.small}>SAĞ GÖZ</Text><Switch disabled={!enabled}
             value={(s?.joints.eyeRight ?? 150) > 160} onValueChange={v => joint('eyeRight', v ? 170 : 150)} trackColor={{true: '#4b6fd4'}}/></View>
+          }
           <Joystick label="KAFA" disabled={!enabled} onChange={(x, y) => link.input('head', x, y)}/>
-          <Text style={styles.small}>SAĞ KOL</Text><Slider style={styles.slider} disabled={!enabled}
+          {detailsVisible && <><Text style={styles.small}>SAĞ KOL</Text><Slider style={styles.slider} disabled={!enabled}
             minimumValue={10} maximumValue={72} value={s?.joints.rightArm ?? 15}
-            minimumTrackTintColor="#4b6fd4" thumbTintColor="#7d9ef0" onSlidingComplete={v => joint('rightArm', v)}/>
+            minimumTrackTintColor="#4b6fd4" thumbTintColor="#7d9ef0" onSlidingComplete={v => joint('rightArm', v)}/></>}
         </View>
       </View>
       {!selected && <Pressable onPress={openMenu} style={styles.connectButton}><Text style={styles.buttonText}>BAĞLANTI AYARLARI</Text></Pressable>}
@@ -165,13 +198,14 @@ function Controller() {
     <Modal visible={menu} transparent animationType="slide" onRequestClose={() => setMenu(false)}>
       <View style={styles.drawerShell}><Pressable style={styles.drawerScrim} onPress={() => setMenu(false)}/><SafeAreaView style={styles.drawer}>
         <View style={styles.drawerHead}><View style={styles.drawerIcon}><Text style={styles.drawerIconText}>K</Text></View><View><Text style={styles.drawerTitle}>KUFIBOT</Text><Text style={styles.drawerSub}>CONTROL CENTER</Text></View></View>
-        {([['control', '⌁', 'Kontrol Arayüzü', 'Canlı sürüş ve kamera'], ['connection', '⌘', 'Bağlantı Ayarları', 'Robot ve ağ erişimi'], ['voice', '◉', 'Ses Ajanı', 'Sağlayıcı ve iş akışı'], ['calibration', '◌', 'Kalibrasyon', 'Pusula ölçümleri'], ['mimics', '✦', 'Mimik Editörü', '3D hareket düzenleme']] as const).map(([key, icon, title, subtitle]) => <Pressable key={key} onPress={() => goPage(key)} style={[styles.drawerItem, page === key && styles.drawerSelected]}><Text style={styles.navIcon}>{icon}</Text><View><Text style={styles.navTitle}>{title}</Text><Text style={styles.navSub}>{subtitle}</Text></View></Pressable>)}
+        {([['control', '⌁', 'Kontrol Arayüzü', 'Canlı sürüş ve kamera'], ['connection', '⌘', 'Bağlantı Ayarları', 'Robot ve ağ erişimi'], ['voice', '◉', 'Ses Ajanı', 'Sağlayıcı ve iş akışı'], ['verasist-audio', '◌', 'Verasist Ses', 'AEC, gürültü ve kesilme'], ['calibration', '◌', 'Kalibrasyon', 'Pusula ölçümleri'], ['mimics', '✦', 'Mimik Editörü', '3D hareket düzenleme']] as const).map(([key, icon, title, subtitle]) => <Pressable key={key} onPress={() => goPage(key)} style={[styles.drawerItem, page === key && styles.drawerSelected]}><Text style={styles.navIcon}>{icon}</Text><View><Text style={styles.navTitle}>{title}</Text><Text style={styles.navSub}>{subtitle}</Text></View></Pressable>)}
       </SafeAreaView></View>
     </Modal>
-    {page !== 'control' && page !== 'mimics' && <SafeAreaView style={styles.page}><View style={styles.pageHeader}><Pressable onPress={() => goPage('control')} style={styles.headerButton}><Text style={styles.headerText}>←</Text></Pressable><View style={{flex: 1}}><Text style={styles.pageKicker}>KUFIBOT CONTROL · AYARLAR</Text><Text style={styles.panelTitle}>{({connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', calibration: 'Kalibrasyon'} as const)[page]}</Text></View><Pressable onPress={openMenu} style={styles.headerButton}><Text style={styles.headerText}>☰</Text></Pressable></View><ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
+    {page !== 'control' && page !== 'mimics' && <SafeAreaView style={styles.page}><View style={styles.pageHeader}><Pressable onPress={() => goPage('control')} style={styles.headerButton}><Text style={styles.headerText}>←</Text></Pressable><View style={{flex: 1}}><Text style={styles.pageKicker}>KUFIBOT CONTROL · AYARLAR</Text><Text style={styles.panelTitle}>{({connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', 'verasist-audio': 'Verasist Ses', calibration: 'Kalibrasyon'} as const)[page]}</Text></View><Pressable onPress={openMenu} style={styles.headerButton}><Text style={styles.headerText}>☰</Text></Pressable></View><ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
       {page === 'connection' && <><Text style={styles.muted}>Aynı Wi-Fi ağı · UDP keşfi / WebSocket kontrolü</Text>{robots.map(robot => <Pressable key={`${robot.host}:${robot.port}`} style={styles.robot} onPress={() => {link.stop(); setSelected(robot); goPage('control');}}><Text style={styles.buttonText}>{robot.name} · {robot.host}:{robot.port}</Text></Pressable>)}{!robots.length && <Text style={styles.help}>Robot aranıyor. Telefon ve robot aynı ağda olmalı.</Text>}<TextInput value={host} onChangeText={setHost} placeholder="192.168.1.20:8080" placeholderTextColor="#799099" style={styles.input} autoCapitalize="none" autoCorrect={false} keyboardType="numbers-and-punctuation"/><Text style={styles.warning}>{discoveryError}</Text><Pressable style={styles.robot} onPress={manual}><Text style={styles.buttonText}>IP ile bağlan</Text></Pressable>{!!s && !s.owner && <Pressable style={styles.robot} onPress={() => link.send({type: 'claim'})}><Text style={styles.buttonText}>Kumandayı devral</Text></Pressable>}</>}
       {page === 'voice' && <><AiSettingsPanel config={s?.aiConfig} owner={!!s?.owner} send={link.send} status={s?.voiceStatus} error={link.error}/>{s?.aiConfig?.settings.provider !== 'local' && <><Text style={styles.panelSection}>YZ İş Akışı</Text><Text style={styles.help}>Verasist iş akışı trigger UUID değerini girin.</Text><TextInput value={aiTriggerUuid} onChangeText={setAiTriggerUuid} placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" placeholderTextColor="#799099" style={styles.input}/><Pressable disabled={!s?.owner || !validAiTriggerUuid} style={[styles.robot, (!s?.owner || !validAiTriggerUuid) && styles.disabled]} onPress={startAiWorkflow}><Text style={styles.buttonText}>YZ iş akışını başlat</Text></Pressable></>}</>}
-      {page === 'calibration' && <><Text style={styles.help}>Robotu yatay tutun, metal ve mıknatıslardan uzak şekilde yavaşça birkaç tam tur çevirin.</Text><Pressable disabled={!canCalibrateCompass} style={[styles.robot, !canCalibrateCompass && styles.disabled]} onPress={startCompassCalibration}><Text style={styles.buttonText}>{compassCalibrating ? 'Kalibrasyon sürüyor' : 'Pusulayı kalibre et'}</Text></Pressable><Text style={styles.calibrationInfo}>{s?.calibration ? `${s.calibration.message}${compassCalibrating ? ` (${s.calibration.samples}/${s.calibration.target})` : ''}` : 'Pusula sensörü bekleniyor'}</Text><View style={styles.calibrationValues}>{(['HAM X', 'HAM Y', 'MİN X', 'MAKS X', 'MİN Y', 'MAKS Y'] as const).map((label, index) => <Text key={label} style={styles.calibrationValue}>{label}  {calibrationValue(index < 2 ? 'raw' : index < 4 ? (index === 2 ? 'minimum' : 'maximum') : (index === 4 ? 'minimum' : 'maximum'), index % 2 === 0 ? 'x' : 'y')}</Text>)}</View></>}
+      {page === 'verasist-audio' && <VerasistAudioSettingsPanel key={selected ? `${selected.host}:${selected.port}` : "offline"} config={s?.aiConfig} owner={!!s?.owner} send={link.send} token={s?.workflowToken} origin={selected ? `http://${selected.host}:${selected.port}` : undefined}/>}
+      {page === 'calibration' && <><Text style={styles.help}>Robotu yatay tutun, metal ve mıknatıslardan uzak şekilde yavaşça birkaç tam tur çevirin.</Text><Pressable disabled={!canCalibrateCompass} style={[styles.robot, !canCalibrateCompass && styles.disabled]} onPress={startCompassCalibration}><Text style={styles.buttonText}>{compassCalibrating ? 'Kalibrasyon sürüyor' : 'Pusulayı kalibre et'}</Text></Pressable><Text style={styles.calibrationInfo}>{s?.calibration ? `${s.calibration.message}${compassCalibrating ? ` (${s.calibration.samples}/${s.calibration.target})` : ''}` : 'Pusula sensörü bekleniyor'}</Text>{compassCalibrating && <><CalibrationChart data={s?.calibration} title="Canlı açı kapsamı"/><Text style={styles.help}>Her 10° dilimde üç ölçüm gerekir. Merkez hesaplandıkça açı dağılımı güncellenebilir.</Text></>}<CalibrationChart data={s?.calibration?.last_result} title="Son kaydedilen kalibrasyon"/><View style={styles.calibrationValues}>{(['HAM X', 'HAM Y', 'MİN X', 'MAKS X', 'MİN Y', 'MAKS Y'] as const).map((label, index) => <Text key={label} style={styles.calibrationValue}>{label}  {calibrationValue(index < 2 ? 'raw' : index < 4 ? (index === 2 ? 'minimum' : 'maximum') : (index === 4 ? 'minimum' : 'maximum'), index === 0 || index === 2 || index === 3 ? 'x' : 'y')}</Text>)}</View></>}
     </ScrollView></SafeAreaView>}
     {page === 'voice' && selected && <Pressable style={styles.robot} onPress={()=>setWorkflowOpen(true)}><Text style={styles.buttonText}>◈ Local Workflow düzenle</Text></Pressable>}
     {selected && <WorkflowEditor visible={workflowOpen} robot={selected} state={s} event={link.workflowEvent} subscribe={link.subscribeWorkflow} send={link.send} onClose={()=>setWorkflowOpen(false)}/>}
@@ -193,6 +227,7 @@ const styles = StyleSheet.create({
   top: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'},
   sensorGroup: {gap: 5, width: 160}, brand: {fontWeight: '700', fontSize: 12, color: '#f7f9ff', letterSpacing: 1, paddingVertical: 6},
   sensor: {color: '#e9effd', backgroundColor: '#17233dee', borderLeftColor: '#4b6fd4', borderLeftWidth: 2, padding: 6, fontSize: 12, fontVariant: ['tabular-nums']},
+  detailsButton: {alignSelf: 'flex-start', backgroundColor: '#17233dee', borderColor: '#4d70d388', borderWidth: 1, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 6},
   centerTop: {alignItems: 'center', flex: 1, paddingHorizontal: 8}, modes: {flexDirection: 'row', backgroundColor: '#111319ee', borderRadius: 8, padding: 3},
   mode: {paddingHorizontal: 14, paddingVertical: 12, borderRadius: 6}, selected: {backgroundColor: '#4b6fd4'},
   headDirection: {width: 70, height: 70, marginVertical: 6, borderRadius: 35, borderWidth: 1, borderColor: '#4d70d388', backgroundColor: '#17233dee', overflow: 'hidden'},
@@ -201,6 +236,8 @@ const styles = StyleSheet.create({
   buttonText: {fontSize: 12, color: '#f7f9ff', fontWeight: '600'}, connection: {color: '#bdd0f9', fontSize: 11, marginTop: 7},
   warning: {color: '#7d9ef0', fontSize: 11, marginTop: 4},
   bottom: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end'}, controls: {width: 170, alignItems: 'center'},
+  driveControls: {flexDirection: 'row', alignItems: 'center', marginLeft: -104}, speedControl: {width: 112, height: 156, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 3},
+  speedValue: {color: '#e9effd', fontSize: 16, fontVariant: ['tabular-nums']}, speedSlider: {position: 'absolute', width: 170, height: 96, transform: [{rotate: '-90deg'}]},
   eye: {flexDirection: 'row', alignItems: 'center', height: 32, marginBottom: 4}, small: {color: '#bdd0f9', fontSize: 10, letterSpacing: 1}, slider: {width: 170, height: 26},
   centerBottom: {alignItems: 'center', flex: 1, marginBottom: 22}, mapCard: {padding: 5, borderColor: '#4d70d388', borderWidth: 1, borderRadius: 8, backgroundColor: '#111319aa'}, mapLabel: {fontSize: 8, letterSpacing: 1, color: '#bdd0f9', textAlign: 'center', paddingTop: 3}, mapModal: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#03040add'}, mapLargeCard: {alignItems: 'center', backgroundColor: '#111319', borderColor: '#4d70d3', borderWidth: 1, borderRadius: 12, padding: 20}, stop: {borderColor: '#fb7777', borderWidth: 1, borderRadius: 12, backgroundColor: '#6a2025dd', paddingHorizontal: 28, paddingVertical: 13},
   stopText: {fontWeight: '700', letterSpacing: 3, color: '#fff'}, hint: {fontSize: 10, color: '#bdd0f9', marginTop: 10, textAlign: 'center'},

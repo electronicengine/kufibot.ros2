@@ -3,7 +3,7 @@ dc_motor_node:
     # Reverse the complete drivetrain polarity to match the robot's wiring.
     invert_left: false
     invert_right: true
-    navigation_calibrated: false
+    navigation_calibrated: true
     navigation_max_linear: 0.5
     navigation_max_angular: 5.0
 
@@ -18,23 +18,27 @@ voice_agent_node:
     speaker_device: "pulse:bluez_output.04_57_91_5A_8E_B7.1"
     ice_timeout_sec: 30.0
     sensor_max_age_sec: 2.0
-    mute_mic_during_playback: true
+    # Verasist records the upstream RTP audio. Do not replace user speech with
+    # silence while the assistant is playing; server-side VAD handles turns.
+    mute_mic_during_playback: false
     mic_noise_gate_rms: 0.0
     mic_noise_gate_hangover_sec: 0.5
     # Adaptive noise postfilter after PipeWire AEC; 0 disables it.
     mic_noise_suppression_db: -25.0
-    # Raise interruption energy only during local playback and its echo tail.
-    # 0 RMS disables the guard. Accepted speech retains its initial 180 ms.
-    mic_barge_in_rms: 4000.0
+    # Keep the upstream recording continuous. A device-side interruption gate
+    # can suppress quiet user speech before Verasist receives it.
+    mic_barge_in_rms: 0.0
     mic_barge_in_start_sec: 0.28
     mic_playback_echo_tail_sec: 1.2
     camera_max_age_sec: 1.0
     camera_jpeg_max_width: 640
     camera_jpeg_quality: 80
+    camera_sample_fps: 5.0
     camera_send_cooldown_sec: 2.0
     camera_attach_to_every_user_turn: false
-    # The remote-control boot starts the voice session only after a client
-    # selects AI mode.  Manual service start remains available in AI mode.
+    # Boot in remote mode; local wake STT runs without a provider session.
+    # AI selection and voice_session/start also run the greeting/session cycle.
+    # Legacy auto_start/mode gating is superseded by voice activation.
     auto_start: false
     remote_mode_controls_voice: true
     expression_model_path: "/usr/local/ai.models/llamaModel/mxbaiV1.gguf"
@@ -66,7 +70,7 @@ usb_camera_node:
     device: "auto"
     width: 640
     height: 480
-    fps: 15.0
+    fps: 30.0
     use_mjpeg: true
     buffer_size: 1
     frame_id: "camera_link"
@@ -77,7 +81,7 @@ mediapipe_node:
   ros__parameters:
     # Face/hand model and tracking logic are unchanged; process newest frames
     # at a bounded rate so video encoding keeps CPU time on Raspberry Pi.
-    inference_fps: 10.0
+    inference_fps: 15.0
     min_detection_confidence: 0.6
     target_timeout_sec: 0.25
     error_threshold_px: 70.0
@@ -108,20 +112,22 @@ remote_controller:
     port: 8080
     discovery_port: 8888
     robot_name: Kufibot
-    # Low-latency view profile; raise these on a fast robot/network if needed.
-    video_max_width: 480
-    video_fps: 15.0
+    # Stream the camera at its native resolution and frame rate. Lower either
+    # value only when the robot cannot encode the feed in real time.
+    video_max_width: 0
+    video_fps: 30.0
 
-# Enable both calibrated flags only after completing docs/navigation.md.
+# Physical footprint confirmed at approximately 28 cm wide; use its 14 cm
+# radius for navigation clearance and permit the navigation motor profile.
 navigation_node:
   ros__parameters:
     visual_safety_required: true
     visual_age_sec: 1.0
     obstacle_wait_sec: 30.0
     obstacle_clear_sec: 0.75
-    calibrated: false
-    circular_footprint: false
-    body_radius_m: 0.20
+    calibrated: true
+    circular_footprint: true
+    body_radius_m: 0.14
     lidar_forward_offset_m: 0.0
     stopping_distance_m: 0.15
     clearance_m: 0.10

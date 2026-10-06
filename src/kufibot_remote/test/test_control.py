@@ -11,6 +11,7 @@ def controller():
     control = Control(clock=lambda: now[0])
     owner = object()
     control.command(owner, {'type': 'claim'})
+    control.command(owner, {'type': 'mode', 'mode': 'remote'})
     return control, owner, now
 
 
@@ -68,6 +69,13 @@ def test_only_one_controller_and_ai_blocks_motion(controller):
     assert control.tick(.05, {}) == (0, 0)
     control.command(owner, {'type': 'mode', 'mode': 'remote'})
     assert control.axes['head_x'] == 0
+
+
+def test_ai_mode_keeps_manual_input_rejected(controller):
+    control, owner, _ = controller
+    control.command(owner, {'type': 'mode', 'mode': 'ai'})
+    with pytest.raises(ValueError, match='Kumanda modu gerekli'):
+        control.command(owner, {'type': 'input', 'drive_y': 1})
 
 
 @pytest.mark.parametrize('value', [math.nan, math.inf, '1', True, None, 1.1])

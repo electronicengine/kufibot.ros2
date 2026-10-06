@@ -104,6 +104,23 @@ def test_disabled_camera_does_not_upload():
     asyncio.run(run())
 
 
+def test_consecutive_turns_each_attach_the_latest_frame():
+    async def run():
+        node = camera_node()
+        for turn_id, width in [('one', 320), ('two', 160)]:
+            node.latest_camera_image = snapshot(width, 120)
+            node._voice_event(node.session, {
+                'type': 'rtf-user-turn-started', 'payload': {'turn_id': turn_id}})
+            await node.camera_turn_task
+        calls = node.session.send_image.await_args_list
+        assert [call.kwargs['turn_id'] for call in calls] == ['one', 'two']
+        assert all(call.kwargs['trigger_response'] is False for call in calls)
+        assert [cv2.imdecode(np.frombuffer(call.kwargs['image_bytes'], np.uint8),
+                            cv2.IMREAD_COLOR).shape[1] for call in calls] == [320, 160]
+        assert node.session.complete_camera_turn.await_count == 2
+    asyncio.run(run())
+
+
 def test_missing_camera_completes_turn_without_image():
     async def run():
         node = camera_node()

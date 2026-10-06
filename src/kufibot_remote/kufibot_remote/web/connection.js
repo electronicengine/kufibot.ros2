@@ -66,8 +66,8 @@ export class RobotConnection extends EventTarget {
     // Focus/layout changes end manual gestures. Explicit STOP and connection
     // loss still revoke autonomous navigation through stop().
     this.axes = zero();
-    if (this.state?.mode !== 'ai' || this.pendingMode) this.stop();
-    else this.emit('reset');
+    if (this.ready) this.send({type: 'input', ...this.axes});
+    this.emit('reset');
   }
 
   setMode(mode) {
@@ -185,6 +185,9 @@ export class RobotConnection extends EventTarget {
           if (data.type === 'error') {
             if (data.command === 'mode') this.pendingMode = null;
             if (data.command === 'claim') this.claimPending = false;
+            // A final joystick packet can arrive after the AI mode change.
+            // The server still rejects it; it is not an actionable UI error.
+            if (data.command === 'input' && this.state?.mode !== 'remote') return;
             this.emit('error', String(data.message));
           } else if (['claim', 'mode', 'joint'].includes(data.command)) {
             if (data.command === 'claim') this.claimPending = false;

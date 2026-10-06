@@ -10,7 +10,7 @@ from av import VideoFrame
 class LatestCameraTrack(VideoStreamTrack):
     """Encode only the newest frame; never retain a video backlog."""
 
-    def __init__(self, get_frame, fps=15):
+    def __init__(self, get_frame, fps=30):
         super().__init__()
         self.get_frame = get_frame
         self.fps = max(1, int(fps))
@@ -18,8 +18,7 @@ class LatestCameraTrack(VideoStreamTrack):
         self.next_frame_at = 0.0
 
     async def recv(self):
-        # VideoStreamTrack defaults to 30 FPS. Do not encode duplicate frames
-        # at that rate on a Pi when the camera delivers 12–15 FPS.
+        # Pace output at the camera rate and always encode the newest frame.
         now = time.monotonic()
         if self.started_at is None:
             self.started_at = now

@@ -119,7 +119,7 @@ def test_neck_bottom_is_level_and_only_looks_up(node):
 
 def test_neck_angle_is_visible_in_the_web_camera(node):
     frames = []
-    node.image_pub.publish = lambda msg: frames.append(bytes(msg.data))
+    node.stream_pub.publish = lambda msg: frames.append(bytes(msg.data))
     node._joint_states(JointState(name=['neck'], position=[0.0]))
     node._publish_camera()
     level = frames[-1]

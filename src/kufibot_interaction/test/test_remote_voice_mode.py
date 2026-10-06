@@ -120,7 +120,8 @@ def test_provider_switch_stops_before_restart(monkeypatch):
     import json
     asyncio.run(node._apply_ai_settings(json.dumps(settings)))
     assert order == ['stop', 'start']
-    assert node.ai_settings == {**settings, 'camera_attach_to_every_user_turn': False}
+    from kufibot_interaction.voice_activation import DEFAULT_ACTIVATION
+    assert node.ai_settings == {**settings, 'camera_attach_to_every_user_turn': False, 'activation': DEFAULT_ACTIVATION}
 
 
 def test_local_events_publish_transcripts_and_report_worker_failure():
@@ -193,19 +194,36 @@ def test_sdk_api_key_starts_voice_session(monkeypatch):
     node._stop_session.assert_not_awaited()
 
 
-def test_camera_setting_applies_without_session_restart(monkeypatch):
+@pytest.mark.parametrize('activation_active', [False, True])
+@pytest.mark.parametrize('enabled', [False, True])
+def test_camera_setting_applies_without_session_restart(monkeypatch, activation_active, enabled):
     from kufibot_interaction.ai_settings import DEFAULT
     import json
     node = voice_node()
-    node.ai_settings = dict(DEFAULT)
+    node.ai_settings = {**DEFAULT, 'camera_attach_to_every_user_turn': not enabled}
+    node.camera_attach_to_every_user_turn = not enabled
+    node.camera_turn_task = Mock()
+    node.camera_status = 'old camera error'
+    if activation_active:
+        node.activation = Mock()
+        node.session_active = True
+        node.pending_voice_settings = {**node.ai_settings, 'system_prompt': 'Pending prompt'}
     node.session = Mock(configure_camera_turns=AsyncMock())
     node._publish_ai_settings = Mock()
     monkeypatch.setattr('kufibot_interaction.voice_agent_node.save_settings', Mock())
-    asyncio.run(node._apply_ai_settings(json.dumps({**DEFAULT, 'camera_attach_to_every_user_turn': True})))
-    node.session.configure_camera_turns.assert_awaited_once_with(True)
+    asyncio.run(node._apply_ai_settings(json.dumps({**DEFAULT, 'camera_attach_to_every_user_turn': enabled})))
+    node.session.configure_camera_turns.assert_awaited_once_with(enabled)
     node._stop_session.assert_not_awaited()
     node._start_session.assert_not_awaited()
-    assert node.camera_attach_to_every_user_turn is True
+    assert node.camera_attach_to_every_user_turn is enabled
+    assert node.ai_settings['camera_attach_to_every_user_turn'] is enabled
+    if activation_active:
+        assert node.pending_voice_settings['camera_attach_to_every_user_turn'] is enabled
+        assert node.pending_voice_settings['system_prompt'] == 'Pending prompt'
+        node.activation.settings_changed.assert_not_called()
+    if not enabled:
+        node.camera_turn_task.cancel.assert_called_once()
+        assert node.camera_status == ''
 
 
 def test_old_client_save_preserves_camera_setting(monkeypatch):
@@ -221,3 +239,28 @@ def test_old_client_save_preserves_camera_setting(monkeypatch):
     asyncio.run(node._apply_ai_settings(json.dumps(old)))
     assert save.call_args.args[0]['camera_attach_to_every_user_turn'] is True
     node._start_session.assert_not_awaited()
+
+
+def test_activation_settings_preserved_for_old_client_and_deferred(monkeypatch):
+    import json
+    from copy import deepcopy
+    from kufibot_interaction.ai_settings import DEFAULT
+    node = voice_node()
+    node.ai_settings = deepcopy(DEFAULT)
+    node.ai_settings['activation']['phrase'] = 'Merhaba robot'
+    node.ai_settings_error = ''
+    node.session_active = True
+    node.pending_voice_settings = None
+    node.session = None
+    node.activation = Mock(phase='session', settings_changed=AsyncMock())
+    node._publish_ai_settings = Mock()
+    monkeypatch.setattr('kufibot_interaction.voice_agent_node.save_settings', Mock())
+    incoming = {k:v for k,v in node.ai_settings.items() if k != 'activation'}
+    incoming['system_prompt'] = 'Yeni talimat'
+    asyncio.run(node._apply_ai_settings(json.dumps(incoming)))
+    assert node.pending_voice_settings['activation']['phrase'] == 'Merhaba robot'
+    assert node.ai_settings['system_prompt'] == ''
+    node._stop_session.assert_not_awaited()
+    node._start_session.assert_not_awaited()
+    node._apply_pending_voice_settings()
+    assert node.ai_settings['system_prompt'] == 'Yeni talimat'

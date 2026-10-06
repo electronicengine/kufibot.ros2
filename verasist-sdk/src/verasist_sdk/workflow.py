@@ -12,6 +12,8 @@ Wire format matches `ReactFlowDTO` from `api/services/workflow/dto.py`
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +62,7 @@ class Workflow:
     """
 
     def __init__(self, *, client: VerasistClient, name: str = "", description: str = ""):
+        self.sdk_tool_settings: dict[str, dict[str, str]] = {}
         self._client = client
         self.name = name
         self.description = description
@@ -169,6 +172,7 @@ class Workflow:
         `WorkflowGraph` constructor — no translation layer needed.
         """
         return {
+            **({"sdk_tool_settings": deepcopy(self.sdk_tool_settings)} if self.sdk_tool_settings else {}),
             "nodes": [
                 {
                     "id": n.id,
@@ -204,6 +208,7 @@ class Workflow:
         SDK objects, let the LLM mutate in code, serialize back.
         """
         wf = cls(client=client, name=name)
+        wf.sdk_tool_settings = deepcopy(data.get("sdk_tool_settings", {}))
         # Rebuild nodes in the same order, preserving IDs.
         for raw in data.get("nodes", []):
             node_id = str(raw.get("id"))

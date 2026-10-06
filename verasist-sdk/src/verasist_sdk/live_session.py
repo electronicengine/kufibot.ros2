@@ -65,12 +65,14 @@ import inspect
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ._generated_models import (
     DeviceToolSchema,
     StartLiveSessionRequest,
     StartLiveSessionResponse,
+    SdkToolset,
 )
 from .errors import VerasistSdkError
 
@@ -130,6 +132,8 @@ class LiveSession:
         self._pc_id = f"sdk-{uuid.uuid4().hex}"
         self._listener_task: asyncio.Task | None = None
         self._closed_event = asyncio.Event()
+        self._session_ready = asyncio.Event()
+        self._scheduling: dict[str, Any] | None = None
         self._close_reason: dict[str, Any] | None = None
 
         self._track_callbacks: list[Callable[[Any], None]] = []
@@ -169,6 +173,17 @@ class LiveSession:
         if func is not None:
             return decorator(func)
         return decorator
+
+    async def publish_toolset(self, workflow_uuid: str) -> SdkToolset:
+        """Publish registered tool schemas to the workflow editor (no handlers)."""
+        return await asyncio.to_thread(
+            self._client.publish_toolset,
+            workflow_uuid,
+            [
+                {"name": tool.name, "description": tool.description, "parameters": tool.parameters}
+                for tool in self._tools.values()
+            ],
+        )
 
     def on_track(self, callback: Callable[[Any], None]) -> Callable[[Any], None]:
         """Register a callback invoked with each inbound `MediaStreamTrack`
@@ -258,6 +273,7 @@ class LiveSession:
 
         self.session_token = resp.session_token
         self.workflow_run_id = resp.workflow_run_id
+        self._scheduling = resp.scheduling
         return resp
 
     async def connect(
@@ -312,6 +328,13 @@ class LiveSession:
         self._ws = await websockets.connect(self._build_ws_url(), max_size=None)
         self._listener_task = asyncio.create_task(self._listen())
 
+        if self._scheduling is not None:
+            try:
+                await self._wait_for_assignment()
+            except BaseException:
+                await self.close()
+                raise
+
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
 
@@ -331,6 +354,28 @@ class LiveSession:
             self._ice_timeout_task = asyncio.create_task(
                 self._watch_ice_timeout(ice_timeout_secs)
             )
+
+    async def _wait_for_assignment(self) -> None:
+        timeout = 90.0
+        scheduling = self._scheduling or {}
+        deadline = scheduling.get("deadline") if scheduling.get("state") in {"queued_org", "queued_system"} else None
+        if deadline:
+            end = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+            timeout = max(0.0, (end - datetime.now(timezone.utc)).total_seconds()) + 1
+        ready = asyncio.create_task(self._session_ready.wait())
+        closed = asyncio.create_task(self._closed_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {ready, closed}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+            if self._closed_event.is_set():
+                raise VerasistSdkError("Session closed while waiting for worker assignment")
+            if ready not in done:
+                raise VerasistSdkError("Timed out waiting for worker assignment")
+        finally:
+            ready.cancel()
+            closed.cancel()
+            await asyncio.gather(ready, closed, return_exceptions=True)
 
     async def wait_closed(self) -> dict[str, Any] | None:
         """Block until the session ends (server sends `call-ended`, the
@@ -502,7 +547,12 @@ class LiveSession:
         msg_type = message.get("type")
         payload = message.get("payload") or {}
 
-        if msg_type == "answer":
+        if msg_type == "session-ready":
+            self._session_ready.set()
+        elif msg_type == "scheduling":
+            for callback in self._connection_state_callbacks:
+                callback(payload.get("state", "queued_org"))
+        elif msg_type == "answer":
             assert self.pc is not None
             await self.pc.setRemoteDescription(
                 RTCSessionDescription(sdp=payload["sdp"], type="answer")

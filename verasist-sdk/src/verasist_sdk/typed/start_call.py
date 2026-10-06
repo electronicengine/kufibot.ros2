@@ -20,6 +20,10 @@ class StartCall_Extraction_variablesRow:
     and extraction hint.
     """
 
+    show_in_run_table: bool = False
+    """
+    Display this extracted variable in the execution table.
+    """
     name: str
     """
     snake_case identifier used downstream.
@@ -138,5 +142,11 @@ class StartCall(TypedNode):
     pre_call_fetch_credential_uuid: Optional[str] = None
     """
     Optional credential attached to the pre-call request.
+    """
+
+    sdk_tool_names: Optional[list[str]] = None
+    """
+    Only SDK tools explicitly connected to this node are available. Missing,
+    null or empty selections disable SDK tools.
     """
 

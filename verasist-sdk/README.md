@@ -138,3 +138,38 @@ For robot sessions, `connect(call_context_vars={"device_barge_in": True})` enabl
 full-duplex interruption during greetings and tool work without changing other
 clients' mute policy. AEC belongs in the device audio path; the Python SDK does
 not automatically echo-cancel raw audio tracks.
+## Publish SDK tools to a workflow
+
+Publish the same schemas your application registers at runtime:
+
+```python
+client.publish_toolset("WORKFLOW_UUID", [
+    {"name": "sdk_cart", "description": "Read the shopping cart",
+     "parameters": {"type": "object", "properties": {}}}
+])
+```
+
+For tools registered with `@session.tool(...)`, use
+`await session.publish_toolset("WORKFLOW_UUID")` to publish all registered
+schemas automatically. This requires an API key belonging to the workflow's
+organization. It does not connect the session or upload executable handlers.
+
+In the workflow editor, open the **SDK tools** tab and click **Refresh**.
+Click a tool card to add it to the canvas, then connect it to a start/agent
+node's tool port. You can also select tools in the node's resource settings. SDK tools are executed
+by the existing session transport; publishing alone does not make them callable.
+Only SDK tools explicitly connected to the active node are exposed to the LLM.
+Nodes with missing, null or empty selections cannot use SDK tools.
+
+Publishing replaces the entire catalog for that workflow, without changing
+its draft or published versions. Publish `[]` to clear the catalog. Removed
+names remain visible as missing in node settings until you remove the selection.
+The catalog is shared across workflow versions; node selections are versioned.
+
+## Standalone audio
+
+Use `client.audio` with a published workflow UUID to transcribe or synthesize
+speech without creating a conversation session. STT audio seconds and TTS input
+characters are billed using existing tariffs. Only the selected component runs.
+See [the audio guide](https://docs.verasist.ai/developer/sdks/audio) for file and
+live-stream examples, formats, cancellation, and request IDs.

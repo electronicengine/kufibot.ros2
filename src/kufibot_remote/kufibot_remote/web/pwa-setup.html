@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111319">
+  <meta name="color-scheme" content="dark">
+  <title>Kufibot · Yerel ağ kurulumu</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #111319; color: #f7f9ff; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 760px; margin: auto; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); }
+    h1 { font-size: 28px; } h2 { font-size: 20px; margin-top: 30px; }
+    a { color: #9bb8ff; } .button { display: inline-block; background: #2b50b8; color: white; padding: 10px 18px; border-radius: 10px; text-decoration: none; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #17233d; border-radius: 12px; }
+    details { padding: 12px 0; border-bottom: 1px solid #ffffff20; } summary { cursor: pointer; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body><main>
+  <a href="/">← Kontrol arayüzü</a>
+  <h1>Kufibot’u yerel ağdan yükle</h1>
+  <p>Telefonun veya bilgisayarın robotla aynı ağa bağlı olsun. İnternet gerekmez. Kurulum için robotun sertifikasını bu cihaza bir kez tanıtman gerekir.</p>
+  <p id="status" role="status">Yerel HTTPS kontrol ediliyor…</p>
+  <section id="prepare" hidden>
+    <h2>1. Robotta HTTPS’yi hazırla</h2>
+    <p>Robotun proje dizininde aşağıdaki komutu çalıştır, ardından çalışan launch sürecini kapatıp yeniden başlat:</p>
+    <pre>python3 tools/setup_local_https.py
+./tools/ros2_launch.sh</pre>
+    <p>Sonra bu sayfayı yenile.</p>
+  </section>
+  <section id="ready" hidden>
+    <h2>1. Robotun sertifikasını yükle</h2>
+    <a class="button" id="certificate" href="/kufibot-root-ca.crt">Sertifikayı indir</a>
+    <p>Yalnızca kendi robotunda oluşturduğun sertifikaya güven. Kurulum komutunun yazdırdığı SHA-256 parmak izini cihazdaki sertifika ayrıntılarıyla karşılaştırabilirsin.</p>
+    <details><summary>Android</summary><p>Sertifikayı indir. Ayarlar’da “Sertifika yükle” bölümünü bul; <strong>CA sertifikası</strong> olarak bu dosyayı seç. Menü adı cihazına göre değişebilir. Ardından Chrome’u yeniden aç.</p></details>
+    <details><summary>iPhone / iPad</summary><p>Safari’den sertifikayı indir. Ayarlar → Genel → VPN ve Aygıt Yönetimi bölümünden indirilen profili yükle. Ardından Genel → Hakkında → Sertifika Güven Ayarları altında <strong>Kufibot Local CA</strong> için tam güveni aç.</p></details>
+    <details><summary>Windows</summary><p>Sertifikayı aç → Sertifika Yükle → Geçerli Kullanıcı → Tüm sertifikaları şu depolama alanına yerleştir → <strong>Güvenilen Kök Sertifika Yetkilileri</strong>. Chrome veya Edge’i yeniden aç.</p></details>
+    <details><summary>macOS</summary><p>Sertifikayı Anahtar Zinciri Erişimi’ne aktar. Kufibot Local CA sertifikasının Güven bölümünde SSL için güveni etkinleştir, ardından tarayıcıyı yeniden aç.</p></details>
+    <details><summary>Linux</summary><p>Chrome/Chromium’un Sertifikaları Yönet bölümünden sertifikayı yetkililer arasına aktar ve web sitelerini tanımlamak için güven ver. Tarayıcıyı yeniden aç.</p></details>
+    <h2>2. Güvenli yerel arayüzü aç</h2>
+    <p><a class="button" id="https-link">HTTPS arayüzünü aç</a></p>
+    <p>Sertifika uyarısı çıkmamalı. Çıkıyorsa sertifika güvenini ve IP adresini kontrol et; uyarıyı geçmek PWA kurulumu için yeterli değildir.</p>
+    <h2>3. Uygulamayı yükle</h2>
+    <p>HTTPS arayüzünde menüden <strong>Uygulamayı yükle</strong> seçeneğine dokun. iPhone/iPad’de Safari → Paylaş → Ana Ekrana Ekle yolunu kullan.</p>
+  </section>
+  <p>Robotun IP adresi değişirse yeni IP ile sertifikayı yeniden oluştur ve launch sürecini yeniden başlat. Aynı kök sertifika korunur; cihazına tekrar yüklemen gerekmez. Sabit IP veya modemden DHCP rezervasyonu kullanabilirsin.</p>
+</main>
+<script>
+fetch('/api/pwa-setup', {cache: 'no-store'}).then(response => {
+  if (!response.ok) throw new Error('setup');
+  return response.json();
+}).then(info => {
+  const ready = Boolean(info.https_port);
+  document.getElementById('prepare').hidden = ready;
+  document.getElementById('ready').hidden = !ready;
+  document.getElementById('certificate').hidden = !info.certificate_available;
+  document.getElementById('status').textContent = ready ? 'Robotun yerel HTTPS arayüzü hazır.' : 'Robotta yerel HTTPS henüz etkin değil.';
+  if (ready) {
+    const url = new URL('/', location.href);
+    url.protocol = 'https:';
+    url.port = String(info.https_port);
+    document.getElementById('https-link').href = url.href;
+    document.getElementById('https-link').textContent = url.href;
+  }
+}).catch(() => {
+  document.getElementById('status').textContent = 'Kurulum bilgisi alınamadı. Robot bağlantısını kontrol edip sayfayı yenile.';
+});
+</script>
+</body></html>

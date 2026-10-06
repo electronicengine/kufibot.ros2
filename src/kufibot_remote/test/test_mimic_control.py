@@ -9,7 +9,9 @@ def make_control(tmp_path):
     c.mimic_store.save(dict(id='test',name='Test',description='',revision=0,duration_ms=1000,
         interpolation='linear',keyframes=[{'time_ms':0,'joints':dict(NEUTRAL_ANGLES)},
         {'time_ms':1000,'joints':{**NEUTRAL_ANGLES,'rightArm':65}}]))
-    c.command('owner',{'type':'claim'});return c,clock
+    c.command('owner',{'type':'claim'})
+    c.command('owner',{'type':'mode','mode':'remote'})
+    return c,clock
 
 
 def test_playback_ownership_timing_and_snapshot(tmp_path):

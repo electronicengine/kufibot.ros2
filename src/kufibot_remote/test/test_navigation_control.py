@@ -6,6 +6,7 @@ def ready():
     c = Control()
     owner = object()
     c.command(owner, {'type': 'claim'})
+    c.command(owner, {'type': 'mode', 'mode': 'remote'})
     c.command(owner, {'type': 'mode', 'mode': 'ai'})
     c.navigation_provider, c.navigation_ready = 'verasist', True
     return c, owner
@@ -32,6 +33,7 @@ def test_manual_drive_restores_the_level_mapping_sensor_posture():
     c = Control(clock=lambda: 10.)
     owner = object()
     c.command(owner, {'type': 'claim'})
+    c.command(owner, {'type': 'mode', 'mode': 'remote'})
     c.command(owner, {'type': 'input', 'drive_y': 1.})
     linear, angular = c.tick(.05, {'neck': 50., 'eyeLeft': 25., 'eyeRight': 145.})
     assert linear and angular == 0.
@@ -60,6 +62,7 @@ def test_prepare_mapping_stops_motion_and_aligns_sensors_without_moving_arms():
     c = Control(clock=lambda: 10.)
     owner = object()
     c.command(owner, {'type': 'claim'})
+    c.command(owner, {'type': 'mode', 'mode': 'remote'})
     c.targets.update(leftArm=125., rightArm=40., neck=60., headLeftRight=30.)
     c.command(owner, {'type': 'input', 'drive_y': 1., 'head_x': 1., 'head_y': 1.})
     c.active_mimic = {'id': 'test'}

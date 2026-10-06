@@ -247,6 +247,10 @@ class NavigationTools:
         self.active_operation = None
         self.active_handle = None
         self.command_lock = asyncio.Lock()
+        self.register_tools(session)
+
+    def register_tools(self, session):
+        """Register schemas/handlers without changing navigation session state."""
         def schema(properties, required):
             return {'type': 'object', 'properties': properties, 'required': required,
                     'additionalProperties': False}

@@ -51,7 +51,7 @@ def test_padded_rgb_frame_is_resized_without_jpeg():
     pixels = np.zeros((480, 800 * 3 + 8), np.uint8)
     pixels[:, :800 * 3:3] = 255
     msg = Image(height=480, width=800, step=2408, encoding='rgb8', data=pixels.tobytes())
-    node._image(msg)
+    node._video_image(msg)
     decoded = node.video_frame
     assert decoded.shape == (384, 640, 3)
     assert decoded[0, 0, 2] > 240
@@ -60,7 +60,7 @@ def test_padded_rgb_frame_is_resized_without_jpeg():
 
 def test_invalid_frame_is_ignored():
     node = bridge()
-    node._image(Image(height=480, width=640, step=1920, encoding='bgr8', data=b'bad'))
+    node._video_image(Image(height=480, width=640, step=1920, encoding='bgr8', data=b'bad'))
     assert node.video_frame is None
 
 
@@ -71,24 +71,24 @@ def test_every_camera_frame_updates_webrtc_without_jpeg(monkeypatch):
     monkeypatch.setattr(cv2, 'imencode', forbidden)
     for value in range(5):
         pixels = np.full((4, 4, 3), value, np.uint8)
-        node._image(Image(height=4, width=4, step=12, encoding='bgr8',
-                          data=pixels.tobytes()))
+        node._video_image(Image(height=4, width=4, step=12, encoding='bgr8',
+                                data=pixels.tobytes()))
         assert np.all(node.video_frame == value)
         assert node.status()['camera']
 
 
-def test_local_llm_compute_stops_camera_encoding_and_clears_old_frame():
+def test_local_llm_compute_keeps_live_video_streaming():
     node = bridge()
     node.video_frame = 'old-frame'
     node.video_frame_time = time.monotonic()
     node._local_compute(SimpleNamespace(data=True))
-    assert node.video_frame is None
-    assert not node.status()['camera']
+    assert node.video_frame == 'old-frame'
+    assert node.status()['camera']
     pixels = np.zeros((4, 12), np.uint8)
-    node._image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
-    assert node.video_frame is None
+    node._video_image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
+    assert node.video_frame is not None
     node._local_compute(SimpleNamespace(data=False))
-    node._image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
+    node._video_image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
     assert node.video_frame is not None
 
 
@@ -111,6 +111,7 @@ def test_missing_arbiter_prevents_drive_output():
     node.remote_pub = SimpleNamespace(publish=lambda _: None)
     owner = object()
     node.control.command(owner, {'type': 'claim'})
+    node.control.command(owner, {'type': 'mode', 'mode': 'remote'})
     node.control.command(owner, {'type': 'input', 'drive_y': -1})
     node.tick(.05)
     assert messages[-1].linear.x == 0
@@ -157,3 +158,34 @@ def test_remote_forwards_navigation_map_without_a_second_coordinate_frame():
     assert node.status()['distanceMap'] == mapping
     node._receive_distance_map(String(data='invalid'))
     assert node._distance_map() == mapping
+
+
+def test_voice_handoff_waits_for_arbiter_and_manual_override_invalidates_it():
+    import json
+    from unittest.mock import Mock
+    from std_msgs.msg import String
+    node = bridge()
+    node.remote_pub = node.voice_control_state = node.voice_finish_pub = Mock()
+    node.drive_pub = Mock()
+    node.voice_control_ack = Mock()
+    node.voice_control_pending = None
+    node.voice_control_ids = set()
+    request = dict(id='wake', mode='ai', expected_mode='remote', epoch=node.control.mode_epoch)
+    node._voice_control_request(String(data=json.dumps(request)))
+    assert node.control.mode == 'ai'
+    node.drive_pub.publish.assert_called_once()
+    node.tick(.05)
+    node.voice_control_ack.publish.assert_not_called()
+    node.applied_mode, node.mode_time = 'ai', time.monotonic()
+    node.tick(.05)
+    ack = json.loads(node.voice_control_ack.publish.call_args.args[0].data)
+    assert ack['id'] == 'wake' and ack['accepted'] is True
+    request = dict(id='end', mode='remote', expected_mode='ai', epoch=node.control.mode_epoch)
+    node._voice_control_request(String(data=json.dumps(request)))
+    owner = object()
+    node.control.command(owner, {'type':'claim'})
+    node.control.command(owner, {'type':'mode', 'mode':'remote'})
+    node.tick(.05)
+    ack = json.loads(node.voice_control_ack.publish.call_args.args[0].data)
+    assert ack['id'] == 'end' and ack['accepted'] is False
+    assert node.control.mode == 'remote'

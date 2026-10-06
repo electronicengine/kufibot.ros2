@@ -4,8 +4,7 @@ import sys
 import uuid
 
 from .workflows import WorkflowEngine
-from .workflow_inference import make_decider, ToolChannel
-from .workflow_routing import SemanticRouter
+from .workflow_inference import ToolChannel
 
 
 def main():
@@ -14,13 +13,18 @@ def main():
         print(json.dumps({'type': kind, **fields}, ensure_ascii=False), flush=True)
     try:
         config = json.loads(sys.stdin.readline())
-        from llama_cpp import Llama
-        model = Llama(model_path=config['llm'], n_ctx=2048, n_threads=3, verbose=False)
         channel = ToolChannel(emit, uuid.uuid4().hex)
         workflow = config['workflow']
-        router = SemanticRouter(workflow, config.get('embedding'), notify=lambda event: emit('trace', event=event))
-        engine = WorkflowEngine(workflow, make_decider(model), channel.call,
-            lambda event: emit('trace', event=event), router=router)
+        decider = None
+        if workflow.get('settings', {}).get('llm_enabled', True):
+            from llama_cpp import Llama
+            from .workflow_inference import make_decider
+            from .workflow_routing import SemanticRouter
+            model = Llama(model_path=config['llm'], n_ctx=2048, n_threads=3, verbose=False)
+            router = SemanticRouter(workflow, config.get('embedding'), notify=lambda event: emit('trace', event=event))
+            decider = make_decider(model)
+        engine = WorkflowEngine(workflow, decider, channel.call,
+                                lambda event: emit('trace', event=event), router=router)
         text = config['text']
         while True:
             channel.turn_id += 1

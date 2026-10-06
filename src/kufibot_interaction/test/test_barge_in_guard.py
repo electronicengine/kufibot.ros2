@@ -1,5 +1,6 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -67,7 +68,7 @@ def test_playback_deadline_accounts_for_queued_pcm_and_survives_interrupt(monkey
     async def run():
         async def pending():
             await asyncio.Event().wait()
-        monkeypatch.setattr('kufibot_interaction.audio.time.monotonic', lambda: 10.0)
+        monkeypatch.setattr('kufibot_interaction.audio.time', SimpleNamespace(monotonic=lambda: 10.0))
         mic = AlsaMicTrack('pulse:test', barge_in_rms=1200, playback_echo_tail_sec=1.2)
         speaker = AlsaSpeaker(Mock(recv=pending), 'pulse:test', mic)
         try:
@@ -93,7 +94,7 @@ def test_capture_blocks_late_echo_after_speaking_flag_clears(monkeypatch):
         process.stderr.feed_eof()
         monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
         now = [10.0]
-        monkeypatch.setattr('kufibot_interaction.audio.time.monotonic', lambda: now[0])
+        monkeypatch.setattr('kufibot_interaction.audio.time', SimpleNamespace(monotonic=lambda: now[0]))
         mic = AlsaMicTrack('pulse:test', noise_gate_rms=0, barge_in_rms=1200)
         mic.protect_playback_until(10.5)
         mic.bot_speaking = False

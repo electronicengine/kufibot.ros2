@@ -186,7 +186,7 @@ def test_motion_stops_on_bad_feedback(failure):
         r.distance -= .5
         drive = r.tick()
     elif failure == 'heading':
-        r.heading += 8
+        r.heading += r.nav.c.heading_correction_limit_deg + 1
         drive = r.tick()
     elif failure == 'head':
         r.nav.sensor('joints', dict(headLeftRight=30., neck=10., eyeLeft=0., eyeRight=170.))
@@ -210,6 +210,22 @@ def test_motion_stops_on_bad_feedback(failure):
             if r.nav.step is None:
                 break
     assert r.nav.results['move']['status'] == 'error'
+
+
+def test_goto_uses_compass_to_correct_small_heading_drift_while_advancing():
+    r = Rig()
+    r.scan()
+    r.request('move', 'goto', distance_m=.2)
+    for _ in range(2000):
+        linear, angular = r.tick()
+        if linear:
+            r.heading = (r.heading + 5) % 360
+            linear, angular = r.tick()
+            assert linear > 0
+            assert angular > 0
+            assert abs(angular) <= r.nav.c.heading_correction_max_angular_rad_s
+            return
+    raise AssertionError('navigation never started advancing')
 
 
 def test_turn_uses_compass_across_north_and_scans_afterwards():

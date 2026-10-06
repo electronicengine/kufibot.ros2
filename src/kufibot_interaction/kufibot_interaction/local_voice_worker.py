@@ -89,7 +89,8 @@ def listen(config, recognizer, notify=emit):
 class VoskBackend:
     def __init__(self, path):
         from vosk import Model, KaldiRecognizer
-        self.recognizer = KaldiRecognizer(Model(path), 16000)
+        self.model = Model(path)
+        self.recognizer = KaldiRecognizer(self.model, 16000)
         self.reset()
 
     def reset(self):
@@ -141,6 +142,7 @@ def listen_vad(config, backend, vad, reporter, recorder=None, *, pcm_transform=N
             partial_at, last_partial = 0.0, ''
             sample_count, energy, clipped, peak = 0, 0.0, 0, 0.0
             capture_index = 0
+            max_probability, longest_candidate_ms, rejected_candidates = 0.0, 0, 0
             while True:
                 if not select.select([mic.stdout], [], [], 5)[0]:
                     raise RuntimeError(f'Microphone {config["mic"]}: no PCM for 5 seconds')
@@ -160,7 +162,16 @@ def listen_vad(config, backend, vad, reporter, recorder=None, *, pcm_transform=N
                     pcm = pcm_transform(pcm)
                 probability = vad(pcm)
                 was_active = gate.active
+                previous_voiced = gate.voiced
                 frames, done = gate.push(pcm, probability, time.monotonic())
+                max_probability = max(max_probability, probability)
+                if not was_active:
+                    longest_candidate_ms = max(longest_candidate_ms, gate.voiced * 32)
+                    if previous_voiced and not gate.voiced:
+                        rejected_candidates += 1
+                    if gate.active and config.get('wake_diagnostics'):
+                        emit('diagnostic', message=f'Wake VAD accepted: speech_ms={gate.voiced * 32}, '
+                             f'min_ms={config["vad_min_speech_ms"]}, threshold={config["vad_threshold"]}')
                 if trace is not None:
                     from .vad_trace import frame_trace
                     trace(pcm, frame_trace(pcm, probability, gate, was_active, frames, done, capture_index))
@@ -185,7 +196,10 @@ def listen_vad(config, backend, vad, reporter, recorder=None, *, pcm_transform=N
                     reporter.mark('endpoint')
                     break
                 if time.monotonic() >= diagnostic_at:
-                    emit('diagnostic', message=f'Microphone {config["mic"]}: PCM OK, VAD={probability:.3f}')
+                    emit('diagnostic', message=f'Microphone {config["mic"]}: PCM OK, VAD={probability:.3f}, '
+                         f'VAD_max={max_probability:.3f}, candidate_max_ms={longest_candidate_ms}, '
+                         f'rejected_short={rejected_candidates}, active={gate.active}')
+                    max_probability, longest_candidate_ms, rejected_candidates = 0.0, 0, 0
                     diagnostic_at = time.monotonic() + 5
         finally:
             if mic.poll() is None:
@@ -197,7 +211,12 @@ def listen_vad(config, backend, vad, reporter, recorder=None, *, pcm_transform=N
                 mic.wait(timeout=2)
             mic.stdout.close()
     reporter.set_phase('transcribing')
+    if config.get('wake_diagnostics'):
+        emit('diagnostic', message=f'Wake STT input: audio_seconds={sample_count / 16000:.3f}, '
+             f'trailing_silence_ms={gate.silent * 32}')
     result = backend.finish(trailing_silence_ms=gate.silent * 32)
+    if config.get('wake_diagnostics'):
+        emit('diagnostic', message=f'Wake STT result: text={result!r}')
     if last_partial and not result:
         emit('transcript', role='user', text='', final=True)
     reporter.mark('stt_final', **getattr(backend, 'timings', {}),
@@ -458,19 +477,22 @@ def run(config, max_turns=None):
     deadline = SessionDeadline(config.get('max_session_sec', 0))
     try:
         reporter.set_phase('loading')
+        llm_enabled = not config.get('workflow') or config['workflow'].get('settings', {}).get('llm_enabled', True)
         reporter.mark('load_start', language=config['language'], stt_backend=config.get('stt_backend', 'vosk'),
-                      llm_model=config['llm'], llm_threads=config['llm_threads'], llm_batch_threads=config['llm_batch_threads'])
-        from llama_cpp import Llama
+                      llm_model=config.get('llm', '') if llm_enabled else '',
+                      llm_threads=config['llm_threads'], llm_batch_threads=config['llm_batch_threads'])
         import onnxruntime
         onnxruntime.disable_telemetry_events()
         backend = create_stt(config)
         reporter.mark('load_stt_end')
         vad = SileroVad(config['vad_model'])
         reporter.mark('load_vad_end')
-        llm = Llama(model_path=config['llm'], n_ctx=config['llm_context'],
-                    n_threads=config['llm_threads'], n_threads_batch=config['llm_batch_threads'], verbose=False)
-        reporter.mark('load_llm_end')
-        formatter = make_formatter(llm)
+        if llm_enabled:
+            from llama_cpp import Llama
+            llm = Llama(model_path=config['llm'], n_ctx=config['llm_context'],
+                        n_threads=config['llm_threads'], n_threads_batch=config['llm_batch_threads'], verbose=False)
+            reporter.mark('load_llm_end')
+            formatter = make_formatter(llm)
         voice = load_voice(config)
         reporter.mark('load_tts_end')
         from .local_recording import SessionRecording
@@ -483,20 +505,24 @@ def run(config, max_turns=None):
         workflow = None
         reply_streamed = False
         if config.get('workflow'):
-            from .workflow_inference import make_decider, ToolChannel
+            from .workflow_inference import ToolChannel
             from .workflows import WorkflowEngine
-            from .workflow_routing import SemanticRouter
             channel = ToolChannel(emit, config['workflow_session_id'])
-            def stream_reply(messages):
-                nonlocal reply_streamed
-                reply_streamed = True
-                return generate_and_speak(config, llm, messages, voice, reporter,
-                    sampling={'temperature': .3, 'top_k': 40, 'top_p': .9, 'min_p': 0, 'repeat_penalty': 1}, recorder=recorder)
-            router = SemanticRouter(config['workflow'], config.get('embedding'),
-                notify=lambda event: emit('workflow_event', event=event), metric=reporter.mark)
-            workflow = WorkflowEngine(config['workflow'], make_decider(llm, reply_generator=stream_reply,
-                reply_max_tokens=config['llm_max_tokens'], metric=reporter.mark), channel.call,
-                lambda event: emit('workflow_event', event=event), router=router)
+            decider = None
+            if llm_enabled:
+                from .workflow_inference import make_decider
+                from .workflow_routing import SemanticRouter
+                def stream_reply(messages):
+                    nonlocal reply_streamed
+                    reply_streamed = True
+                    return generate_and_speak(config, llm, messages, voice, reporter,
+                        sampling={'temperature': .3, 'top_k': 40, 'top_p': .9, 'min_p': 0, 'repeat_penalty': 1}, recorder=recorder)
+                router = SemanticRouter(config['workflow'], config.get('embedding'),
+                    notify=lambda event: emit('workflow_event', event=event), metric=reporter.mark)
+                decider = make_decider(llm, reply_generator=stream_reply,
+                                       reply_max_tokens=config['llm_max_tokens'], metric=reporter.mark)
+            workflow = WorkflowEngine(config['workflow'], decider, channel.call,
+                                      lambda event: emit('workflow_event', event=event), router=router)
             emit('workflow_event', event={'type': 'node', 'node_id': workflow.current})
         reporter.mark('load_end')
         # Every session begins with the start node's own LLM reply. Its outgoing

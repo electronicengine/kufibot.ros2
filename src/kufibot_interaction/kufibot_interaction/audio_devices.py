@@ -11,7 +11,8 @@ def audio_command(capture, device, rate, channels):
     """A pulse: device uses WSLg audio without requiring an ALSA plugin."""
     if device == 'pulse' or device.startswith('pulse:'):
         command = ['parec' if capture else 'pacat', '--raw', '--format=s16le',
-                   f'--rate={rate}', f'--channels={channels}', '--latency-msec=20']
+                   f'--rate={rate}', f'--channels={channels}',
+                   '--latency-msec=20' if capture else '--latency-msec=100']
         source = device.partition(':')[2]
         if source and source != 'default':
             command.append(f'--device={source}')

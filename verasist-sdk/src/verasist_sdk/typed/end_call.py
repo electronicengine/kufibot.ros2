@@ -20,6 +20,10 @@ class EndCall_Extraction_variablesRow:
     its name, data type, and a per-variable extraction hint.
     """
 
+    show_in_run_table: bool = False
+    """
+    Display this extracted variable in the execution table.
+    """
     name: str
     """
     snake_case identifier used downstream.

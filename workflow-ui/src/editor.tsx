@@ -593,7 +593,7 @@ function Editor() {
                 </label>
                 {["agent", "start", "end"].includes(node.type!) && (
                   <label>
-                    Düğüm komutu · sistem mesajı olarak gönderilir
+                    {flow.settings.llm_enabled === false ? "Düğüm metni · doğrudan seslendirilir" : "Düğüm komutu · sistem mesajı olarak gönderilir"}
                     <textarea
                       rows={7}
                       value={String(node.data.prompt ?? node.data.message ?? "")}
@@ -747,7 +747,7 @@ function Editor() {
                   </>
                 )}
                 <h4>Çıkışlar</h4>
-                {["start", "agent"].includes(node.type!) && <p>Geçişler, bu düğümün ilk LLM yanıtından sonraki kullanıcı mesajlarında değerlendirilir.{node.type === "start" && " Başlangıç çıkışı boşsa ilk yanıttan sonra otomatik ilerler; koşul yazılırsa eşleşme bekler."}</p>}
+                {["start", "agent"].includes(node.type!) && <p>{flow.settings.llm_enabled === false ? "LLM kapalıyken node metni doğrudan seslendirilir. Başlangıç çıkışı boşsa ilk metinden sonra otomatik ilerler." : <>Geçişler, bu düğümün ilk LLM yanıtından sonraki kullanıcı mesajlarında değerlendirilir.{node.type === "start" && " Başlangıç çıkışı boşsa ilk yanıttan sonra otomatik ilerler; koşul yazılırsa eşleşme bekler."}</>}</p>}
                 {flow.edges
                   .filter((e) => e.source === node.id)
                   .map((edge) => (
@@ -840,7 +840,13 @@ function Editor() {
                   <option value="en">English</option>
                 </select>
               </label>
-              {["stt", "llm", "tts", "embedding"].map((kind) => (
+              <label>
+                <input type="checkbox" aria-label="LLM kullan" checked={flow.settings.llm_enabled !== false}
+                  onChange={e => change({...flow, settings:{...flow.settings, llm_enabled:e.target.checked}})}/>
+                LLM kullan
+                <small>Kapalıyken başlangıç, ajan ve bitiş node’larındaki metin doğrudan TTS’ye gönderilir; LLM ve embedding modeli yüklenmez.</small>
+              </label>
+              {["stt", ...(flow.settings.llm_enabled === false ? ["tts"] : ["llm", "tts", "embedding"])].map((kind) => (
                 <label key={kind}>
                   {kind.toUpperCase()}
                   <select
@@ -863,14 +869,14 @@ function Editor() {
                   </select>
                 </label>
               ))}
-              <label>
+              {flow.settings.llm_enabled !== false && <label>
                 Anlamsal eşleşme eşiği
                 <input type="number" min="0.01" max="1" step="0.01" aria-label="Anlamsal eşleşme eşiği"
                   value={flow.settings.semantic_threshold ?? 0.70}
                   onChange={e => change({...flow, settings:{...flow.settings, semantic_threshold:Number(e.target.value)}})}/>
                 <small>Varsayılan 0,70. Geçişler ve bağlı araçlar aynı eşiği kullanır. Bu değer bir olasılık yüzdesi değildir.</small>
-              </label>
-              <p>Düğüm komutu, etkin olduğu her turda sistem mesajı olarak gönderilir. Kullanıcının mesajı ayrı bir kullanıcı mesajı olarak eklenir. Geçiş için çıkışlara, araç seçimi için kaynak düğümlerine tetikleme ifadeleri yazın.</p>
+              </label>}
+              <p>{flow.settings.llm_enabled === false ? "Bu özel akışta node metni değiştirilmeden konuşulur. Araç ve koşul node’ları sabit bağlantılarıyla çalışmaya devam eder." : "Düğüm komutu, etkin olduğu her turda sistem mesajı olarak gönderilir. Kullanıcının mesajı ayrı bir kullanıcı mesajı olarak eklenir. Geçiş için çıkışlara, araç seçimi için kaynak düğümlerine tetikleme ifadeleri yazın."}</p>
             </>
           )}
           {panel === "knowledge" && (

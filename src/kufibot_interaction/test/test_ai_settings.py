@@ -26,7 +26,7 @@ def registry(tmp_path, monkeypatch):
 
 def test_settings_persist_and_resolve_relative_models(registry):
     ai.save_settings(registry)
-    assert ai.read_settings() == registry
+    assert ai.read_settings() == ai.normalize(registry)
     assert all(m['available'] for m in ai.catalog())
 
 
@@ -36,7 +36,7 @@ def test_invalid_selections_do_not_replace_saved_settings(registry, change):
     ai.save_settings(registry)
     with pytest.raises(ValueError):
         ai.save_settings({**registry, **change})
-    assert ai.read_settings() == registry
+    assert ai.read_settings() == ai.normalize(registry)
 
 
 def test_missing_piper_sidecar_rejected(registry):
@@ -72,7 +72,9 @@ def test_settings_command_requires_owner_and_valid_models(registry):
         control.command(owner, command)
     control.command(owner, dict(type='claim'))
     control.command(owner, command)
-    assert control.ai_settings_requested == registry
+    assert control.ai_settings_requested == {
+        key: value for key, value in ai.normalize(registry).items()
+        if key != 'activation'}
     assert control.mode == 'remote'
 
 
@@ -98,6 +100,15 @@ def test_boolean_camera_setting_and_legacy_migration(registry):
     old = {k: v for k, v in registry.items() if k != 'camera_attach_to_every_user_turn'}
     ai.settings_path().write_text(json.dumps(old))
     assert ai.read_settings()['camera_attach_to_every_user_turn'] is False
+
+
+def test_verasist_audio_settings_are_optional_and_validated(registry):
+    settings = ai.validate({**ai.DEFAULT, 'verasist_audio': {
+        'aec_mode': 'enabled', 'noise_suppression_db': -20,
+        'barge_in_rms': 0, 'mute_mic_during_playback': False}})
+    assert settings['verasist_audio']['aec_mode'] == 'enabled'
+    with pytest.raises(ValueError, match='Verasist ses'):
+        ai.validate({**ai.DEFAULT, 'verasist_audio': {'unknown': True}})
 
 
 def test_hailo_backend_is_catalogued_without_changing_old_vosk(registry, tmp_path):
@@ -132,3 +143,16 @@ def test_workflow_threshold_stays_outside_voice_schema_and_shared_prompt_is_igno
     assert settings['system_prompt'] == ''
     assert 'semantic_threshold' not in settings
     assert WorkflowStore().snapshot('semantic')['settings']['semantic_threshold'] == .75
+
+
+def test_llm_disabled_workflow_only_requires_stt_and_tts(registry, tmp_path, monkeypatch):
+    from kufibot_interaction.workflows import WorkflowStore
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    document = {'id': 'dedicated', 'schema_version': 1, 'settings': {
+        **registry, 'llm_enabled': False},
+        'nodes': [{'id': 's', 'type': 'start', 'data': {'prompt': 'Karşılama'}},
+                  {'id': 'a', 'type': 'agent', 'data': {'prompt': 'Hazırım'}}],
+        'edges': [{'source': 's', 'target': 'a'}]}
+    WorkflowStore().publish(document)
+    settings = ai.validate({**registry, 'llm': 'missing', 'embedding': 'missing', 'workflow_id': 'dedicated'})
+    assert settings['llm'] == settings['embedding'] == ''

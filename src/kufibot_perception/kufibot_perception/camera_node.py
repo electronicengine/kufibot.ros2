@@ -6,13 +6,11 @@ import os
 from pathlib import Path
 import time
 
-from kufibot_interaction.local_voice_runtime import attach_phase_lease
-
 import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import Bool
 
 
 class UsbCameraNode(Node):
@@ -21,7 +19,7 @@ class UsbCameraNode(Node):
         self.declare_parameter('device', 'auto')
         self.declare_parameter('width', 640)
         self.declare_parameter('height', 480)
-        self.declare_parameter('fps', 15.0)
+        self.declare_parameter('fps', 30.0)
         self.declare_parameter('use_mjpeg', True)
         self.declare_parameter('buffer_size', 1)
         self.declare_parameter('frame_id', 'camera_link')
@@ -43,22 +41,11 @@ class UsbCameraNode(Node):
         self.consecutive_failures = 0
         self.last_connect_attempt = 0.0
         self.last_no_camera_log = 0.0
-        self.local_compute_active = False
-        self.image_pub = self.create_publisher(Image, 'camera/image_raw', 5)
+        self.stream_pub = self.create_publisher(
+            Image, 'camera/stream', qos_profile_sensor_data)
         self.info_pub = self.create_publisher(CameraInfo, 'camera/camera_info', 5)
-        self.local_phase_lease = attach_phase_lease(
-            self, lambda active: self._local_compute(Bool(data=active)))
         self._connect_camera()
         self.create_timer(1.0 / fps, self._capture)
-
-    def _local_compute(self, msg):
-        active = bool(msg.data)
-        if active == self.local_compute_active:
-            return
-        self.local_compute_active = active
-        self.get_logger().info(
-            'Camera paused for Local AI inference' if active
-            else 'Camera resumed after Local AI inference')
 
     def _candidate_devices(self):
         candidates = []
@@ -139,10 +126,6 @@ class UsbCameraNode(Node):
         self.active_device = None
 
     def _capture(self):
-        # Keep the V4L2 device open so resume is instantaneous, but skip the
-        # expensive capture, conversion, and ROS image publication work.
-        if getattr(self, 'local_compute_active', False):
-            return
         if self.capture is None:
             if time.monotonic() - self.last_connect_attempt >= self.reconnect_interval:
                 self._connect_camera()
@@ -178,7 +161,7 @@ class UsbCameraNode(Node):
         info.header = image.header
         info.width = frame.shape[1]
         info.height = frame.shape[0]
-        self.image_pub.publish(image)
+        self.stream_pub.publish(image)
         self.info_pub.publish(info)
 
     def destroy_node(self):

@@ -30,6 +30,8 @@ def test_websocket_commands_video_and_disconnect():
             assert (await ws.receive_json())['type'] == 'ack'
             await ws.send_str('invalid json')
             assert (await ws.receive_json())['type'] == 'error'
+            await ws.send_json({'type': 'mode', 'mode': 'remote'})
+            assert (await ws.receive_json())['type'] == 'ack'
             await ws.send_json({'type': 'input', 'drive_y': -1})
             assert (await ws.receive_json())['type'] == 'ack'
             assert control.tick(.05, {})[0] > 0
@@ -58,13 +60,17 @@ def test_web_app_assets_and_websocket_origins():
             html = await response.text()
             assert 'Kufibot · Robot Kumandası' in html
             assert '/assets/app.js' in html
+            assert 'id="fullscreen-toggle"' in html
+            assert 'id="fullscreen-help"' in html
             assert 'no-cache' in response.headers['Cache-Control']
             for asset, mime in [('app.js', 'javascript'), ('connection.js', 'javascript'),
-                                ('style.css', 'text/css')]:
+                                ('pwa.js', 'javascript'), ('style.css', 'text/css')]:
                 response = await client.get('/assets/' + asset)
                 assert response.status == 200
                 assert mime in response.headers['Content-Type']
                 assert len(await response.read()) > 100
+            manifest = await (await client.get('/manifest.webmanifest')).json()
+            assert manifest['display'] == 'fullscreen'
             for path in ['/assets/node.py', '/assets/', '/assets/%2e%2e%2fnode.py']:
                 assert (await client.get(path)).status == 404
             assert (await client.post('/offer', json={}, headers={'Origin': 'https://unrelated.example'})).status == 403
@@ -73,4 +79,36 @@ def test_web_app_assets_and_websocket_origins():
                 assert response.status == 403
                 socket = await client.ws_connect(path, headers={'Origin': str(client.make_url('/')).rstrip('/')})
                 await socket.close()
+    asyncio.run(scenario())
+
+
+def test_publish_verasist_tools_requires_owner_and_valid_workflow(monkeypatch, tmp_path):
+    from unittest.mock import AsyncMock
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    monkeypatch.setenv('KUFIBOT_KNOWLEDGE_ROOT', str(tmp_path / 'knowledge'))
+
+    async def scenario():
+        workflow = 'a1b2c3d4-1234-4567-8901-123456789abc'
+        publish = AsyncMock(return_value={'count': 11, 'workflow_uuid': workflow})
+        control = Control()
+        server = Server(control, lambda: {}, publish_toolset=publish)
+        async with TestClient(TestServer(server.app)) as client:
+            endpoint = '/api/verasist/toolset'
+            assert (await client.post(endpoint, json={'workflow_uuid': workflow})).status == 403
+            owner = object()
+            control.owner = owner
+            headers = {'Authorization': 'Bearer ' + server.workflow_api.token(owner)}
+            assert (await client.post(endpoint, headers=headers, json={'workflow_uuid': 'bad'})).status == 400
+            assert (await client.post(endpoint, headers=headers, json=[])).status == 400
+            publish.assert_not_called()
+            response = await client.post(endpoint, headers=headers, json={'workflow_uuid': workflow})
+            assert response.status == 200
+            assert (await response.json())['count'] == 11
+            publish.assert_awaited_once_with(workflow)
+            publish.side_effect = ValueError('API anahtarı eksik')
+            response = await client.post(endpoint, headers=headers, json={'workflow_uuid': workflow})
+            assert response.status == 400
+            assert (await response.json())['error'] == 'API anahtarı eksik'
+            control.owner = object()
+            assert (await client.post(endpoint, headers=headers, json={'workflow_uuid': workflow})).status == 403
     asyncio.run(scenario())

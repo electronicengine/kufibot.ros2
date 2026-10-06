@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import wave
+import uuid
 
 from aiohttp import web
 from kufibot_interaction.ai_settings import workflow_voice_settings, catalog, DEFAULT, validate
@@ -33,6 +34,7 @@ class WorkflowAPI:
             if collection['state'] in ('queued', 'indexing'):
                 self.knowledge.queue(collection['id'])
         server.app.add_routes([
+            web.post('/api/verasist/toolset', self.publish_toolset),
             web.get('/workflows', self.editor),
             web.get('/recordings', self.archive),
             web.get('/recordings/', self.archive),
@@ -50,6 +52,20 @@ class WorkflowAPI:
             web.get('/api/recordings/{id}/details', self.recording_details),
             web.get('/api/recordings/{id}/waveform', self.waveform),
         ])
+
+    async def publish_toolset(self, request):
+        self.authorize(request)
+        if self.server.publish_toolset is None:
+            return web.json_response({'error': 'Ses ajanı araç yayını kullanılamıyor'}, status=503)
+        try:
+            data = await request.json()
+            workflow_uuid = str(uuid.UUID(data['workflow_uuid']))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return web.json_response({'error': 'Geçerli bir Workflow UUID girin'}, status=400)
+        try:
+            return web.json_response(await self.server.publish_toolset(workflow_uuid))
+        except ValueError as exc:
+            return web.json_response({'error': str(exc)}, status=400)
 
     def token(self, ws):
         if self.server.control.owner is not ws:
@@ -251,9 +267,13 @@ class WorkflowAPI:
             await self.stop_test(ws)
             workflow = self.workflows.save(workflow)
             self.workflows.publish(workflow)
-            settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': workflow['id']})
+            settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local',
+                                 'workflow_id': workflow['id']},
+                                workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
             self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
+            settings['activation'] = data.get('activation') or (self.server.status().get('aiConfig') or {}).get('settings', {}).get('activation', DEFAULT['activation'])
             self.server.control.command(ws, {'type': 'setAiSettings', 'settings': settings})
+            self.server.control.voice_test_active = True
             self.live_tests.add(ws)
             self.live_starts[ws] = asyncio.create_task(self.start_live_when_ready(ws, settings))
             return {'status': 'starting', 'workflow': workflow}
@@ -266,9 +286,11 @@ class WorkflowAPI:
             errors = self.validate(workflow)
             if errors:
                 raise ValueError('; '.join(errors))
-            settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''})
+            settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''},
+                                workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
             self.workflows.publish(workflow)
             settings['workflow_id'] = workflow['id']
+            settings['activation'] = data.get('activation') or (self.server.status().get('aiConfig') or {}).get('settings', {}).get('activation', DEFAULT['activation'])
             self.server.control.command(ws, {'type': 'setAiSettings', 'settings': settings})
             return {'status': 'requested', 'workflow_id': workflow['id']}
         if action == 'collectionCreate':
@@ -315,6 +337,7 @@ class WorkflowAPI:
             text = data.get('text', '')
             if not isinstance(text, str) or not text.strip() or len(text) > 1500:
                 raise ValueError('Test metni 1–1500 karakter olmalı')
+            self.server.control.voice_test_active = True
             task = asyncio.create_task(self.test(ws, workflow, text, data.get('real') is True))
             self.tests[ws] = task
             return {'status': 'started'}
@@ -323,7 +346,8 @@ class WorkflowAPI:
     def validate(self, workflow):
         errors = validate_graph(workflow)
         try:
-            validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''})
+            validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''},
+                     workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
             for node in workflow.get('nodes', []):
                 data = node.get('data', {})
                 keys = ([data['collection_id']] if node.get('type') == 'knowledge' else data.get('collection_ids', []))
@@ -338,8 +362,10 @@ class WorkflowAPI:
         process = None
         try:
             models = {m['id']: m for m in catalog()}
-            config = {'workflow': workflow, 'llm': models[workflow['settings']['llm']]['path'],
-                      'embedding': models[workflow['settings']['embedding']]['path'], 'text': text}
+            config = {'workflow': workflow, 'text': text}
+            if workflow.get('settings', {}).get('llm_enabled', True):
+                config.update(llm=models[workflow['settings']['llm']]['path'],
+                              embedding=models[workflow['settings']['embedding']]['path'])
             process = await asyncio.create_subprocess_exec(sys.executable, '-m',
                 'kufibot_interaction.workflow_test_worker', stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, limit=1024*1024)
@@ -376,6 +402,7 @@ class WorkflowAPI:
                     await process.wait()
             self.tests.pop(ws, None)
             self.test_channels.pop(ws, None)
+            self.server.control.voice_test_active = bool(self.tests or self.live_tests)
             if not ws.closed:
                 await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'test_session', 'test_mode': 'text',
                     'workflow_id': workflow.get('id'), 'status': 'stopped'}})
@@ -447,6 +474,7 @@ class WorkflowAPI:
             raise
         except Exception as exc:
             self.live_tests.discard(ws)
+            self.server.control.voice_test_active = bool(self.tests or self.live_tests)
             if self.server.control.owner is ws:
                 self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
             await report('error', str(exc))
@@ -461,6 +489,7 @@ class WorkflowAPI:
         local = (self.server.status().get('aiConfig') or {}).get('settings', {}).get('provider') == 'local'
         if ws in self.live_tests or stop_local and local:
             self.live_tests.discard(ws)
+            self.server.control.voice_test_active = bool(self.tests or self.live_tests)
             if self.server.control.owner is ws:
                 self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
             if not ws.closed:

@@ -19,6 +19,9 @@ class Control:
         self.clock = clock
         self.timeout = timeout
         self.mode = 'remote'
+        self.mode_epoch = uuid.uuid4().hex
+        self.voice_stop_requested = False
+        self.voice_test_active = False
         self.owner = None
         self.last_input = 0.0
         self.last_heartbeat = 0.0
@@ -37,6 +40,20 @@ class Control:
         self.navigation_provider = None
         self.navigation_ready = False
         self.navigation_reason = 'not_enabled'
+
+    def voice_mode(self, request):
+        """Compare-and-set automatic handoff; manual commands invalidate requests."""
+        if (request.get('mode') not in ('ai', 'remote') or
+                request.get('epoch') != self.mode_epoch or
+                request.get('expected_mode') != self.mode or self.mode == 'tools' or
+                (self.voice_test_active and request.get('mode') == 'ai')):
+            return False
+        self.stop()
+        self.targets.clear()
+        self.disable_navigation('voice_transition')
+        self.mode = request['mode']
+        self.mode_epoch = uuid.uuid4().hex
+        return True
 
     def disable_navigation(self, reason='disabled'):
         self.navigation_reason = reason
@@ -57,6 +74,7 @@ class Control:
             self.stop()
             if self.local_workflow_enabled:
                 self.mode = 'remote'
+                self.mode_epoch = uuid.uuid4().hex
                 self.targets.clear()
             self.disable_navigation(reason)
             self.owner = None
@@ -81,8 +99,13 @@ class Control:
             self.stop()
             if self.local_workflow_enabled:
                 self.mode = 'remote'
+                self.mode_epoch = uuid.uuid4().hex
                 self.targets.clear()
             self.disable_navigation('stop_requested')
+        elif kind == 'stopVoice':
+            self.stop()
+            self.disable_navigation('voice_stop')
+            self.voice_stop_requested = True
         elif kind == 'setNavigationEnabled':
             enabled = data.get('enabled')
             if not isinstance(enabled, bool):
@@ -102,6 +125,7 @@ class Control:
             self.targets.clear()
             self.disable_navigation('mode_changed')
             self.mode = mode
+            self.mode_epoch = uuid.uuid4().hex
         elif kind == 'input':
             if self.mode != 'remote':
                 raise ValueError('Kumanda modu gerekli')
@@ -157,6 +181,8 @@ class Control:
             self.local_workflow_enabled = bool(self.ai_settings_requested.get('workflow_id')
                                                and self.ai_settings_requested['provider'] == 'local')
             # Preserve the robot's existing choice when an older client saves.
+            if 'activation' not in settings:
+                self.ai_settings_requested.pop('activation')
             if 'camera_attach_to_every_user_turn' not in settings:
                 self.ai_settings_requested.pop('camera_attach_to_every_user_turn')
             self.disable_navigation('ai_settings_changed')

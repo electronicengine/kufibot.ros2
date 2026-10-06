@@ -88,7 +88,10 @@ def _py_type_for(prop: dict[str, Any], owner_class_name: str) -> tuple[str, str]
     # Required fields without a spec default get no dataclass default
     # (the user must set them). Optional fields default to None if the
     # spec doesn't declare anything, or to the spec's default literal.
-    if has_spec_default:
+    if (prop.get("extra") or {}).get("nullable") and not has_spec_default:
+        annotation = f"Optional[{annotation}]"
+        default_src = "None"
+    elif has_spec_default:
         spec_default = prop["default"]
         if isinstance(spec_default, (dict, list, set)):
             # Mutable defaults require default_factory — can't appear

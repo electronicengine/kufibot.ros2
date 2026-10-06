@@ -48,6 +48,7 @@ class WorldNode(Node):
         self.scene_camera = None
         self.declare_parameter('camera_width', 640)
         self.declare_parameter('camera_height', 480)
+        self.declare_parameter('camera_fps', 30.0)
         self.declare_parameter('camera_fov_deg', 60.0)
         self.declare_parameter('twist_timeout_sec', 0.5)
         self.declare_parameter('wheel_separation_m', 0.2)
@@ -72,6 +73,7 @@ class WorldNode(Node):
         self.noise = random.Random(int(self.get_parameter('sensor_noise_seed').value))
         self.camera_width = int(self.get_parameter('camera_width').value)
         self.camera_height = int(self.get_parameter('camera_height').value)
+        self.camera_fps = max(1.0, float(self.get_parameter('camera_fps').value))
         self.camera_fov_deg = float(self.get_parameter('camera_fov_deg').value)
         self.twist_timeout = float(self.get_parameter('twist_timeout_sec').value)
         self.wheel_separation = float(self.get_parameter('wheel_separation_m').value)
@@ -87,7 +89,7 @@ class WorldNode(Node):
 
         self.range_pub = self.create_publisher(Range, 'lidar/range', 10)
         self.heading_pub = self.create_publisher(Float32, 'compass/heading_deg', 10)
-        self.image_pub = self.create_publisher(Image, 'camera/image_raw', 5)
+        self.stream_pub = self.create_publisher(Image, 'camera/stream', 1)
         self.world_state_pub = self.create_publisher(String, 'simulation/world_state', 5)
         self.battery_pub = self.create_publisher(BatteryState, 'battery_state', 1)
 
@@ -95,7 +97,7 @@ class WorldNode(Node):
         self.create_subscription(JointState, 'servo/joint_states', self._joint_states, 10)
 
         self.create_timer(1.0 / 50.0, self._tick)
-        self.create_timer(1.0 / 12.0, self._publish_camera)
+        self.create_timer(1.0 / self.camera_fps, self._publish_camera)
         self.create_timer(1.0, self._publish_battery)
 
     def _applied_twist(self, msg):
@@ -209,7 +211,7 @@ class WorldNode(Node):
         msg.encoding = 'bgr8'
         msg.step = msg.width * 3
         msg.data = frame.tobytes()
-        self.image_pub.publish(msg)
+        self.stream_pub.publish(msg)
 
     def _camera_state(self):
         return self._eye_pose('camera')

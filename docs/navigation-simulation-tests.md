@@ -1,28 +1,14 @@
 # Navigasyon araçlarının simülasyon testleri
 
-Görsel mutfak demosunu tek komutla açın:
+Simülasyonu ve Panda3D görüntüleyicisini başlatın:
 
 ```bash
-./tools/navigation_sim_demo.sh
-# kısa adla aynı panel:
-./tools/navigation_sim.sh
+./tools/ros2_sim_launch.sh sim
 ```
 
-Varsayılan modda **LLM rolü sizdedir**; otomatik araç çağrısı yapılmaz.
-Hedef panelde gösterilir. Sağdaki menüden aracı seçin, parametrelerini girin
-ve **Çağır** düğmesine basın. `read_sensor_values` anlık lidar/kamera taraması
-ve görüntü verir; ardından gözlemlere göre doğrudan `goto` veya `look_at`
-çağırın. `goto`, `look_at` ve `read_sensor_values` ilk çağrıda gereken iç ROS
-görevini kendileri oluşturur. `request_id`, görev kimliği ve yer etiketi panelde
-yer almaz. Sayılarda virgül veya nokta kullanılabilir.
-
-`goto` başlangıçta kafa taraması veya fotoğraf çekmez; yalnızca dönüş/açısal
-hareket ve ileri mesafeyi uygular. Hareket sonunda ise geldiği noktada tek yönlü
-bir kamera/lidar karesi alır ve birikmiş haritayla birlikte sonuçta paylaşır.
-Hareket boyunca ileri lidar engel kontrolü sürer; engelde robot durur ve son
-kareyle `blocked` sonucu verir. Daha geniş çevre ölçümü gerektiğinde açıkça
-`read_sensor_values` çağırın. `look_at` da seçilen yöndeki son kamera/lidar
-kareyi ve aynı birikmiş haritayı sonucunda paylaşır.
+Robotu web veya mobil kumandadan kontrol edin. Web kumandasının adresi
+başlatma sırasında terminalde yazılır. Navigasyon araçlarını web araç
+panelinden çağırabilirsiniz.
 
 Fotoğrafların üzerine mesafe haritası çizilmez. Sayısal gözlem haritası robotun
 başlangıç konumuna sabittir; görev ve oturum değişikliklerinde korunur.
@@ -34,7 +20,6 @@ Web araç panelindeki `follow_route` seçeneğine tüm `{x_m, y_m}` noktaların�
 tek JSON listesi olarak yazın. Panel güncel `map_id` ve `revision` değerlerini
 otomatik ekler. Rota hareketten önce numaralı noktalarla küçük/büyük haritada
 görünür ve robot otomatik takip eder. Yeni rota veya oturum kapanışına kadar kalır.
-Pygame panelindeki mevcut düşük seviyeli araçlar tanılama için korunur.
 Tam sözleşme ve LLM yönergesi: [Waypoint navigasyonu](waypoint-navigation.md).
 
 `read_sensor_values` kafa önce sektörün başlangıcına geldikten sonra `-90°`den
@@ -44,26 +29,6 @@ lidar zaman damgası, gerçek açı en az 0,25° değişmişse haritaya işlenir
 örnekleme lidarın gerçek yayın hızını aşmaz; servo hedefte sabitken aynı ölçüm
 tekrar tekrar eklenmez. Tüm örnekler servo sınırları içindeki `-90°…+90°` sektörüyle
 ve taze sensör denetimiyle sınırlıdır.
-
-Ev planı, robotun yolu, kafa/lidar yönü, canlı kamera ve araca teslim edilen
-fotoğraflar birlikte gösterilir. Fotoğraf düğmeleriyle eski görüntülere bakın.
-Teslim edilen fotoğrafa tıklayınca panelin üstünde büyük görünümü açılır;
-fotoğrafa tekrar tıklayarak veya `Esc` ile kapatın.
-Soldaki çağrı geçmişinden kayıt seçin; tam JSON üzerinde fare tekerleğiyle
-kaydırın veya kopyalayın. **Yanıtım** alanına kendi cevabınızı yazıp kaydedin;
-bu metin olay kaydına eklenir ve robot komutu olarak çalıştırılmaz.
-
-Sonuç geldikten sonra **Yeni oturum** iç görevi güvenle sonlandırır ve yeniden
-yetki açar; robotun konumunu sıfırlamaz. Manuel panelde insanın düşünme süresi için görev
-bekleme sınırı bir saattir; sensör tazeliği ve bağlantı kontrolleri değişmez.
-Esc veya pencereyi kapatmak düğümleri durdurur.
-
-Bu demo gerçek ROS topic/service/action iletişimini, servo yöneticisini ve
-simülasyon motor sürücüsünü kullanır. AI servisinin yerini sizin araç
-çağrılarınız alır; API anahtarı gerekmez. Ayrı ROS alanı ve namespace ile açılır.
-Kumanda heartbeat'i `remote/command` üzerinden servo yöneticisine gönderilir;
-`remote/applied_mode` değerini yalnızca servo yöneticisi yayınlar. ROS executor
-ayrı iş parçacığında çalışır; pencere ve araç beklemeleri heartbeat'i kesmez.
 
 ## Robot fiziksel referansı
 
@@ -97,49 +62,13 @@ açıklık payı ve lidar montaj uzaklığını kullanır. İleri hareketin fren
 yan duvarlara uygulanmaz. Dönüş sırasında da aynı açıklık kontrol edilir;
 dar geçit ve eksik tarama kapsamı dönüşü engellemeye devam eder.
 
-JPEG fotoğrafları, gözlem metaverileri ve tüm çağrı/sonuçlar terminalde yazılan
-`/tmp/kufibot-kitchen-*` dizinine kaydedilir. Pencere kapanırken son ekran
-`summary.png` olarak kaydedilir. İsteğe bağlı kullanım:
+## Navigasyon testleri
 
-```bash
-./tools/navigation_sim_demo.sh --output-dir /tmp/mutfak-demo
-./tools/navigation_sim_demo.sh --goal "Koridordan geçerek mutfağa git"
-./tools/navigation_sim_demo.sh --auto
-./tools/navigation_sim_demo.sh --auto --headless
-./tools/navigation_sim_demo.sh --auto --exit-when-done
-```
-
-İsteğe bağlı otomatik rota daha önce gerçek ROS iletişimi ile doğrulandı:
-yaklaşık 4,5 dakikada mutfağa ulaştı, 10 fotoğraf teslim edildi ve son konum
-(-3.48, 3.08) m oldu. Panelin çizimi ve bitiş ekranı ekran dışı SDL sürücüsüyle
-kontrol edildi; Ctrl+C ile tarama sırasında temiz kapanış da denendi.
-Dönüş açıklığı düzeltmesinin ardından ilgili 109 regresyon testi geçti.
-
-Manuel panel testi (`test_navigation_demo_ui.py`) gerçek ROS düğümleri ve
-ekran dışı SDL ile pencere tıklamalarını ve metin girişini çalıştırır:
-açılışta otomatik çağrı olmaması, sensör taraması, 30 cm ilerleme,
-fotoğraf teslimi, geçersiz sayı reddi, JSON sonucu, kullanıcı yanıtı,
-yeni oturum ve kapanış kaydı doğrulanır. Araç köprüsü testleriyle
-birlikte 5 test geçti. Aynı ortamda tekrar çalıştırmak için:
+ROS ortamı ve kurulmuş workspace ile:
 
 ```bash
 source tools/_ros2_env.sh
 ROS_LOG_DIR=/tmp/kufibot-test-logs .venv/bin/python -m pytest \
-  src/kufibot_simulation/test/test_navigation_demo_ui.py \
-  src/kufibot_interaction/test/test_navigation_tools.py -q
-```
-
-`kufibot_simulation.py` adlı tek bir dosya yerine `src/kufibot_simulation`
-paketi kullanılıyor. Gerçek pencere/simülasyon entegrasyon testi:
-`src/kufibot_simulation/test/test_navigation_demo_ui.py`.
-
-Çalıştırma (depo kökünden, ROS 2 Jazzy ve kurulmuş workspace ile):
-
-```bash
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-ROS_LOG_DIR=/tmp/kufibot-test-logs .venv/bin/python -m pytest \
-  src/kufibot_simulation/test/test_navigation_demo_ui.py \
   src/kufibot_navigation/test \
   src/kufibot_interaction/test/test_navigation_tools.py -q
 ```

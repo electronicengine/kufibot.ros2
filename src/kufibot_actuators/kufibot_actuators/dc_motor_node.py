@@ -102,8 +102,7 @@ class DcMotorNode(Node):
             max_angular = float(self.get_parameter('navigation_max_angular').value)
             if (not all(math.isfinite(v) for v in (linear, angular, max_linear, max_angular))
                     or max_linear <= 0 or max_angular <= 0
-                    or not 0 <= linear <= max_linear or abs(angular) > max_angular
-                    or (linear != 0 and angular != 0)):
+                    or not 0 <= linear <= max_linear or abs(angular) > max_angular):
                 self._stop_motors()
                 return
             self.last_cmd_time = time.monotonic()

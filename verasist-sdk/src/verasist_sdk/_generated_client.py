@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from verasist_sdk._generated_models import (
+    AudioCapabilities,
     CalendarEntryResponse,
     CampaignRangeResponse,
     ChannelOutboundInitiateRequest,
@@ -24,6 +25,7 @@ from verasist_sdk._generated_models import (
     NodeSpec,
     NodeTypesResponse,
     RecordingListResponseSchema,
+    SdkToolset,
     StartLiveSessionRequest,
     StartLiveSessionResponse,
     ToolResponse,
@@ -61,10 +63,18 @@ class _GeneratedClient:
         """Delete a workflow and all its associated definitions, runs, and campaigns."""
         return self._request("DELETE", f"/workflow/{workflow_id}")
 
-    def ensure_builtin_verasist_mcp_tool(self) -> ToolResponse:
-        """Ensure the built-in Verasist platform-tools MCP tool exists for the authenticated organization, creating it on first use. Requires admin or supervisor privileges."""
-        data = self._request("POST", "/tools/builtin/verasist-mcp")
+    def ensure_builtin_verasist_mcp_tool(self, *, workflow_id: int | None = None) -> ToolResponse:
+        """Ensure the built-in Verasist platform-tools MCP tool exists for the authenticated organization, creating it on first use. Available to authenticated organization users."""
+        params: dict[str, Any] = {}
+        if workflow_id is not None:
+            params["workflow_id"] = workflow_id
+        data = self._request("POST", "/tools/builtin/verasist-mcp", params=params)
         return ToolResponse.model_validate(data)
+
+    def get_audio_capabilities(self, workflow_uuid: str) -> AudioCapabilities:
+        """Standalone STT/TTS capabilities of a published workflow."""
+        data = self._request("GET", f"/audio/workflows/{workflow_uuid}/capabilities")
+        return AudioCapabilities.model_validate(data)
 
     def get_live_session_turn_credentials(self, session_token: str) -> TurnCredentialsResponse:
         """Fetch time-limited TURN credentials for an active device live session, identified by the session_token returned from start_live_session."""
@@ -78,6 +88,11 @@ class _GeneratedClient:
             params["lang"] = lang
         data = self._request("GET", f"/node-types/{name}", params=params)
         return NodeSpec.model_validate(data)
+
+    def get_toolset(self, workflow_uuid: str) -> SdkToolset:
+        """Read the SDK tool catalog published for this workflow."""
+        data = self._request("GET", f"/workflow/by-uuid/{workflow_uuid}/sdk-toolset")
+        return SdkToolset.model_validate(data)
 
     def get_workflow(self, workflow_id: int) -> WorkflowResponse:
         """Get a single workflow by ID (returns draft if one exists, else published)."""
@@ -161,6 +176,11 @@ class _GeneratedClient:
             params["status"] = status
         data = self._request("GET", "/workflow/fetch", params=params)
         return [WorkflowListResponse.model_validate(x) for x in data]
+
+    def publish_toolset(self, workflow_uuid: str, *, body: SdkToolset) -> SdkToolset:
+        """Replace a workflow's SDK tool catalog. Publishes schemas only; does not modify workflow versions or execute tools."""
+        data = self._request("PUT", f"/workflow/by-uuid/{workflow_uuid}/sdk-toolset", json=body.model_dump(mode="json", exclude_none=True))
+        return SdkToolset.model_validate(data)
 
     def start_live_session(self, uuid: str, *, body: StartLiveSessionRequest) -> StartLiveSessionResponse:
         """Start a live voice session (WebRTC) against the published agent identified by trigger UUID. Returns a session_token used to open the device signaling WebSocket."""

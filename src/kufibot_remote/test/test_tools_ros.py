@@ -47,6 +47,10 @@ async def main():
      await asyncio.sleep(.2)
    heart=asyncio.create_task(pulse())
    try:
+    # Servo feedback starts only after the sequential startup pose is complete.
+    async with asyncio.timeout(15):
+     while not nodes[2].startup_complete:
+      await asyncio.sleep(.1)
     await asyncio.sleep(.5)
     for name,args in [('look_at',{'angle_deg':0}),('read_sensor_values',{'angle_deg':0,'sweep_deg':30}),('goto',{'distance_m':.2,'angle_deg':0})]:
      await asyncio.sleep(.7)

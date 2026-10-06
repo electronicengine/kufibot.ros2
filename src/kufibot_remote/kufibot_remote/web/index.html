@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111319">
+  <meta name="color-scheme" content="dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kufibot">
+  <link rel="apple-touch-icon" href="/assets/icon-180.png">
+  <script defer src="/assets/pwa.js"></script>
   <meta name="application-name" content="Kufibot Kontrol">
   <title>Kufibot · Robot Kumandası</title>
   <link rel="icon" href="/assets/icon.svg">
@@ -27,6 +34,7 @@
         <button id="menu-open" class="brand" aria-label="Bağlantı ve yardım menüsü">☰ <span>KUFIBOT</span><small>CONTROL</small></button>
         <div class="sensor"><span>AKIM</span><strong id="current">— A</strong></div>
         <div class="sensor"><span>GERİLİM</span><strong id="voltage">— V</strong></div>
+        <div class="wake-heard" aria-live="polite"><span>Son algılanan metin</span><strong id="control-heard">Henüz konuşma algılanmadı.</strong><small id="control-heard-match"></small></div>
       </section>
       <section class="top-center" aria-label="Kontrol modu ve bağlantı">
         <div class="mode-switch">
@@ -59,11 +67,18 @@
     <section class="bottom-bar" aria-label="Hareket ve eklem kontrolleri">
       <div class="control-column">
         <label class="eye-control"><span>SOL GÖZ</span><input id="eyeLeft" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
-        <div class="joystick-label" id="drive-label">HAREKET · TAM GÜÇ</div>
-        <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Dört yönlü, tam güç hareket joysticki; WASD" aria-disabled="true">
-          <span class="axis axis-x"></span><span class="axis axis-y"></span>
-          <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
-          <span class="knob"></span>
+        <div class="drive-controls">
+          <label class="speed-control" for="drive-speed"><span>HIZ</span><output id="drive-speed-value">100%</output>
+            <input id="drive-speed" type="range" min="25" max="100" step="5" value="100" aria-label="İleri geri sürüş hızı">
+          </label>
+          <div>
+            <div class="joystick-label" id="drive-label">HAREKET · TAM GÜÇ</div>
+            <div id="drive-stick" class="joystick" role="group" tabindex="0" aria-label="Dört yönlü hareket joysticki; WASD" aria-disabled="true">
+              <span class="axis axis-x"></span><span class="axis axis-y"></span>
+              <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
+              <span class="knob"></span>
+            </div>
+          </div>
         </div>
         <label class="arm-control" for="leftArm"><span>SOL KOL</span><output id="leftArm-value">— °</output></label>
         <input id="leftArm" type="range" min="109" max="180" step="1" value="170" disabled>
@@ -108,11 +123,16 @@
       <button data-page="control"><b>⌁</b><span>Kontrol Arayüzü<small>Canlı sürüş ve kamera</small></span></button>
       <button data-page="connection"><b>⌘</b><span>Bağlantı Ayarları<small>Robot ve ağ erişimi</small></span></button>
       <button data-page="voice"><b>◉</b><span>Ses Ajanı<small>Sağlayıcı ve iş akışı</small></span></button>
+      <button data-page="verasist-audio"><b>◌</b><span>Verasist Ses<small>AEC, gürültü ve kesilme</small></span></button>
       <button data-page="recordings"><b>≋</b><span>Kayıtlar<small>Tüm yerel sesli görüşmeler</small></span></button>
       <button data-page="workflows"><b>◈</b><span>Workflowlar<small>Canvas, araçlar ve dosyalar</small></span></button>
       <button data-page="calibration"><b>◌</b><span>Kalibrasyon<small>Pusula ölçümleri</small></span></button>
       <button data-page="mimics"><b>✦</b><span>Mimik Editörü<small>3D hareket düzenleme</small></span></button>
+      <button id="fullscreen-toggle" aria-pressed="false"><b aria-hidden="true">⛶</b><span><span id="fullscreen-label">Tam ekran yap</span><small>Ekranı kaplaması için aç</small></span></button>
+      <button id="pwa-install"><b aria-hidden="true">↓</b><span>Uygulamayı yükle<small>Telefona veya bilgisayara ekle</small></span></button>
     </nav>
+    <p id="fullscreen-help" class="help" role="status" hidden></p>
+    <p id="pwa-install-help" class="help" role="status" hidden></p>
   </aside><div id="drawer-backdrop" hidden></div>
   <section id="settings-page" class="settings-page" hidden aria-live="polite">
     <header class="settings-header"><button id="page-back" aria-label="Kontrol arayüzüne dön">←</button><div><p id="page-kicker">KUFIBOT CONTROL</p><h2 id="page-title"></h2></div><button id="page-menu" aria-label="Menüyü aç">☰</button></header>
@@ -142,6 +162,8 @@
       <article data-page-content="voice">
     <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>
     <h3>Sesli Ajan Ayarları</h3>
+      <p class="help">Dinleyicinin son duyduğu metin: <strong id="activation-heard" aria-live="polite">Henüz konuşma algılanmadı.</strong></p>
+      <p id="activation-heard-match" class="help"></p>
     <label for="ai-provider">Sağlayıcı</label>
     <select id="ai-provider" class="trigger-input"><option value="verasist">Verasist AI</option><option value="local">Local AI</option></select>
     <div id="local-model-settings" hidden>
@@ -151,6 +173,24 @@
     </div>
     <label><input type="checkbox" id="ai-camera-context"> Konuşmalarıma kamera görüntüsü ekle</label>
     <p id="ai-camera-help" class="help"></p>
+    <fieldset id="activation-settings">
+      <legend>Uyanma ve karşılama</legend>
+      <p class="help">Modeller, workflow editöründeki Modeller sekmesiyle aynı robot klasörlerinden taranır. Önce dili, ardından STT ve TTS modelini seçin. Bu seçimler uyanma dinleyicisine özeldir.</p>
+      <label><input id="activation-enabled" type="checkbox"> Uyanma kelimesini dinle (kumandada da açık)</label>
+      <label for="activation-phrase">Uyanma kelimesi veya ifadesi</label>
+      <input id="activation-phrase" class="trigger-input" maxlength="120">
+      <label for="activation-language">Dinleyici dili</label><select id="activation-language" class="trigger-input"></select>
+      <label for="activation-stt">Yerel dinleyici STT modeli</label><select id="activation-stt" class="trigger-input"></select>
+      <label for="activation-tts">Sabit söyleyiş TTS modeli</label><select id="activation-tts" class="trigger-input"></select>
+      <label for="activation-greeting_text">Karşılama metni</label><input id="activation-greeting_text" class="trigger-input" maxlength="500">
+      <label for="activation-greeting_mimic">Karşılama mimiği</label><select id="activation-greeting_mimic" class="trigger-input"></select>
+      <label for="activation-farewell_text">Kapanış metni</label><input id="activation-farewell_text" class="trigger-input" maxlength="500">
+      <label for="activation-farewell_mimic">Kapanış mimiği</label><select id="activation-farewell_mimic" class="trigger-input"></select>
+      <p class="help">Söyleyiş ve mimik bir kez tamamlandıktan sonra görüşme açılır. Boş metin seslendirmeyi kapatır. Bu ayarlar tüm sağlayıcı ve workflow’larda geçerlidir.</p>
+
+      <p id="activation-status" role="status" class="help"></p>
+    </fieldset>
+    <button id="stop-voice" class="secondary" disabled>Görüşmeyi bitir</button>
     <button id="save-ai-settings" class="secondary">Ayarları kaydet ve uygula</button>
     <p id="ai-settings-status" role="status" class="calibration-info"></p>
     <div id="verasist-settings">
@@ -161,11 +201,51 @@
     <p id="ai-trigger-info" class="calibration-info">YZ iş akışı bekleniyor</p>
     </div>
       </article>
+      <article data-page-content="verasist-audio">
+        <h3>Verasist Ses Ayarları</h3>
+        <p class="help">Bu ayarlar yalnız Verasist görüşmesinin mikrofon yolunu etkiler. Kaydedilen değerler sonraki görüşmede uygulanır.</p>
+        <div id="verasist-audio-unavailable" class="help" hidden>Bu sayfa Verasist sağlayıcısı seçiliyken kullanılabilir.</div>
+        <div id="verasist-audio-controls">
+          <fieldset><legend>SDK araçları</legend>
+            <label for="verasist-workflow-uuid">Workflow UUID</label>
+            <input id="verasist-workflow-uuid" class="trigger-input" placeholder="Workflow UUID" autocomplete="off" spellcheck="false">
+            <p class="help">Workflow UUID girin (görüşme trigger UUID’si değil). Yayın, bu workflow’un SDK araç kataloğunu robotun güncel araçlarıyla değiştirir. Görüşme açılmaz.</p>
+            <button id="publish-verasist-tools" class="secondary">Mevcut araçları yayımla</button>
+            <p id="verasist-toolset-status" class="calibration-info" role="status" aria-live="polite"></p>
+          </fieldset>
+          <fieldset id="verasist-aec-settings"><legend>Yankı engelleme · AEC</legend>
+            <label for="verasist-aec-mode">Ses aygıtı seçimi <span class="setting-tip"><button type="button" class="setting-help" aria-label="Ses aygıtı seçimi hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Sistem yapılandırması PipeWire AEC aygıtını kullanır. Zorunlu AEC bu aygıt yoksa görüşmeyi açmaz. AEC kapalı fiziksel mikrofonu kullanır; hoparlör yankısı yeniden algılanabilir.</span></span></label>
+            <select id="verasist-aec-mode" class="trigger-input"><option value="system">Sistem yapılandırması</option><option value="enabled">Kufibot AEC zorunlu</option><option value="disabled">AEC kapalı · fiziksel aygıtlar</option></select>
+            <h4>PipeWire WebRTC AEC modülü</h4>
+            <label for="verasist-aec-delay">Referans gecikmesi (ms) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Referans gecikmesi hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Hoparlör referansını mikrofonun duyduğu yankıyla hizalar. Bluetooth için başlangıç 180 ms. Düşük değer yankıyı yeterince iptal etmez; yüksek değer yanlış hizalama yapar.</span></span></label><input id="verasist-aec-delay" class="trigger-input" type="number" min="0" max="500" step="1">
+            <div class="setting-label"><label><input id="verasist-aec-high-pass" type="checkbox"> Yüksek geçiren filtre</label><span class="setting-tip"><button type="button" class="setting-help" aria-label="Yüksek geçiren filtre hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Düşük frekanslı motor uğultusunu azaltır. Açık önerilir; kapatmak daha dolgun bas bırakır fakat uğultu ve yankıyı artırabilir.</span></span></div>
+            <div class="setting-label"><label><input id="verasist-aec-noise-suppression" type="checkbox"> WebRTC gürültü bastırma</label><span class="setting-tip"><button type="button" class="setting-help" aria-label="WebRTC gürültü bastırma hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">AEC içindeki ek sabit gürültü azaltmadır. Açık ortam gürültüsünü düşürür; çok hafif konuşmada yapaylık oluşturursa kapatılabilir.</span></span></div>
+            <div class="setting-label"><label><input id="verasist-aec-gain-control" type="checkbox"> Otomatik kazanç kontrolü</label><span class="setting-tip"><button type="button" class="setting-help" aria-label="Otomatik kazanç kontrolü hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Mikrofon düzeyini yükseltir. Sessiz kullanıcıyı güçlendirebilir ama motor ve yankıyı da büyütebilir; varsayılan kapalıdır.</span></span></div>
+            <div class="setting-label"><label><input id="verasist-aec-extended-filter" type="checkbox"> Genişletilmiş yankı filtresi</label><span class="setting-tip"><button type="button" class="setting-help" aria-label="Genişletilmiş yankı filtresi hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Uzun veya karmaşık yankı yollarında daha iyi uyum sağlar. Açık önerilir; kaynak sınırlıysa kapatmak CPU yükünü azaltabilir.</span></span></div>
+            <div class="setting-label"><label><input id="verasist-aec-delay-agnostic" type="checkbox"> Değişken gecikme modu</label><span class="setting-tip"><button type="button" class="setting-help" aria-label="Değişken gecikme modu hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Değişken Bluetooth gecikmesini izlemeye yardım eder. Açık önerilir; sabit kablolu ses yolunda kapatmak daha kararlı olabilir.</span></span></div>
+          </fieldset>
+          <fieldset><legend>Mikrofon akışı</legend>
+            <div class="setting-label"><label><input id="verasist-mute-playback" type="checkbox"> Robot konuşurken mikrofonu sessize al</label><span class="setting-tip"><button type="button" class="setting-help" aria-label="Mikrofonu sessize alma hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Açıkken robot konuşurken sıfır PCM gönderilir: yankıyı önler fakat kullanıcı sesi kayda gitmez. Kapalıyken ses sürekli iletilir; çalışan AEC gerekir.</span></span></div>
+            <label for="verasist-noise-suppression">Gürültü bastırma (dB) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Gürültü bastırma hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Daha negatif değer daha güçlü sabit gürültü azaltır. Aşırı düşük değer konuşmayı metalik veya zayıf yapabilir. 0 kapatır.</span></span></label><input id="verasist-noise-suppression" class="trigger-input" type="number" min="-60" max="0" step="1">
+            <label for="verasist-noise-gate">Sessizlik eşiği (RMS, 0 kapalı) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Sessizlik eşiği hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Bu değerin altındaki kareler sessizliğe çevrilir. Yüksek değer arka planı keser, ancak sessiz konuşma hecelerini de kesebilir. 0 kapatır.</span></span></label><input id="verasist-noise-gate" class="trigger-input" type="number" min="0" max="32768" step="10">
+            <label for="verasist-noise-hangover">Sessizlik bırakma süresi (sn) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Sessizlik bırakma süresi hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Eşik altına indikten sonra kapının açık kaldığı süredir. Yüksek değer kelime aralarını korur ama daha fazla ortam sesi geçirir; düşük değer konuşmayı erken keser.</span></span></label><input id="verasist-noise-hangover" class="trigger-input" type="number" min="0" max="5" step="0.1">
+          </fieldset>
+          <fieldset><legend>Söz kesme koruması</legend>
+            <label for="verasist-barge-rms">Söz kesme eşiği (RMS, 0 kapalı) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Söz kesme eşiği hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Yalnız robot konuşurken uygulanır. Yüksek değer yankıyı reddeder, fakat normal sesli kullanıcıyı da engelleyebilir. 0 korumayı kapatır.</span></span></label><input id="verasist-barge-rms" class="trigger-input" type="number" min="0" max="32768" step="10">
+            <label for="verasist-barge-start">Gerekli ses süresi (sn) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Gerekli ses süresi hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Söz kesme kabul edilmeden önce gereken sürekli ses süresidir. Yüksek değer yankı ve tıkırtıları azaltır, ancak ilk heceyi geciktirir.</span></span></label><input id="verasist-barge-start" class="trigger-input" type="number" min="0.01" max="0.5" step="0.01">
+            <label for="verasist-echo-tail">Oynatma yankı kuyruğu (sn) <span class="setting-tip"><button type="button" class="setting-help" aria-label="Oynatma yankı kuyruğu hakkında bilgi">?</button><span class="setting-tooltip" role="tooltip">Robot sesi bittikten sonra korumanın sürdüğü süredir. Yüksek değer Bluetooth yankısını bastırır, ancak kullanıcının hemen başlayan konuşmasını geciktirebilir.</span></span></label><input id="verasist-echo-tail" class="trigger-input" type="number" min="0" max="5" step="0.1">
+          </fieldset>
+          <p class="help">Verasist sunucu VAD ayarı SDK tarafından istemciye sunulmuyor. Mikrofon kontrolleri PCM sesini değiştirir; AEC modül değişiklikleri sonraki görüşmeden önce PipeWire yeniden başlatılarak uygulanır.</p>
+          <button id="save-verasist-audio" class="secondary">Ses ayarlarını kaydet</button><p id="verasist-audio-status" class="calibration-info" role="status"></p>
+        </div>
+      </article>
       <article data-page-content="calibration">
     <h3>HMC Pusula Kalibrasyonu</h3>
-    <p>Robotu yatay tutun. Başlatınca sensörü yavaşça farklı yönlere, birkaç tam tur döndürün. İşlem sırasında robotu metal ve mıknatıslardan uzak tutun.</p>
+    <p>Robotu yatay tutun. Başlatınca sensörü yavaşça farklı yönlere, birkaç tam tur döndürün. İşlem sırasında robotu metal ve mıknatıslardan uzak tutun. Her 10° dilimde üç ölçüm gerekir. Merkez hesaplandıkça açı dağılımı güncellenebilir.</p>
     <button id="calibrate-compass" class="secondary" disabled>Pusulayı kalibre et</button>
     <p id="calibration-info" class="calibration-info">Pusula sensörü bekleniyor</p>
+    <div id="calibration-live"></div>
+    <div id="calibration-saved"></div>
     <div class="calibration-values" aria-label="Canlı HMC5883L ölçümleri">
       <span>HAM X <strong id="calibration-raw-x">—</strong></span><span>HAM Y <strong id="calibration-raw-y">—</strong></span>
       <span>MİN X <strong id="calibration-min-x">—</strong></span><span>MAKS X <strong id="calibration-max-x">—</strong></span>

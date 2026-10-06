@@ -4,6 +4,8 @@ import math
 import os
 import time
 from pathlib import Path
+from datetime import datetime, timezone
+from .compass_calibration import CompassCalibration
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import MagneticField
@@ -58,6 +60,8 @@ class Hmc5883lNode(Node):
         self.offset_x, self.offset_y = OFFSET_X, OFFSET_Y
         self.scale_x, self.scale_y = SCALE_X, SCALE_Y
         self.calibration = None
+        self.last_result = None
+        self.calibration_message = "Hazır"
         self._load_calibration()
 
         self.bus = SMBus(bus_num)
@@ -70,16 +74,31 @@ class Hmc5883lNode(Node):
                      self._calibration_command, 10)
 
         self.timer = self.create_timer(1.0 / rate, self.timer_callback)
-        self._publish_calibration_status('Hazır')
+        self.status_timer = self.create_timer(1.0, lambda: self._publish_calibration_status(
+            self.calibration_message))
+        self._publish_calibration_status('Kaydedilmiş kalibrasyon yüklendi' if self.last_result else 'Hazır')
         self.get_logger().info('HMC5883L sensörü başlatıldı.')
 
     def _load_calibration(self):
         try:
             values = json.loads(self.calibration_file.read_text(encoding='utf-8'))
-            self.offset_x = float(values['offset_x'])
-            self.offset_y = float(values['offset_y'])
-            self.scale_x = float(values['scale_x'])
-            self.scale_y = float(values['scale_y'])
+            parameters = {key: float(values[key]) for key in
+                          ('offset_x', 'offset_y', 'scale_x', 'scale_y')}
+            if not all(math.isfinite(v) for v in parameters.values()):
+                return
+            if min(parameters['scale_x'], parameters['scale_y']) <= 0:
+                return
+            for name, value in parameters.items():
+                setattr(self, name, value)
+            result = values.get('result')
+            if (isinstance(result, dict) and isinstance(result.get('bin_counts'), list)
+                    and len(result['bin_counts']) == 36
+                    and all(type(n) is int and n >= 3 for n in result['bin_counts'])
+                    and isinstance(result.get('completed_at'), str)):
+                self.last_result = result
+            else:
+                self.last_result = {'samples': 0, 'target': self.calibration_samples,
+                                    'parameters': parameters}
         except (OSError, ValueError, KeyError, TypeError):
             return
         self.get_logger().info(f'Pusula kalibrasyonu yüklendi: {self.calibration_file}')
@@ -87,58 +106,46 @@ class Hmc5883lNode(Node):
     def _calibration_command(self, msg):
         if msg.data != 'start':
             return
-        self.calibration = {'samples': 0, 'min_x': math.inf, 'max_x': -math.inf,
-                            'min_y': math.inf, 'max_y': -math.inf}
+        if self.calibration is not None:
+            return
+        self.calibration = CompassCalibration(self.calibration_samples, self.declination)
         self._publish_calibration_status('Robotu yatay tutup yavaşça farklı yönlere çevirin')
 
     def _publish_calibration_status(self, message):
-        active = self.calibration is not None
-        samples = self.calibration['samples'] if active else 0
-        status = {
-            'active': active, 'samples': samples, 'target': self.calibration_samples,
-            'message': message,
-        }
-        if active and samples:
-            status['raw'] = {'x': self.calibration['raw_x'], 'y': self.calibration['raw_y']}
-            status['minimum'] = {'x': self.calibration['min_x'], 'y': self.calibration['min_y']}
-            status['maximum'] = {'x': self.calibration['max_x'], 'y': self.calibration['max_y']}
-        self.calibration_pub.publish(String(data=json.dumps(status)))
+        self.calibration_message = message
+        status = {'active': self.calibration is not None, 'samples': 0,
+                  'target': self.calibration_samples, 'message': message,
+                  'last_result': self.last_result}
+        if self.calibration is not None:
+            status.update(self.calibration.snapshot())
+        elif self.last_result:
+            status.update(self.last_result)
+        self.calibration_pub.publish(String(data=json.dumps(status, allow_nan=False)))
 
     def _add_calibration_sample(self, raw_x, raw_y):
         calibration = self.calibration
         if calibration is None:
             return
-        calibration['samples'] += 1
-        calibration['raw_x'], calibration['raw_y'] = raw_x, raw_y
-        calibration['min_x'] = min(calibration['min_x'], raw_x)
-        calibration['max_x'] = max(calibration['max_x'], raw_x)
-        calibration['min_y'] = min(calibration['min_y'], raw_y)
-        calibration['max_y'] = max(calibration['max_y'], raw_y)
-        if calibration['samples'] < self.calibration_samples:
-            self._publish_calibration_status('Robotu yatay tutup yavaşça farklı yönlere çevirin')
+        calibration.add(raw_x, raw_y)
+        if not calibration.complete:
+            self._publish_calibration_status('Her 10° dilimde en az 3 ölçüm toplayın')
             return
-        span_x = calibration['max_x'] - calibration['min_x']
-        span_y = calibration['max_y'] - calibration['min_y']
-        if min(span_x, span_y) <= 0:
-            self.calibration = None
-            self._publish_calibration_status('Kalibrasyon başarısız: yeterli hareket algılanmadı')
-            return
-        self.offset_x = (calibration['max_x'] + calibration['min_x']) / 2
-        self.offset_y = (calibration['max_y'] + calibration['min_y']) / 2
-        average_span = (span_x + span_y) / 2
-        self.scale_x, self.scale_y = average_span / span_x, average_span / span_y
-        self.calibration = None
+        result = {**calibration.snapshot(),
+                  'completed_at': datetime.now(timezone.utc).isoformat()}
+        values = {**calibration.parameters, 'result': result}
         try:
             self.calibration_file.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.calibration_file.with_suffix('.tmp')
-            temporary.write_text(json.dumps({'offset_x': self.offset_x, 'offset_y': self.offset_y,
-                                             'scale_x': self.scale_x, 'scale_y': self.scale_y}),
-                                 encoding='utf-8')
+            temporary.write_text(json.dumps(values, allow_nan=False), encoding='utf-8')
             os.replace(temporary, self.calibration_file)
         except OSError as error:
             self.get_logger().error(f'Kalibrasyon kaydedilemedi: {error}')
-            self._publish_calibration_status('Kalibrasyon uygulandı, ancak kaydedilemedi')
+            self._publish_calibration_status('Kalibrasyon kaydedilemedi; tekrar deneniyor')
             return
+        for name, value in calibration.parameters.items():
+            setattr(self, name, value)
+        self.last_result = result
+        self.calibration = None
         self._publish_calibration_status('Kalibrasyon tamamlandı ve kaydedildi')
 
     def _configure_sensor(self):

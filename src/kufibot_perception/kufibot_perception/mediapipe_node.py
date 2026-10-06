@@ -17,6 +17,7 @@ import mediapipe as mp
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, String
 
@@ -78,7 +79,8 @@ class MediaPipeNode(Node):
             JointCommand, 'servo/tracking_targets', 5)
         self.debug_pub = self.create_publisher(
             Image, 'perception/debug_image', 2)
-        self.create_subscription(Image, 'camera/image_raw', self._image, 1)
+        self.create_subscription(
+            Image, 'camera/stream', self._image, qos_profile_sensor_data)
         self.applied_mode = 'remote'
         self.mode_time = 0.0
         self.create_subscription(String, 'remote/applied_mode', self._mode, 10)
@@ -99,7 +101,7 @@ class MediaPipeNode(Node):
         self.mode_time = time.monotonic()
 
     def _tracking_enabled(self):
-        return (self.applied_mode == 'ai'
+        return (self.applied_mode in ('ai', 'tools')
                 and time.monotonic() - self.mode_time < 1.0
                 and not self.local_compute_active)
 

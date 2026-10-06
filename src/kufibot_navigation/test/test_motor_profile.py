@@ -40,8 +40,14 @@ def test_navigation_never_uses_manual_minimum_and_profiles_are_atomic():
     assert applied[-1] == (0., 0.)
 
 
+def test_navigation_accepts_bounded_forward_compass_correction():
+    n, applied = motor()
+    n.drive_callback(command('navigation', linear=.05, angular=.1))
+    assert applied[-1] == (.05, .1)
+
+
 @pytest.mark.parametrize('msg', [command('navigation', -.05), command('navigation', .09),
-    command('navigation', .05, .1), command('navigation', float('nan')), command('unknown')])
+    command('navigation', .05, .3), command('navigation', float('nan')), command('unknown')])
 def test_invalid_profile_demand_stops(msg):
     n, applied = motor()
     n.drive_callback(msg)

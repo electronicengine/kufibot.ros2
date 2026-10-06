@@ -3,8 +3,11 @@ import { AppState } from 'react-native';
 import { MediaStream, RTCPeerConnection, RTCSessionDescription } from 'react-native-webrtc';
 import { Robot } from './discovery';
 
-export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt: string; llm: string; embedding: string; tts: string; system_prompt: string; camera_attach_to_every_user_turn: boolean; workflow_id?: string};
-export type AiConfig = {settings: AiSettings; workflows?: {id:string;label:string}[]; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'embedding' | 'tts'; backend?: 'vosk' | 'hailo_whisper'; languages: string[]; available: boolean}[]; error: string};
+export type ActivationSettings = {enabled:boolean; phrase:string; language:string; stt:string; tts:string; greeting_text:string; greeting_mimic:string; farewell_text:string; farewell_mimic:string};
+export const activationDefaults: ActivationSettings = {enabled:true, phrase:'Kufi', language:'tr', stt:'', tts:'', greeting_text:'Evet, seni dinliyorum.', greeting_mimic:'', farewell_text:'Görüşmek üzere.', farewell_mimic:''};
+export type VerasistAudioSettings = {aec_mode?: 'system' | 'enabled' | 'disabled'; mute_mic_during_playback?: boolean; noise_gate_rms?: number; noise_gate_hangover_sec?: number; noise_suppression_db?: number; barge_in_rms?: number; barge_in_start_sec?: number; playback_echo_tail_sec?: number; aec_play_delay_ms?: number; aec_high_pass_filter?: boolean; aec_noise_suppression?: boolean; aec_gain_control?: boolean; aec_extended_filter?: boolean; aec_delay_agnostic?: boolean};
+export type AiSettings = {provider: 'verasist' | 'local'; language: string; stt: string; llm: string; embedding: string; tts: string; system_prompt: string; camera_attach_to_every_user_turn: boolean; workflow_id?: string; activation?: ActivationSettings; verasist_audio?: VerasistAudioSettings};
+export type AiConfig = {mimics?: {id:string;name:string}[]; activation_status?: {error:string;end_reason:string;last_heard?: {text:string;matched:boolean;timestamp_ms:number} | null}; settings: AiSettings; workflows?: {id:string;label:string}[]; models: {id: string; label?: string; kind: 'stt' | 'llm' | 'embedding' | 'tts'; backend?: 'vosk' | 'hailo_whisper'; languages: string[]; available: boolean}[]; error: string};
 export type RoutePlan = {
   route_id: string; map_id: string; map_revision: number; start_pose: number[];
   waypoints: {x_m: number; y_m: number}[]; active_index: number; completed_count: number;
@@ -22,6 +25,14 @@ export type DistanceMapData = {
   wall_policy?: string; occupied_capacity_reached?: boolean; rejected_rays?: number;
   pose_fresh?: boolean; mapping_status?: {skipped_samples: number; reason: string};
 };
+export type CalibrationData = {
+  samples: number; target: number;
+  raw?: {x: number; y: number} | null; minimum?: {x: number; y: number} | null;
+  maximum?: {x: number; y: number} | null;
+  angle_deg?: number | null; bin_width_deg?: number; required_per_bin?: number;
+  bin_counts?: number[]; completed_at?: string;
+  parameters?: {offset_x: number; offset_y: number; scale_x: number; scale_y: number} | null;
+};
 export type State = {
   workflowToken?: string;
   navigation?: {enabled: boolean; state: string; reason: string; calibrated: boolean; task_id: string; route_plan?: RoutePlan | null} | null;
@@ -29,12 +40,11 @@ export type State = {
   navigationRequested?: boolean;
   aiConfig?: AiConfig;
   voiceStatus?: {state: string; detail: string; active: boolean};
-  type: 'state'; version: 1; owner: boolean; mode: 'ai' | 'remote';
+  type: 'state'; version: 1; owner: boolean; mode: 'ai' | 'remote' | 'tools';
   appliedMode: string | null; camera: boolean; driveAvailable: boolean;
   aiTriggerUuid?: string;
   distanceMap?: DistanceMapData | null;
-  calibration?: {active: boolean; samples: number; target: number; message: string;
-    raw?: {x: number; y: number}; minimum?: {x: number; y: number}; maximum?: {x: number; y: number}};
+  calibration?: CalibrationData & {active: boolean; message: string; last_result?: CalibrationData | null};
   sensors: Record<string, number | null>; joints: Record<string, number>;
 };
 type Axes = {drive_x: number; drive_y: number; head_x: number; head_y: number};
@@ -166,7 +176,7 @@ export function useRobot(robot: Robot | null) {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'state' && data.version === 1 && data.sensors &&
-              data.joints && ['remote', 'ai'].includes(data.mode)) {
+              data.joints && ['remote', 'ai', 'tools'].includes(data.mode)) {
             lastState = Date.now(); live.current = data; setState(data);
             setConnection(data.owner ? 'Bağlı' : 'İzleyici');
             if (!data.owner || data.mode !== 'remote' || data.appliedMode !== 'remote') axes.current = zero();
@@ -177,6 +187,9 @@ export function useRobot(robot: Robot | null) {
             if (data.command === 'input') inputPending.current = false;
           } else if (data.type === 'error') {
             if (data.command === 'input') inputPending.current = false;
+            // A final joystick packet may arrive after switching to AI mode.
+            // It remains rejected by the robot but does not need an alert.
+            if (data.command === 'input' && live.current?.mode !== 'remote') return;
             setError(String(data.message));
           }
         } catch { setError('Geçersiz robot yanıtı'); }

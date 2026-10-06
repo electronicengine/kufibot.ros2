@@ -7,11 +7,12 @@ const aiTriggerModal = $('ai-trigger-modal');
 const AI_TRIGGER_UUID_KEY = 'kufibot.aiTriggerUuid';
 const AI_TRIGGER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let windowActive = true;
-const pageTitles = {connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', workflows: 'Workflowlar', recordings: 'Kayıtlar', calibration: 'Kalibrasyon'};
+const pageTitles = {connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', 'verasist-audio': 'Verasist Ses', workflows: 'Workflowlar', recordings: 'Kayıtlar', calibration: 'Kalibrasyon'};
 let activePage = location.hash.slice(1) || 'control';
-if (!['control', 'connection', 'voice', 'workflows', 'recordings', 'calibration'].includes(activePage)) activePage = 'control';
+if (!['control', 'connection', 'voice', 'verasist-audio', 'workflows', 'recordings', 'calibration'].includes(activePage)) activePage = 'control';
 let imageLoaded = false;
 const keys = new Set();
+let driveSpeed = 1;
 const canControl = () => link.ready && !menu.classList.contains('open') && activePage === 'control' && !$('mimics-modal').open && windowActive;
 
 function openDrawer() { link.stopManualInput(); menu.classList.add('open'); menu.setAttribute('aria-hidden', 'false'); $('drawer-backdrop').hidden = false; render(); }
@@ -74,12 +75,13 @@ class Joystick {
     const scale = Math.max(radius, Math.hypot(dx, dy));
     let x = dx / scale;
     let y = dy / scale;
-    // The drive control has four full-power sectors. Select the dominant
-    // axis so diagonal touches always resolve to one unambiguous direction.
+    // Select the dominant axis so diagonal touches always resolve to one
+    // unambiguous direction.
     if (this.part === 'drive') [x, y] = Math.abs(x) >= Math.abs(y)
       ? [Math.sign(x), 0] : [0, Math.sign(y)];
     this.position(x, y);
-    link.input(this.part, x, y);
+    link.input(this.part, this.part === 'drive' ? x * driveSpeed : x,
+      this.part === 'drive' ? y * driveSpeed : y);
   }
   position(x, y) {
     const radius = this.element.clientWidth * .32;
@@ -139,9 +141,83 @@ function renderDirection(state) {
     : `Kafanın pusulaya göre baktığı yön ${Math.round(direction)} derece`);
 }
 
+function calibrationChart(container, data, title) {
+  const signature = JSON.stringify(data ?? null);
+  if (container.dataset.signature === signature) return;
+  container.dataset.signature = signature;
+  container.replaceChildren();
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  container.append(heading);
+  if (!data?.bin_counts || data.bin_counts.length !== 36) {
+    const empty = document.createElement('p');
+    empty.textContent = 'Kayıtlı açı kapsamı verisi yok. Yeni kalibrasyon yapın.';
+    if (data?.parameters) {
+      const p = data.parameters;
+      empty.textContent += ` Mevcut kayıt: Ofset X/Y ${p.offset_x.toFixed(2)} / ${p.offset_y.toFixed(2)}; Ölçek X/Y ${p.scale_x.toFixed(4)} / ${p.scale_y.toFixed(4)}. Eski kayıtta tarih ve açı ölçümleri bulunmuyor.`;
+    }
+    container.append(empty);
+    return;
+  }
+  const counts = data.bin_counts;
+  const info = document.createElement('p');
+  info.textContent = `${counts.filter(n => n >= 3).length}/36 dilim · ${data.samples} ölçüm / en az ${data.target}` +
+    (Number.isFinite(data.angle_deg) ? ` · Son açı: ${data.angle_deg.toFixed(1)}°` : ' · Açı bekleniyor');
+  container.append(info);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 280 280');
+  svg.classList.add('calibration-chart');
+  svg.setAttribute('aria-label', 'Açı başına üç ölçüm göstergesi');
+  const detail = document.createElement('p');
+  detail.textContent = 'Bir dilime dokunarak ölçüm sayısını görün.';
+  const selected = Number(container.dataset.selected);
+  counts.forEach((count, index) => {
+    const group = document.createElementNS(svg.namespaceURI, 'g');
+    const label = `${index * 10}–${(index + 1) * 10}°: ${count} ölçüm (en az 3)`;
+    group.setAttribute('role', 'button'); group.setAttribute('tabindex', '0');
+    group.setAttribute('aria-label', label);
+    const select = () => { container.dataset.selected = String(index); detail.textContent = label; };
+    group.addEventListener('click', select);
+    group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') {event.preventDefault(); select();} });
+    if (container.dataset.selected !== undefined && selected === index) detail.textContent = label;
+    for (let slot = 0; slot < 3; slot++) {
+      const angle = (index * 10 + 5) * Math.PI / 180;
+      const radius = 96 + slot * 13;
+      const dot = document.createElementNS(svg.namespaceURI, 'circle');
+      dot.setAttribute('cx', String(140 + Math.sin(angle) * radius));
+      dot.setAttribute('cy', String(140 - Math.cos(angle) * radius));
+      dot.setAttribute('r', '5');
+      dot.setAttribute('fill', count > slot ? (count >= 3 ? '#b8e75c' : '#ffc27a') : '#405064');
+      group.append(dot);
+    }
+    svg.append(group);
+  });
+  if (Number.isFinite(data.angle_deg)) {
+    const arrow = document.createElementNS(svg.namespaceURI, 'path');
+    arrow.setAttribute('d', 'M 140 62 L 134 77 L 146 77 Z M 140 77 L 140 115');
+    arrow.setAttribute('fill', '#79d6ff'); arrow.setAttribute('stroke', '#79d6ff');
+    arrow.setAttribute('transform', `rotate(${data.angle_deg} 140 140)`); svg.append(arrow);
+  }
+  const label = document.createElementNS(svg.namespaceURI, 'text');
+  label.setAttribute('x', '140'); label.setAttribute('y', '148'); label.setAttribute('text-anchor', 'middle');
+  label.setAttribute('fill', '#eef5f7'); label.textContent = `${counts.filter(n => n >= 3).length}/36`;
+  svg.append(label); container.append(svg, detail);
+  if (data.completed_at) {
+    const saved = document.createElement('p');
+    const p = data.parameters;
+    saved.textContent = `Kaydedildi: ${new Date(data.completed_at).toLocaleString('tr-TR')}` +
+      (p ? ` · Ofset X/Y: ${p.offset_x.toFixed(2)} / ${p.offset_y.toFixed(2)} · Ölçek X/Y: ${p.scale_x.toFixed(4)} / ${p.scale_y.toFixed(4)}` : '') +
+      (data.minimum && data.maximum ? ` · X aralığı: ${data.minimum.x}…${data.maximum.x} · Y aralığı: ${data.minimum.y}…${data.maximum.y}` : '');
+    container.append(saved);
+  }
+}
+
 function renderCalibration(state) {
   const calibration = state?.calibration;
   const active = !!calibration?.active;
+  $('calibration-live').hidden = !active;
+  if (active) calibrationChart($('calibration-live'), calibration, 'Canlı açı kapsamı');
+  calibrationChart($('calibration-saved'), calibration?.last_result, 'Son kaydedilen kalibrasyon');
   const message = calibration?.message || 'Pusula sensörü bekleniyor';
   const progress = active && Number.isInteger(calibration.samples) && Number.isInteger(calibration.target)
     ? ` (${calibration.samples}/${calibration.target})` : '';
@@ -169,8 +245,39 @@ function renderAiWorkflow(state) {
 let aiDraft = null;
 let aiDirty = false;
 let aiSaved = null;
+let toolsetPublishing = false;
+let toolsetStatus = '';
+let verasistAudioDraft = null;
+let verasistAudioSaved = false;
 let localWorkflows = [];
 let aiWorkflowError = '';
+const activationDefaults = {enabled:true, phrase:'Kufi', language:'tr', stt:'', tts:'', greeting_text:'Evet, seni dinliyorum.', greeting_mimic:'', farewell_text:'Görüşmek üzere.', farewell_mimic:''};
+const voiceLabels = {preparing:'Hazırlanıyor', wake_listening:'Uyanma kelimesi bekleniyor', greeting:'Karşılıyor', connecting:'Bağlanıyor', connected:'Görüşmede', listening:'Görüşmede', farewell:'Kapanış', disabled:'Dinleme kapalı', error:'Hata', suspended:'Dinleme askıda', idle:'Oturum kapalı'};
+function renderActivation(state, draft) {
+  const value = {...activationDefaults, ...draft.activation};
+  value.language = ({eng:'en', tur:'tr'})[value.language] || value.language;
+  const models = state?.aiConfig?.models || [];
+  const languages = [...new Set(['tr', 'en', ...models.filter(m => m.available && ['stt','tts'].includes(m.kind)).flatMap(m => m.languages)])].sort();
+  for (const key of Object.keys(activationDefaults)) {
+    const input = $(`activation-${key}`);
+    input.disabled = !state?.owner || !state?.aiConfig;
+    if (input.tagName === 'SELECT') {
+      const items = key === 'language' ? languages.map(id => [id, ({tr:'Türkçe',en:'English'})[id] || id]) : key.endsWith('mimic') ? (state?.aiConfig?.mimics || []).map(m => [m.id, m.name]) :
+        (state?.aiConfig?.models || []).filter(m => m.kind === key && m.available && m.languages.includes(value.language)).map(m => [m.id, m.label || m.id]);
+      const options = key === 'language' ? items : [['', key.endsWith('mimic') ? 'Mimik yok' : 'Otomatik (kurulu model)'], ...items];
+      if (value[key] && !options.some(([id]) => id === value[key])) options.push([value[key], `${value[key]} · kullanılamıyor`]);
+      input.replaceChildren(...options.map(([id, name]) => {const option = document.createElement('option'); option.value=id; option.textContent=name; return option;}));
+    }
+    if (key === 'enabled') input.checked = value[key]; else if (input.tagName === 'SELECT' || document.activeElement !== input) input.value = value[key];
+  }
+  const missing = ['stt','tts'].filter(kind => (kind === 'stt' ? value.enabled : value.greeting_text || value.farewell_text) &&
+    !(state?.aiConfig?.models || []).some(m => m.kind === kind && m.available && m.languages.includes(value.language) && (!value[kind] || value[kind] === m.id)));
+  $('activation-status').textContent = [missing.length ? `Yerel ${missing.join(' / ').toUpperCase()} modeli kurup seçin.` : '', state?.aiConfig?.activation_status?.error, voiceLabels[state?.voiceStatus?.state] || state?.voiceStatus?.state].filter(Boolean).join(' · ');
+  const heard = state?.aiConfig?.activation_status?.last_heard;
+  for (const id of ['activation-heard', 'control-heard']) $(id).textContent = heard?.text || 'Henüz konuşma algılanmadı.';
+  for (const id of ['activation-heard-match', 'control-heard-match']) $(id).textContent = heard ? `${new Date(heard.timestamp_ms).toLocaleTimeString('tr-TR')} · ${heard.matched ? 'Uyanma kelimesi eşleşti' : 'Uyanma kelimesi eşleşmedi'}` : '';
+  $('stop-voice').disabled = !state?.owner || state?.mode !== 'ai';
+}
 function renderAiSettings(state) {
   const config = state?.aiConfig;
   if (!aiDirty && config?.settings) aiDraft = {...config.settings};
@@ -178,6 +285,7 @@ function renderAiSettings(state) {
     aiDirty = false; aiSaved = null;
   }
   const draft = aiDraft || {provider: 'verasist', language: 'tr', stt: '', llm: '', embedding: '', tts: '', system_prompt: '', camera_attach_to_every_user_turn: false};
+  renderActivation(state, draft);
   const local = draft.provider === 'local';
   $('ai-provider').value = draft.provider;
   $('ai-provider').disabled = !state?.owner || !config;
@@ -186,18 +294,58 @@ function renderAiSettings(state) {
   $('ai-camera-context').parentElement.hidden = local;
   $('ai-camera-help').hidden = local;
   $('ai-camera-help').textContent = local ? 'Yerel sağlayıcı görüntü desteklemiyor.' :
-    'Açıkken her konuşmanıza robot kamerasından bir fotoğraf eklenir. Kapalıyken açık kamera talepleri ve navigasyon çalışmaya devam eder.';
+    'Seçim hemen kaydedilir ve uygulanır. Açıkken her konuşmanızın başındaki güncel robot kamera fotoğrafı ajana gönderilir. Kamera görüntüsü alınamazsa hata gösterilir.';
   $('local-model-settings').hidden = !local;
   $('verasist-settings').hidden = local;
   $('ai-workflow').disabled = !state?.owner;
   const valid = !local || localWorkflows.some(w => w.id === draft.workflow_id);
   $('save-ai-settings').disabled = !state?.owner || !config || !valid;
   $('save-ai-settings').textContent = local ? 'Seçili workflow’u bağla ve uygula' : 'Ayarları kaydet ve uygula';
-  const saved = config && ['provider', 'workflow_id', 'camera_attach_to_every_user_turn'].every(k => draft[k] === config.settings[k]);
+  const saved = config && ['provider', 'workflow_id', 'camera_attach_to_every_user_turn', 'activation'].every(k => JSON.stringify(draft[k]) === JSON.stringify(config.settings[k]));
   $('ai-settings-status').textContent = [aiWorkflowError, config?.error, state?.voiceStatus?.detail,
     state?.voiceStatus?.state, aiSaved ? 'Uygulanması bekleniyor…' : '',
     local && !valid ? 'Bir workflow seçin veya workflow editöründen oluşturun.' : '',
     !config ? 'Sesli ajan ayarları bekleniyor' : !saved ? 'Önce ayarları kaydedin.' : state.mode !== 'ai' ? 'Ayarlar kayıtlı. Ana ekrandan YZ modu seçildiğinde ajan başlar.' : ''].filter(Boolean).join(' · ');
+}
+
+const verasistAudioDefaults = {aec_mode: 'system', mute_mic_during_playback: false,
+  noise_gate_rms: 0, noise_gate_hangover_sec: .5, noise_suppression_db: -25,
+  barge_in_rms: 0, barge_in_start_sec: .18, playback_echo_tail_sec: 1.2,
+  aec_play_delay_ms: 180, aec_high_pass_filter: true, aec_noise_suppression: true,
+  aec_gain_control: false, aec_extended_filter: true, aec_delay_agnostic: true};
+function renderVerasistAudio(state) {
+  const available = state?.aiConfig?.settings?.provider === 'verasist';
+  $('verasist-audio-unavailable').hidden = available;
+  $('verasist-audio-controls').hidden = !available;
+  $('publish-verasist-tools').disabled = !available || !state?.owner || !state?.workflowToken || toolsetPublishing || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test($('verasist-workflow-uuid').value.trim());
+  $('verasist-workflow-uuid').disabled = !state?.owner || toolsetPublishing;
+  $('publish-verasist-tools').textContent = toolsetPublishing ? 'Yayımlanıyor…' : 'Mevcut araçları yayımla';
+  $('verasist-toolset-status').textContent = toolsetStatus;
+  if (!available) return;
+  if (!verasistAudioDraft) verasistAudioDraft = {...verasistAudioDefaults,
+    ...(state.aiConfig.settings.verasist_audio || {})};
+  const audio = verasistAudioDraft;
+  const inputs = {aec_mode: 'verasist-aec-mode', mute_mic_during_playback: 'verasist-mute-playback',
+    noise_suppression_db: 'verasist-noise-suppression', noise_gate_rms: 'verasist-noise-gate',
+    noise_gate_hangover_sec: 'verasist-noise-hangover', barge_in_rms: 'verasist-barge-rms',
+    barge_in_start_sec: 'verasist-barge-start', playback_echo_tail_sec: 'verasist-echo-tail',
+    aec_play_delay_ms: 'verasist-aec-delay', aec_high_pass_filter: 'verasist-aec-high-pass',
+    aec_noise_suppression: 'verasist-aec-noise-suppression', aec_gain_control: 'verasist-aec-gain-control',
+    aec_extended_filter: 'verasist-aec-extended-filter', aec_delay_agnostic: 'verasist-aec-delay-agnostic'};
+  const halfDuplex = !!audio.mute_mic_during_playback;
+  for (const [key, id] of Object.entries(inputs)) {
+    const input = $(id);
+    const aecSetting = key === 'aec_mode' || key.startsWith('aec_');
+    input.disabled = !state.owner || (halfDuplex && aecSetting);
+    if (key === 'mute_mic_during_playback') input.checked = !!audio[key];
+    else if (document.activeElement !== input) input.value = key === 'aec_mode' && halfDuplex
+      ? 'disabled' : String(audio[key]);
+  }
+  $('verasist-aec-settings').setAttribute('aria-disabled', String(halfDuplex));
+  $('save-verasist-audio').disabled = !state.owner;
+  $('verasist-audio-status').textContent = verasistAudioSaved
+    ? 'Kaydedildi; sonraki Verasist görüşmesinde uygulanacak.'
+    : state.owner ? 'Yapılan değişiklikleri kaydedin.' : 'Kumandayı devralarak değiştirin.';
 }
 
 function drawDistanceMap(canvas, mapping, routePlan) {
@@ -280,21 +428,80 @@ for (const key of ['provider']) {
     renderAiSettings(link.state);
   });
 }
+for (const key of Object.keys(activationDefaults)) {
+  $(`activation-${key}`).addEventListener('input', event => {
+    aiDraft = {...(aiDraft || link.state?.aiConfig?.settings)};
+    aiDraft.activation = {...activationDefaults, ...aiDraft.activation, [key]: key === 'enabled' ? event.target.checked : event.target.value};
+    if (key === 'language') {aiDraft.activation.stt=''; aiDraft.activation.tts='';}
+    aiDirty = true; aiSaved = null;
+    renderActivation(link.state, aiDraft);
+  });
+}
+$('stop-voice').addEventListener('click', () => link.send({type:'stopVoice'}));
 $('ai-camera-context').addEventListener('change', event => {
   aiDraft = {...(aiDraft || link.state?.aiConfig?.settings), camera_attach_to_every_user_turn: event.target.checked};
   aiDirty = true; aiSaved = null;
+  // Apply the camera preference without saving unrelated edits in this form.
+  const settings = {...link.state.aiConfig.settings, provider: 'verasist',
+    camera_attach_to_every_user_turn: event.target.checked};
+  if (link.send({type: 'setAiSettings', settings}) && JSON.stringify(settings) === JSON.stringify(aiDraft)) {
+    aiSaved = JSON.stringify(settings);
+  }
+  renderAiSettings(link.state);
 });
 $('save-ai-settings').addEventListener('click', () => {
   if (aiDraft?.provider === 'local') {
     aiWorkflowError = '';
     const workflow = localWorkflows.find(w => w.id === aiDraft.workflow_id);
-    if (workflow && link.send({type:'workflow',action:'activate',request_id:'voice-workflow-activate',id:workflow.id})) {
+    if (workflow && link.send({type:'workflow',action:'activate',request_id:'voice-workflow-activate',id:workflow.id,activation:aiDraft.activation})) {
       $('ai-settings-status').textContent = 'Workflow doğrulanıyor ve bağlanıyor…';
     }
     return;
   }
   if (link.send({type: 'setAiSettings', settings: aiDraft})) aiSaved = JSON.stringify(aiDraft);
   renderAiSettings(link.state);
+});
+for (const [key, id] of Object.entries({aec_mode: 'verasist-aec-mode', mute_mic_during_playback: 'verasist-mute-playback',
+  noise_suppression_db: 'verasist-noise-suppression', noise_gate_rms: 'verasist-noise-gate',
+  noise_gate_hangover_sec: 'verasist-noise-hangover', barge_in_rms: 'verasist-barge-rms',
+  barge_in_start_sec: 'verasist-barge-start', playback_echo_tail_sec: 'verasist-echo-tail',
+  aec_play_delay_ms: 'verasist-aec-delay', aec_high_pass_filter: 'verasist-aec-high-pass',
+  aec_noise_suppression: 'verasist-aec-noise-suppression', aec_gain_control: 'verasist-aec-gain-control',
+  aec_extended_filter: 'verasist-aec-extended-filter', aec_delay_agnostic: 'verasist-aec-delay-agnostic'})) {
+  $(id).addEventListener('input', event => {
+    const booleanKeys = new Set(['mute_mic_during_playback', 'aec_high_pass_filter',
+      'aec_noise_suppression', 'aec_gain_control', 'aec_extended_filter', 'aec_delay_agnostic']);
+    verasistAudioDraft = {...(verasistAudioDraft || verasistAudioDefaults), [key]: booleanKeys.has(key) ? event.target.checked
+      : key === 'aec_mode' ? event.target.value : Number(event.target.value)};
+    verasistAudioSaved = false;
+    renderVerasistAudio(link.state);
+  });
+}
+$('verasist-workflow-uuid').addEventListener('input', () => {
+  toolsetStatus = ''; renderVerasistAudio(link.state);
+});
+$('publish-verasist-tools').addEventListener('click', async () => {
+  if (toolsetPublishing || !link.state?.owner || !link.state?.workflowToken) return;
+  const workflowUuid = $('verasist-workflow-uuid').value.trim();
+  toolsetPublishing = true; toolsetStatus = ''; renderVerasistAudio(link.state);
+  try {
+    const response = await fetch('/api/verasist/toolset', {
+      method: 'POST', headers: {'Content-Type': 'application/json', Authorization: `Bearer ${link.state.workflowToken}`},
+      body: JSON.stringify({workflow_uuid: workflowUuid}), signal: AbortSignal.timeout(40000),
+    });
+    const text = await response.text();
+    let result; try { result = JSON.parse(text); } catch { throw new Error('Yayın yapılamadı. Robot bağlantısını ve kumanda sahipliğini kontrol edin.'); }
+    if (!response.ok) throw new Error(result.error || 'Araç yayını başarısız');
+    toolsetStatus = `${result.count} araç ${result.workflow_uuid} workflow’una yayımlandı. Araçları görmek için workflow sayfasını yenileyin.`;
+  } catch (error) {
+    toolsetStatus = error.name === 'TimeoutError' || error.name === 'AbortError'
+      ? 'Yayın sonucu alınamadı. Yeniden denemeden önce workflow kataloğunu kontrol edin.' : error.message;
+  } finally { toolsetPublishing = false; renderVerasistAudio(link.state); }
+});
+$('save-verasist-audio').addEventListener('click', () => {
+  const settings = {...link.state.aiConfig.settings, verasist_audio: verasistAudioDraft};
+  if (link.send({type: 'setAiSettings', settings})) verasistAudioSaved = true;
+  renderVerasistAudio(link.state);
 });
 
 const workflowDialog = document.createElement('dialog');
@@ -520,9 +727,11 @@ function render() {
     : !nav ? 'Gezinme düğümü bekleniyor'
     : `${navLabels[nav.state] || nav.state}${!nav.calibrated ? ' · Hareket kalibrasyonu gerekli' : ''}`;
   drive.enable(enabled && !!state?.driveAvailable);
+  $('drive-speed').disabled = !enabled || !state?.driveAvailable;
   head.enable(enabled);
   $('prepare-mapping').disabled = !enabled;
-  $('drive-label').textContent = state?.driveAvailable ? 'HAREKET · TAM GÜÇ' : 'HAREKET · MOTOR YOK';
+  $('drive-label').textContent = state?.driveAvailable
+    ? `HAREKET · %${Math.round(driveSpeed * 100)} HIZ` : 'HAREKET · MOTOR YOK';
   for (const name of ['leftArm', 'rightArm']) {
     const input = $(name);
     input.disabled = !enabled;
@@ -541,6 +750,7 @@ function render() {
   renderCalibration(state);
   renderAiWorkflow(state);
   renderAiSettings(state);
+  renderVerasistAudio(state);
   camera();
 }
 
@@ -714,6 +924,12 @@ $('distance-map').addEventListener('click', () => {
   $('map-dialog').showModal(); drawDistanceMap($('distance-map-full'), link.state?.distanceMap, link.state?.navigation?.route_plan);
 });
 $('map-close').addEventListener('click', () => $('map-dialog').close());
+$('drive-speed').addEventListener('input', event => {
+  driveSpeed = Number(event.target.value) / 100;
+  $('drive-speed-value').textContent = `${Math.round(driveSpeed * 100)}%`;
+  keyboard();
+  render();
+});
 
 function keyboard() {
   const held = (...codes) => codes.some(code => keys.has(code));
@@ -722,7 +938,7 @@ function keyboard() {
     let y = Number(held('KeyS')) - Number(held('KeyW'));
     if (x) y = 0; // Four-way drive: turning takes priority.
     drive.position(x, y);
-    link.input('drive', x, y);
+    link.input('drive', x * driveSpeed, y * driveSpeed);
   }
   if (head.enabled && head.pointer === null) {
     const x = Number(held('ArrowRight')) - Number(held('ArrowLeft'));
@@ -756,7 +972,7 @@ link.connect();
 selectPage(activePage, true);
 window.addEventListener('popstate', () => selectPage(location.hash.slice(1) || 'control', true));
 window.addEventListener('hashchange', () => selectPage(location.hash.slice(1) || 'control', true));
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
+
 
 // Reuse this controller's ownership; the embedded editor has no second socket.
 const mimicModal = $('mimics-modal');

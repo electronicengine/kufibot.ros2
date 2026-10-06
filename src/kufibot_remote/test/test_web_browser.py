@@ -89,6 +89,8 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
                     await playwright.expect(page.locator('#camera')).to_be_visible(timeout=15000)
                     assert await page.locator('#camera').evaluate('(video) => video.videoWidth') == 640
                     await playwright.expect(page.locator('#voltage')).to_have_text('12.4 V')
+                    await playwright.expect(page.locator('#mode-remote')).to_have_attribute('aria-pressed', 'true')
+                    await page.locator('#mode-remote').click()
                     await playwright.expect(page.locator('#head-stick')).to_have_attribute('aria-disabled', 'false')
                     await page.screenshot(path='/tmp/kufibot-web-desktop.png')
                     await page.locator('#distance-map').click()
@@ -108,12 +110,41 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
                     await playwright.expect(page.locator('#distance-map-full')).to_have_attribute('data-waypoint-count', '0')
                     await page.locator('#map-close').click()
 
+                    await playwright.expect(page.locator('#control-heard')).to_be_visible()
                     # The UI saves installed model IDs and keeps drafts across telemetry.
                     await page.locator('#menu-open').click()
                     await page.locator('[data-page="voice"]').click()
+                    await playwright.expect(page.locator('#activation-phrase')).to_have_value('Kufi')
+                    await playwright.expect(page.locator('#activation-language')).to_have_js_property('tagName', 'SELECT')
+                    await page.locator('#activation-language').select_option('en')
+                    await page.locator('#activation-language').select_option('tr')
+                    await page.locator('#activation-stt').focus()
+                    await page.locator('#activation-stt').select_option('stt')
+                    await page.locator('#activation-tts').select_option('tts')
+                    await playwright.expect(page.locator('#activation-stt')).to_have_value('stt')
+                    await playwright.expect(page.locator('#activation-tts')).to_have_value('tts')
+                    await playwright.expect(page.locator('#activation-heard')).to_have_text('Henüz konuşma algılanmadı.')
+                    ai_config['activation_status'] = {'last_heard': {'text': 'Merhaba dünya', 'matched': False, 'timestamp_ms': 1000}}
+                    await playwright.expect(page.locator('#activation-heard')).to_have_text('Merhaba dünya')
+                    await playwright.expect(page.locator('#control-heard')).to_have_text('Merhaba dünya')
+                    await playwright.expect(page.locator('#activation-heard-match')).to_contain_text('eşleşmedi')
+                    ai_config['activation_status']['last_heard'] = {'text':'Hey Kufi', 'matched':True, 'timestamp_ms':2000}
+                    await playwright.expect(page.locator('#activation-heard')).to_have_text('Hey Kufi')
+                    await playwright.expect(page.locator('#activation-heard-match')).to_contain_text('eşleşti')
+                    assert await page.locator('#mode-idle').count() == 0
+                    await page.locator('#activation-phrase').fill('Merhaba robot')
+                    await page.locator('#activation-greeting_text').fill('Merhaba, hazırım.')
                     await page.locator('#ai-camera-context').check()
-                    await page.locator('#save-ai-settings').click()
                     await wait_for(lambda: ai_config['settings']['camera_attach_to_every_user_turn'] is True)
+                    assert ai_config['settings']['activation']['phrase'] == DEFAULT['activation']['phrase']
+                    await page.locator('#ai-camera-context').uncheck()
+                    await wait_for(lambda: ai_config['settings']['camera_attach_to_every_user_turn'] is False)
+                    await page.locator('#ai-camera-context').check()
+                    await wait_for(lambda: ai_config['settings']['camera_attach_to_every_user_turn'] is True)
+                    await page.locator('#save-ai-settings').click()
+                    await wait_for(lambda: ai_config['settings']['activation']['phrase'] == 'Merhaba robot')
+                    assert ai_config['settings']['activation']['phrase'] == 'Merhaba robot'
+                    assert ai_config['settings']['activation']['greeting_text'] == 'Merhaba, hazırım.'
                     await page.locator('#ai-provider').select_option('local')
                     await playwright.expect(page.locator('#ai-camera-context')).to_be_disabled()
                     await playwright.expect(page.locator('#local-model-settings')).to_be_visible()
@@ -123,9 +154,13 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
                     await page.locator('#save-ai-settings').click()
                     await wait_for(lambda: ai_config['settings']['provider'] == 'local')
                     assert ai_config['settings']['stt'] == 'stt'
-                    assert ai_config['settings']['system_prompt'] == 'Workflow talimatı'
+                    assert ai_config['settings']['system_prompt'] == ''  # Prompts belong to workflow nodes.
+                    assert ai_config['settings']['activation']['phrase'] == 'Merhaba robot'
                     assert ai_config['settings']['workflow_id'] == workflow['id']
-                    await playwright.expect(page.locator('#ai-settings-status')).not_to_contain_text('Uygulanması bekleniyor')
+                    # Wait for the committed provider and save status in the same telemetry frame.
+                    await page.wait_for_function(
+                        "document.querySelector('#ai-provider').value === 'local' && "
+                        "document.querySelector('#ai-settings-status').textContent.includes('Ayarlar kayıtlı')")
                     await page.locator('#page-back').click()
                     await page.locator('#mode-ai').click()
                     await wait_for(lambda: control.mode == 'ai')
@@ -140,6 +175,16 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
                     await page.locator('#mode-remote').focus()
 
                     # Keyboard motion, release, and blur cannot leave a latched input.
+                    await page.locator('#drive-speed').fill('50')
+                    await page.keyboard.down('a')
+                    await wait_for(lambda: control.axes['drive_x'] == -.5 and control.axes['drive_y'] == 0)
+                    await page.keyboard.up('a')
+                    await wait_for(lambda: all(v == 0 for v in control.axes.values()))
+                    await page.keyboard.down('w')
+                    await wait_for(lambda: control.axes['drive_y'] == -.5)
+                    await page.keyboard.up('w')
+                    await wait_for(lambda: all(v == 0 for v in control.axes.values()))
+                    await page.locator('#drive-speed').fill('100')
                     await page.keyboard.down('w')
                     await wait_for(lambda: control.axes['drive_y'] == -1)
                     await page.keyboard.up('w')
@@ -276,4 +321,57 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
             await asyncio.gather(ticker, return_exceptions=True)
             await server.close()
             await runner.cleanup()
+    asyncio.run(scenario())
+
+
+def test_verasist_toolset_publish_button(monkeypatch, tmp_path):
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    monkeypatch.setenv('KUFIBOT_KNOWLEDGE_ROOT', str(tmp_path / 'knowledge'))
+    playwright = pytest.importorskip('playwright.async_api')
+    chromium = shutil.which('chromium')
+    if not chromium:
+        pytest.skip('System Chromium required')
+
+    async def scenario():
+        from aiohttp.test_utils import TestServer
+        from kufibot_interaction.ai_settings import DEFAULT
+        gate = asyncio.Event()
+        calls = []
+
+        async def publish(workflow_uuid):
+            calls.append(workflow_uuid)
+            await gate.wait()
+            if len(calls) > 1:
+                raise ValueError('API anahtarı yetkisiz')
+            return {'count': 11, 'workflow_uuid': workflow_uuid}
+
+        control = Control()
+        server = Server(control, lambda: {'version': 1, 'mode': control.mode, 'appliedMode': control.mode,
+                        'sensors': {}, 'joints': {}, 'aiConfig': {'settings': dict(DEFAULT), 'models': [], 'error': ''}},
+                        publish_toolset=publish)
+        async with TestServer(server.app) as http:
+            async with playwright.async_playwright() as p:
+                browser = await p.chromium.launch(executable_path=chromium, headless=True,
+                                                  args=['--no-sandbox', '--disable-dev-shm-usage'])
+                try:
+                    page = await browser.new_page()
+                    errors = []
+                    page.on('pageerror', lambda error: errors.append(str(error)))
+                    await page.goto(str(http.make_url('/#verasist-audio')))
+                    await playwright.expect(page.locator('#connection')).to_have_text('Bağlı · kontrol sende')
+                    button = page.locator('#publish-verasist-tools')
+                    await playwright.expect(button).to_be_disabled()
+                    await page.locator('#verasist-workflow-uuid').fill('a1b2c3d4-1234-4567-8901-123456789abc')
+                    await playwright.expect(button).to_be_enabled()
+                    await button.click()
+                    await playwright.expect(button).to_have_text('Yayımlanıyor…')
+                    await playwright.expect(button).to_be_disabled()
+                    gate.set()
+                    await playwright.expect(page.locator('#verasist-toolset-status')).to_contain_text('11 araç')
+                    await button.click()
+                    await playwright.expect(page.locator('#verasist-toolset-status')).to_have_text('API anahtarı yetkisiz')
+                    assert len(calls) == 2
+                    assert not errors
+                finally:
+                    await browser.close()
     asyncio.run(scenario())

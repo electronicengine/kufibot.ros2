@@ -23,9 +23,14 @@ from ._generated_models import (
     NodeTypesResponse,
     UpdateWorkflowRequest,
     WorkflowResponse,
+    SdkToolSchema,
+    SdkToolset,
 )
 from .errors import ApiError, SpecMismatchError
 from .workflow import Workflow
+from .text_session import TextSessions
+from .audio import Audio
+from .scheduling import Scheduling
 
 
 class VerasistClient(_GeneratedClient):
@@ -63,6 +68,9 @@ class VerasistClient(_GeneratedClient):
 
         # Populated by the first call to `list_node_types` / `get_node_type`
         # — avoids repeated round-trips when building a workflow.
+        self.text_sessions = TextSessions(self)
+        self.audio = Audio(self)
+        self.scheduling = Scheduling(self)
         self._spec_cache: dict[str, NodeSpec] = {}
         self._spec_version: str | None = None
 
@@ -104,6 +112,24 @@ class VerasistClient(_GeneratedClient):
         return spec
 
     # ── ergonomic workflow wrappers ───────────────────────────────────
+
+    def publish_toolset(
+        self,
+        workflow_uuid: str,
+        tools: list[dict[str, Any] | SdkToolSchema] | None = None,
+        *,
+        body: SdkToolset | None = None,
+    ) -> SdkToolset:
+        """Replace the workflow's SDK catalog with schemas only.
+
+        Pass [] to clear the catalog. Runtime handlers and session transport
+        remain in your application; publishing does not start a session.
+        """
+        if (tools is None) == (body is None):
+            raise ValueError("Provide either tools or body")
+        return super().publish_toolset(
+            workflow_uuid, body=body if body is not None else SdkToolset(tools=tools)
+        )
 
     def load_workflow(self, workflow_id: int) -> Workflow:
         """Fetch a workflow and hydrate it into an editable `Workflow` builder."""

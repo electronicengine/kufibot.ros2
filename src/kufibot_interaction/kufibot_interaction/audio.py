@@ -49,6 +49,8 @@ class AlsaMicTrack(MediaStreamTrack):
         self.queue = asyncio.Queue(maxsize=20)
         self.started_at = None
         self.samples_sent = 0
+        self.next_frame_at = None
+        self.capture_stalled = False
         self.task = None
         self.stderr_task = None
         self.process = None
@@ -57,6 +59,8 @@ class AlsaMicTrack(MediaStreamTrack):
         self.suspended = False
         self.frame_count = 0
         self.clipped_frames = 0
+        self.dropped_frames = 0
+        self.silence_frames = 0
 
     def protect_playback_until(self, playback_end):
         # Local PCM timing, rather than the server's stopped-speaking event,
@@ -118,6 +122,7 @@ class AlsaMicTrack(MediaStreamTrack):
                     print(
                         f'[mic] frames={self.frame_count} rms={int(rms)} '
                         f'clipped={self.clipped_frames} queue={self.queue.qsize()} '
+                        f'dropped={self.dropped_frames} silence={self.silence_frames} '
                         f'muted={playback_muted} gated={gate_closed} '
                         f'barge_suppressed={self.barge_in_guard.suppressed_frames if self.barge_in_guard else 0}',
                         file=sys.stderr)
@@ -132,6 +137,7 @@ class AlsaMicTrack(MediaStreamTrack):
                         continue
                 if self.queue.full():
                     self.queue.get_nowait()
+                    self.dropped_frames += 1
                 self.queue.put_nowait(pcm)
         except asyncio.CancelledError:
             return
@@ -150,17 +156,34 @@ class AlsaMicTrack(MediaStreamTrack):
             raise MediaStreamError
         # A local USB disconnect must not end the RTP sender. Send paced
         # silence until capture is available again, preserving track and PTS.
+        # Pulse/ALSA deliver batches, not individual 10 ms frames. A frame-sized
+        # timeout inserts silence between healthy batches and corrupts speech.
+        unavailable = self.capture_error or self.suspended or self.capture_stalled
         try:
             pcm = await asyncio.wait_for(
-                self.queue.get(), FRAME_SAMPLES / SAMPLE_RATE)
+                self.queue.get(), FRAME_SAMPLES / SAMPLE_RATE if unavailable else 0.5)
         except asyncio.TimeoutError:
             pcm = None
+            self.capture_stalled = True
+        else:
+            if pcm is not None:
+                self.capture_stalled = False
         if self.readyState == 'ended':
             raise MediaStreamError
         if pcm is None or self.suspended:
             pcm = bytes(FRAME_SAMPLES * 2)
-            deadline = self.started_at + self.samples_sent / SAMPLE_RATE
-            await asyncio.sleep(max(0.0, deadline - time.monotonic()))
+            self.silence_frames += 1
+        # Keep the sample clock across short scheduling delays. Rebasing on
+        # every late frame slows RTP below capture speed and eventually drops
+        # speech from the bounded queue. Only a stall longer than the entire
+        # capture buffer starts a new clock; short delays must catch up.
+        now = time.monotonic()
+        frame_sec = FRAME_SAMPLES / SAMPLE_RATE
+        if (self.next_frame_at is None
+                or now - self.next_frame_at > self.queue.maxsize * frame_sec):
+            self.next_frame_at = now
+        await asyncio.sleep(max(0.0, self.next_frame_at - now))
+        self.next_frame_at += frame_sec
         frame = AudioFrame(format='s16', layout='mono', samples=FRAME_SAMPLES)
         frame.planes[0].update(pcm)
         frame.sample_rate = SAMPLE_RATE
@@ -177,6 +200,7 @@ class AlsaMicTrack(MediaStreamTrack):
         while not self.queue.empty():
             self.queue.get_nowait()
         self.capture_error = None
+        self.capture_stalled = False
         self.capture_ready.clear()
         try:
             await self._start_capture()
@@ -217,6 +241,7 @@ class AlsaSpeaker:
         self.process = None
         self.speaking = False
         self.last_voice_at = 0.0
+        self.voiced_playback_until = 0.0
         self.playback_until = 0.0
         self.pending_voice_write = False
         self.generation = 0
@@ -247,6 +272,7 @@ class AlsaSpeaker:
         voiced = rms >= 180.0
         if voiced:
             self.last_voice_at = now
+            self.voiced_playback_until = self.playback_until
             self.mic.protect_playback_until(self.playback_until)
             self._set_speaking(True)
         return voiced
@@ -255,7 +281,8 @@ class AlsaSpeaker:
         while True:
             await asyncio.sleep(0.05)
             if (self.speaking and not self.pending_voice_write
-                    and time.monotonic() - self.last_voice_at >= 0.35):
+                    and time.monotonic() >= max(
+                        self.last_voice_at + 0.35, self.voiced_playback_until)):
                 self._set_speaking(False)
 
     async def _stop_player(self):

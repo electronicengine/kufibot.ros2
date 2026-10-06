@@ -20,7 +20,7 @@ def test_editor_save_preview_play_and_mobile(tmp_path,monkeypatch):
     if not chromium:pytest.skip('Chromium required')
     monkeypatch.setenv('KUFIBOT_MIMICS_FILE',str(tmp_path/'mimics.json'))
     async def scenario():
-        control=Control(); current=dict(NEUTRAL_ANGLES)
+        control=Control(); control.mode='remote'; current=dict(NEUTRAL_ANGLES)
         server=Server(control,lambda:dict(version=1,mode=control.mode,appliedMode=control.mode,
             sensors={},joints=current,camera=False,driveAvailable=True),
             video_track=lambda:LatestCameraTrack(lambda:np.zeros((64,64,3),dtype=np.uint8)))
@@ -79,7 +79,7 @@ def test_editor_save_preview_play_and_mobile(tmp_path,monkeypatch):
                 await page.goto(url)
                 await playwright.expect(page.locator('#connection')).to_have_text('Bağlı · kontrol sende')
                 await page.locator('#menu-open').click()
-                await page.locator('#mimics-open').click()
+                await page.locator('[data-page="mimics"]').click()
                 editor=page.frame_locator('#mimics-frame')
                 await playwright.expect(editor.locator('#notice')).to_contain_text('Model hazır',timeout=30000)
                 await playwright.expect(editor.locator('#run')).to_be_enabled()

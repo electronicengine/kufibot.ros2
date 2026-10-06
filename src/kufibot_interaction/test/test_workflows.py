@@ -146,3 +146,19 @@ def test_end_message_is_an_instruction_not_literal_speech():
     engine = WorkflowEngine(document, lambda *args: {'action': 'reply', 'text': 'Görüşmek üzere!'}, None)
     engine.turn('')
     assert engine.turn('Hoşça kal') == {'text': 'Görüşmek üzere!', 'sources': [], 'ended': True}
+
+
+def test_llm_disabled_speaks_node_content_without_calling_decider():
+    document = graph()
+    document['settings']['llm_enabled'] = False
+    document['nodes'][0]['data']['prompt'] = 'Merhaba, size nasıl yardımcı olabilirim?'
+    document['nodes'][1]['data']['message'] = 'İsteğinizi aldım.'
+    engine = WorkflowEngine(document, lambda *_: pytest.fail('LLM çağrılmamalı'), None)
+    assert engine.turn('') == {'text': 'Merhaba, size nasıl yardımcı olabilirim?', 'sources': [], 'ended': False}
+    assert engine.turn('Yardım') == {'text': 'İsteğinizi aldım.', 'sources': [], 'ended': False}
+
+
+def test_llm_disabled_requires_speakable_node_content():
+    document = graph()
+    document['settings']['llm_enabled'] = False
+    assert 'LLM kapalıyken konuşma node içeriği gerekli' in validate_graph(document)

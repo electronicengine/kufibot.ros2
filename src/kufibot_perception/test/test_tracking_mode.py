@@ -8,7 +8,7 @@ from kufibot_perception.mediapipe_node import MediaPipeNode
 from kufibot_perception.tracking_controller import PolarHeadTracker
 
 
-def test_inference_and_commands_only_in_confirmed_ai_mode():
+def test_inference_and_commands_only_in_confirmed_ai_or_tools_mode():
     node = MediaPipeNode.__new__(MediaPipeNode)
     node.applied_mode = 'remote'
     node.mode_time = time.monotonic()
@@ -40,13 +40,20 @@ def test_inference_and_commands_only_in_confirmed_ai_mode():
     node.hands.process.assert_called_once()
     node.command_pub.publish.assert_called_once()
 
+    node._mode(SimpleNamespace(data='tools'))
+    node._image(msg)
+    node._control_tick()
+    assert node.face.process.call_count == 2
+    assert node.hands.process.call_count == 2
+    assert node.command_pub.publish.call_count == 2
+
     node.latest_target = (.8, .5)
     node._mode(SimpleNamespace(data='remote'))
     assert node.latest_target is None
     node._image(msg)
     node._control_tick()
-    node.face.process.assert_called_once()
-    node.command_pub.publish.assert_called_once()
-    node._mode(SimpleNamespace(data='ai'))
+    assert node.face.process.call_count == 2
+    assert node.command_pub.publish.call_count == 2
+    node._mode(SimpleNamespace(data='tools'))
     node.mode_time -= 2
     assert not node._tracking_enabled()

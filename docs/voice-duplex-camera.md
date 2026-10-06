@@ -6,6 +6,10 @@ seviyeli sesler oynatma sırasında ve yankı kuyruğunda bastırılır.
 Web ve mobil **Sesli Ajan Ayarları** içindeki
 **Konuşmalarıma kamera görüntüsü ekle** seçeneği varsayılan olarak kapalıdır.
 Kaydedilen tercih robotta `~/.config/kufibot/ai.json` dosyasında tutulur.
+Web `#voice` sayfasında Verasist AI seçiliyken kutunun işaretlenmesi veya
+kaldırılması kamera tercihini hemen kaydeder ve devam eden görüşmeye uygular;
+ayrıca kaydet düğmesine basmak gerekmez. Formdaki diğer değişiklikler ayrı
+kaydedilir. Her yeni konuşma başlangıcında güncel bir kare o konuşmaya eklenir.
 
 ## Ses kurulumu
 

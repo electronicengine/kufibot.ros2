@@ -3,11 +3,21 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from copy import deepcopy
+from .voice_activation import DEFAULT_ACTIVATION, validate_activation
 
 DEFAULT_SYSTEM_PROMPT = ''
 DEFAULT = dict(provider='verasist', language='tr', stt='', llm='', embedding='', tts='',
-               system_prompt=DEFAULT_SYSTEM_PROMPT, camera_attach_to_every_user_turn=False, workflow_id='')
+               system_prompt=DEFAULT_SYSTEM_PROMPT, camera_attach_to_every_user_turn=False, workflow_id='',
+               activation=DEFAULT_ACTIVATION, verasist_audio={})
 KINDS = ('stt', 'llm', 'embedding', 'tts')
+VERASIST_AUDIO_FIELDS = {
+    'aec_mode', 'mute_mic_during_playback', 'noise_gate_rms',
+    'noise_gate_hangover_sec', 'noise_suppression_db', 'barge_in_rms',
+    'barge_in_start_sec', 'playback_echo_tail_sec', 'aec_play_delay_ms',
+    'aec_high_pass_filter', 'aec_noise_suppression', 'aec_gain_control',
+    'aec_extended_filter', 'aec_delay_agnostic',
+}
 
 
 def catalog_path():
@@ -104,28 +114,61 @@ def normalize(value):
         value.setdefault('camera_attach_to_every_user_turn', False)
         value.setdefault('embedding', '')
         value.setdefault('workflow_id', '')
+        value.setdefault('activation', deepcopy(DEFAULT_ACTIVATION))
+        value.setdefault('verasist_audio', {})
     return value
 
 
 def workflow_voice_settings(document):
     """Keep workflow routing settings separate from the voice provider schema."""
     value = dict(document.get('settings', {}))
+    llm_enabled = value.pop('llm_enabled', True)
+    if type(llm_enabled) is not bool:
+        raise ValueError('LLM kullanımı boolean olmalı')
     value.pop('semantic_threshold', None)
     value.pop('voice', None)
+    value.pop('activation', None)
     # Workflow prompts live exclusively on nodes. Ignore old shared prompts.
     value['system_prompt'] = ''
+    if not llm_enabled:
+        value['llm'] = ''
+        value['embedding'] = ''
     return value
 
 
-def validate(value, models=None):
+def validate(value, models=None, *, workflow_llm_enabled=True):
     value = normalize(value)
     if not isinstance(value, dict) or set(value) != set(DEFAULT):
         raise ValueError('Sağlayıcı, dil, STT, LLM, embedding ve TTS seçimi gerekli')
     if type(value['camera_attach_to_every_user_turn']) is not bool:
         raise ValueError('Kamera seçeneği boolean olmalı')
+    audio = value['verasist_audio']
+    if not isinstance(audio, dict) or set(audio) - VERASIST_AUDIO_FIELDS:
+        raise ValueError('Geçersiz Verasist ses ayarları')
+    if audio.get('aec_mode', 'system') not in ('system', 'enabled', 'disabled'):
+        raise ValueError('Geçersiz Verasist AEC seçimi')
+    if ('mute_mic_during_playback' in audio
+            and type(audio['mute_mic_during_playback']) is not bool):
+        raise ValueError('Mikrofon sessize alma seçeneği boolean olmalı')
+    for key in ('aec_high_pass_filter', 'aec_noise_suppression',
+                'aec_gain_control', 'aec_extended_filter', 'aec_delay_agnostic'):
+        if key in audio and type(audio[key]) is not bool:
+            raise ValueError(f'Geçersiz Verasist AEC ayarı: {key}')
+    limits = {
+        'noise_gate_rms': (0, 32768), 'noise_gate_hangover_sec': (0, 5),
+        'noise_suppression_db': (-60, 0), 'barge_in_rms': (0, 32768),
+        'barge_in_start_sec': (.01, .5), 'playback_echo_tail_sec': (0, 5),
+        'aec_play_delay_ms': (0, 500),
+    }
+    for key, (minimum, maximum) in limits.items():
+        if key in audio and (isinstance(audio[key], bool)
+                             or not isinstance(audio[key], (int, float))
+                             or not minimum <= audio[key] <= maximum):
+            raise ValueError(f'Geçersiz Verasist ses ayarı: {key}')
     if not all(isinstance(value[k], str) for k in DEFAULT
-               if k != 'camera_attach_to_every_user_turn'):
+               if k not in ('camera_attach_to_every_user_turn', 'activation', 'verasist_audio')):
         raise ValueError('Diğer ayar değerleri metin olmalı')
+    value['activation'] = validate_activation(value['activation'])
     if value['provider'] not in ('verasist', 'local'):
         raise ValueError('Geçersiz AI sağlayıcısı')
     if not value['language'] or len(value['language']) > 32:
@@ -135,11 +178,14 @@ def validate(value, models=None):
     if value['provider'] == 'local' and value.get('workflow_id'):
         from .workflows import WorkflowStore
         document = WorkflowStore().snapshot(value['workflow_id'])
-        resolved = validate({**value, **workflow_voice_settings(document), 'provider': 'local', 'workflow_id': ''}, models)
+        llm_enabled = document.get('settings', {}).get('llm_enabled', True)
+        resolved = validate({**value, **workflow_voice_settings(document), 'provider': 'local', 'workflow_id': ''},
+                           models, workflow_llm_enabled=llm_enabled)
         return {**resolved, 'workflow_id': value['workflow_id']}
     if value['provider'] == 'local':
         models = catalog() if models is None else models
-        for kind in KINDS:
+        required_kinds = KINDS if workflow_llm_enabled else ('stt', 'tts')
+        for kind in required_kinds:
             match = next((m for m in models if m['id'] == value[kind] and m['kind'] == kind), None)
             if not match or not match['available']:
                 raise ValueError(f'{kind.upper()} modeli robotta kurulu değil')
@@ -151,16 +197,18 @@ def validate(value, models=None):
 def read_settings():
     path = settings_path()
     if not path.exists():
-        return dict(DEFAULT)
+        return deepcopy(DEFAULT)
     value = json.loads(path.read_text())
     value = normalize(value)
     if not isinstance(value, dict) or set(value) != set(DEFAULT):
         raise ValueError('Geçersiz kayıtlı AI ayarları')
     if (value['provider'] not in ('local', 'verasist')
             or type(value['camera_attach_to_every_user_turn']) is not bool
+            or not isinstance(value.get('verasist_audio'), dict)
             or not all(isinstance(value[k], str) for k in DEFAULT
-                       if k != 'camera_attach_to_every_user_turn')):
+                       if k not in ('camera_attach_to_every_user_turn', 'activation', 'verasist_audio'))):
         raise ValueError('Geçersiz kayıtlı AI ayarları')
+    value['activation'] = validate_activation(value['activation'])
     return value
 
 

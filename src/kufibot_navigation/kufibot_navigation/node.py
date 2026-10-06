@@ -64,7 +64,7 @@ class NavigationNode(Node):
         from std_msgs.msg import Float32
         self.create_subscription(Float32, 'compass/heading_deg', self._heading, qos_profile_sensor_data)
         self.create_subscription(JointState, 'servo/joint_states', self._joints, qos_profile_sensor_data)
-        self.create_subscription(Image, 'camera/image_raw', self._image, qos_profile_sensor_data)
+        self.create_subscription(Image, 'camera/stream', self._image, qos_profile_sensor_data)
         self.visual_stamp = -math.inf
         self.create_subscription(String, 'perception/navigation_obstacles', self._visual, 1)
         self.create_service(NavigationTask, 'navigation/task', self._task)

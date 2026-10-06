@@ -52,8 +52,13 @@ robotun Python ortamında `aiortc==1.9.0` bulunmalıdır (projenin
 
 Web ve native Expo uygulaması yalnızca WebRTC kullanır; JPEG/base64 yayın ve
 `/video` ucu kaldırıldı. Eski APK güncellenmelidir.
-Varsayılan yayın genişliği 480 piksel, hedef hız 15 FPS'tir; kaynak kamera 640×480
-15 FPS kalır. `video_max_width` sadece yayın kopyasını etkiler.
+Kamera, kaynak çözünürlüğünde `camera/stream` konusunu 30 FPS'te yayınlar.
+WebRTC köprüsü bu konuyu doğrudan iletir; MediaPipe, OpenCV ve ses ajanı aynı
+akıştan kendi ayarlanmış aralıklarında en yeni kareyi örnekler. Böylece ağır
+işleme canlı video aktarımını durdurmaz veya geriye düşürmez. `video_max_width`
+yalnızca WebRTC yayın kopyasını etkiler; `0` kaynak genişliğini korur. Robot
+gerçek zamanda encode edemiyorsa `video_max_width` veya `video_fps` değeri
+düşürülebilir.
 MediaPipe yüz/el çıkarımı ve takip komutları yalnızca güncel
 `remote/applied_mode=ai` bildirimi varken çalışır. Kumandaya dönüşte eski hedef
 temizlenir. Model, landmark dönüşümü ve takip eşikleri korunur.
@@ -122,3 +127,88 @@ robotu kullanmaz; localhost üzerinde test kamera görüntüsü ve sensörler ü
 Kamera, fare/klavye kontrolü, modlar, kol/göz komutları, odak/sekme kaybı, kontrol
 sahipliği, yeniden bağlanma ve telefon ekran boyutları Chromium ile doğrulanır.
 Playwright veya Chromium yoksa yalnızca bu tarayıcı testi atlanır.
+
+### Web arayüzünü uygulama olarak yükleme
+
+Web menüsündeki **Uygulamayı yükle** düğmesi, destekleyen tarayıcılarda
+kurulum penceresini açar. iPhone/iPad üzerinde Safari → Paylaş → Ana Ekrana
+Ekle yolunu kullanın. Uygulama tam ekran açılmayı ister; bunu desteklemeyen
+platformlar bağımsız uygulama penceresine döner. Başlık/tema ve açılış
+arka planı `#111319` rengindedir; sistem çubuklarının son görünümünü işletim
+sistemi belirler.
+
+PWA kurulumu ve service worker için güvenilir HTTPS gerekir (`localhost`
+geliştirme istisnasıdır). `http://<robot-ip>:<port>` üzerinden uzaktan
+doğrudan PWA kurulumu desteklenmez; aşağıdaki yerel HTTPS kurulumu kullanılmalıdır.
+Uygulama kabuğu çevrimdışı açılabilir; robot kontrolü için bağlantı gerekir.
+
+### İnternetsiz, yerel ağdan PWA kurulumu
+
+Robotun proje dizininde çalıştırın (Python 3 ve sistemde `openssl` gerekir):
+
+```bash
+python3 tools/setup_local_https.py
+```
+
+Komut robotun adını ve mevcut IP adreslerini sertifikaya ekler. İsterseniz
+adresleri açıkça verin: `python3 tools/setup_local_https.py 192.168.1.20 robot.local`.
+`robot.local` yalnızca ağınızda mDNS çözümlemesi varsa çalışır; IP adresi de kullanılabilir.
+Dosyalar `~/.config/kufibot/https/` altında tutulur. Her robot kendi CA anahtarını
+oluşturur; bu dosyalar repoya eklenmez. Komut sistemin sertifika güven deposunu değiştirmez.
+
+Çalışan launch sürecini durdurup `./tools/ros2_launch.sh` ile yeniden başlatın.
+HTTP ve mobil keşif `8080` üzerinde çalışmaya devam eder; HTTPS ayrıca `8443`
+üzerinde açılır. ROS parametreleri `https_port` (0: kapalı) ve
+`https_directory` ile değiştirilebilir. Sertifika yoksa HTTPS açılmaz.
+
+Telefon/bilgisayarda `http://ROBOT_IP:8080/pwa-setup` adresini açın.
+Sayfa Android, iOS, Windows, macOS ve Linux için sertifika yükleme adımlarını
+ve `https://ROBOT_IP:8443/` bağlantısını gösterir. Her cihazda kök sertifikaya
+bir kez güven verdikten sonra HTTPS arayüzündeki **Uygulamayı yükle** düğmesini
+kullanın. iOS'ta profil yüklemeye ek olarak Sertifika Güven Ayarları altında
+tam güven verilmelidir. Sertifika uyarısını geçmek tek başına yeterli değildir.
+
+Sadece `root-ca.crt` paylaşılır; `root-ca.key` ve `server.key` robotta kalır.
+Kurulum komutunun gösterdiği SHA-256 parmak izi sertifika ayrıntılarıyla
+karşılaştırılabilir. PWA için internet, dış DNS veya reverse proxy gerekmez.
+Robotun IP adresi değiştiğinde veya bir yıllık sunucu sertifikası dolmadan
+aynı komutu tekrar çalıştırıp launch sürecini yeniden başlatın. Mevcut CA
+korunduğu için istemci cihazlarda yeniden sertifika kurulumu gerekmez.
+Birden fazla robot/simülatör aynı makinedeyse farklı HTTPS portları kullanın
+veya simülatör için `https_port:=0` ayarlayın.
+
+### Kalibrasyon açı kapsamı ve kayıt
+
+Web ve mobil Kalibrasyon sayfası 10° genişliğinde 36 dilimi, her dilimde
+üç ölçüm göstergesiyle gösterir. Her dilimde en az üç geçerli sensör okuması
+ve `calibration_samples` toplam hedefi (varsayılan 500) sağlanmadan kalibrasyon
+kaydedilmez. Üç ölçüm ayrı okumadır; üç ayrı tur zorunlu değildir.
+Aday merkez/ölçek değiştikçe oturum ölçümlerinin açı dağılımı yeniden hesaplanır;
+ilerleme bu sırada değişebilir. Bu kapsam göstergesi bağımsız bir yön doğruluğu
+ölçümü değildir; robot yatay, metal ve mıknatıslardan uzakta çevrilmelidir.
+
+Son başarılı sonuç sensörün `calibration_file` dosyasında
+(varsayılan `~/.ros/kufibot_hmc5883l_calibration.json`) katsayılarla birlikte
+saklanır: UTC kayıt tarihi, toplam ölçüm sayısı, açı dilimi sayaçları,
+son açı/ham ölçüm, minimum/maksimumlar ve ofset/ölçek değerleri.
+Kalibrasyon sayfasındaki **Son kaydedilen kalibrasyon** bölümü yeniden
+bağlanınca veya robot yeniden başlayınca da bu kaydı gösterir. Yeni bir
+kalibrasyon önceki başarılı kaydı tamamlanıp diske yazılana kadar değiştirmez.
+Son başarılı kayıt tutulur; tüm geçmiş oturumların arşivi tutulmaz.
+Eski katsayı dosyaları desteklenir, ancak geçmişte saklanmamış tarih ve açı
+kapsamı üretilemez; sayfa bu durumda yeni kalibrasyon gerektiğini belirtir.
+
+### Verasist SDK araçlarını yayımlama
+
+Web ve mobilde **Verasist Ses → SDK araçları** bölümüne hedef **Workflow UUID**
+(görüşmenin trigger UUID’sinden farklıdır) girip **Mevcut araçları yayımla**
+düğmesine basın. Kumanda sahipliği gerekir. Ses ajanı çalışıyor olmalıdır;
+aktif görüşme gerekmez. Ses ajanının ortamında workflow organizasyonuna yetkili
+`VERASIST_API_KEY` veya `VERASIST_API_TOKEN` tanımlı olmalıdır.
+
+Yayın, robotun sensör/kamera/eklem ve navigasyon araçlarının şemalarını gönderir;
+hedef workflow’un SDK araç kataloğunun tamamını değiştirir. Aktif görüşmeyi veya
+navigasyonu yeniden başlatmaz. Başarıda yayımlanan araç sayısı gösterilir.
+Verasist workflow sayfasını yenileyin; yayımlanmış araçlar varsa **SDK araçları**
+bölümü görünür. Araçları ilgili node’larda seçin. Bağlantı zaman aşımında tekrar yayımlamadan
+önce kataloğu kontrol edin; istek sunucuda tamamlanmış olabilir.

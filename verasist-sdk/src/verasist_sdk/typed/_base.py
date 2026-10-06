@@ -13,7 +13,7 @@ ergonomic layer, not a second validator.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any, ClassVar
 
 
@@ -37,13 +37,15 @@ class TypedNode:
         `type` is a ClassVar and is NOT included — the caller passes it
         separately.
 
-        Fields with "unset" sentinels (`None`, empty list) are filtered
-        out so the output matches what `Workflow.add(**kwargs)` would
-        produce when the user omits them. Downstream validation applies
-        spec defaults for absent keys.
+        Fields with "unset" sentinels are filtered out. Empty lists are
+        preserved for nullable fields, where None is the unset sentinel.
+        Downstream validation applies spec defaults for absent keys.
         """
         raw = asdict(self)
+        # For nullable lists, [] is an explicit value (e.g. disable SDK tools),
+        # while None means the caller left the field unset.
+        nullable = {item.name for item in fields(self) if item.default is None}
         return {
             k: v for k, v in raw.items()
-            if v is not None and v != []
+            if v is not None and (v != [] or k in nullable)
         }

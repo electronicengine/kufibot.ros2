@@ -8,6 +8,7 @@ import json
 import signal
 import sys
 import os
+from pathlib import Path
 import threading
 import time
 import uuid
@@ -18,6 +19,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
+from .voice_activation import DEFAULT_ACTIVATION
 from .local_voice_runtime import DEFAULTS as LOCAL_DEFAULTS, PHASES, validate_runtime
 from std_srvs.srv import Trigger
 
@@ -27,6 +29,12 @@ from .ai_settings import workflow_voice_settings, catalog, read_settings, save_s
 from .joint_limits import JOINT_LIMITS, validate_joint_targets
 from .expression_engine import ExpressionConfigError, ExpressionLibrary
 from .expression_embedding import EmbeddingSelector, ExpressionWorker
+
+AEC_MODULE_DEFAULTS = {
+    'aec_play_delay_ms': 180, 'aec_high_pass_filter': True,
+    'aec_noise_suppression': True, 'aec_gain_control': False,
+    'aec_extended_filter': True, 'aec_delay_agnostic': True,
+}
 
 
 class TimedCache:
@@ -80,6 +88,7 @@ class VoiceAgentNode(Node):
         self.declare_parameter('camera_max_age_sec', 1.0)
         self.declare_parameter('camera_jpeg_max_width', 640)
         self.declare_parameter('camera_jpeg_quality', 80)
+        self.declare_parameter('camera_sample_fps', 5.0)
         self.declare_parameter('camera_send_cooldown_sec', 2.0)
         self.declare_parameter('camera_attach_to_every_user_turn', False)
         self.declare_parameter('auto_start', False)
@@ -125,12 +134,24 @@ class VoiceAgentNode(Node):
         self.mic_barge_in_rms = float(self.get_parameter('mic_barge_in_rms').value)
         self.mic_barge_in_start = float(self.get_parameter('mic_barge_in_start_sec').value)
         self.mic_playback_echo_tail = float(self.get_parameter('mic_playback_echo_tail_sec').value)
+        self.verasist_audio_defaults = {
+            'mute_mic_during_playback': self.mute_mic_during_playback,
+            'noise_gate_rms': self.mic_noise_gate_rms,
+            'noise_gate_hangover_sec': self.mic_noise_gate_hangover,
+            'noise_suppression_db': self.mic_noise_suppression_db,
+            'barge_in_rms': self.mic_barge_in_rms,
+            'barge_in_start_sec': self.mic_barge_in_start,
+            'playback_echo_tail_sec': self.mic_playback_echo_tail,
+        }
         self.camera_max_age = float(
             self.get_parameter('camera_max_age_sec').value)
         self.camera_jpeg_max_width = int(
             self.get_parameter('camera_jpeg_max_width').value)
         self.camera_jpeg_quality = int(
             self.get_parameter('camera_jpeg_quality').value)
+        self.camera_sample_interval = 1.0 / max(
+            1.0, float(self.get_parameter('camera_sample_fps').value))
+        self.last_camera_sample_at = 0.0
         self.camera_send_cooldown = float(
             self.get_parameter('camera_send_cooldown_sec').value)
         self.camera_attach_to_every_user_turn = bool(
@@ -208,7 +229,7 @@ class VoiceAgentNode(Node):
         self.expression_worker = ExpressionWorker(
             self.expression_library,
             lambda: EmbeddingSelector(self.expression_library, **self.expression_options),
-            self.get_logger().warning, suspended=self._is_local())
+            self.get_logger().warning, suspended=True)
         self.expression_queue = deque()
         self.active_motion = None
         self.speech_motion_active = False
@@ -239,7 +260,7 @@ class VoiceAgentNode(Node):
         self.create_subscription(
             TrackingTarget, 'perception/tracking_target', self._target, 10)
         self.create_subscription(
-            Image, 'camera/image_raw', self._camera_image, 2)
+            Image, 'camera/stream', self._camera_image, 1)
         self.create_subscription(
             String, 'remote/applied_mode', self._remote_mode, 10)
         self.create_subscription(
@@ -265,15 +286,50 @@ class VoiceAgentNode(Node):
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(
             target=self.loop.run_forever, daemon=True)
+        from .activation_controller import ActivationController
+        self.activation = ActivationController(self)
+        self.pending_voice_settings = None
+        self.activation_mode_pub = self.create_publisher(String, 'voice_session/control_request', 10)
+        self.create_subscription(String, 'voice_session/control_ack', self._activation_ack, 10)
+        self.create_subscription(String, 'voice_session/control_state', self._activation_control_state, 10)
+        self.create_subscription(String, 'voice_session/finish', self._activation_finish, 10)
         self.loop_thread.start()
+        from .toolset_publish import ToolsetPublisher
+        self.toolset_publisher = ToolsetPublisher(self)
         self.create_timer(0.05, self._motion_tick)
-        self._publish_state(
-            'idle', 'Waiting for AI mode' if self.remote_mode_controls_voice
-            else 'Ready; call /voice_session/start')
+        self._publish_state('preparing', 'Uyanma dinleyicisi hazırlanıyor')
         self._publish_trigger_uuid()
         self.auto_start_timer = None
-        if bool(self.get_parameter('auto_start').value):
+        if bool(self.get_parameter('auto_start').value) and not hasattr(self, 'activation'):
             self.auto_start_timer = self.create_timer(1.0, self._auto_start)
+
+    def _activation_finish(self, msg):
+        asyncio.run_coroutine_threadsafe(self.activation.finish('manual'), self.loop)
+
+    def _activation_ack(self, msg):
+        try:
+            value = json.loads(msg.data)
+            self.loop.call_soon_threadsafe(self.activation.acknowledge, value)
+        except (ValueError, TypeError):
+            pass
+
+    def _activation_control_state(self, msg):
+        try:
+            value = json.loads(msg.data)
+            asyncio.run_coroutine_threadsafe(self.activation.control_state(value), self.loop)
+        except (ValueError, TypeError, KeyError):
+            pass
+
+    def _request_activation_mode(self, request_id, mode):
+        self.activation_mode_pub.publish(String(data=json.dumps({
+            'id': request_id, 'mode': mode, 'expected_mode': self.activation.mode,
+            'epoch': getattr(self.activation, 'control_epoch', None)})))
+
+    def _apply_pending_voice_settings(self):
+        if self.pending_voice_settings is not None:
+            self.ai_settings = self.pending_voice_settings
+            self.pending_voice_settings = None
+            self.camera_attach_to_every_user_turn = self.ai_settings['camera_attach_to_every_user_turn']
 
     def _auto_start(self):
         """Start once after launch, without blocking the ROS executor."""
@@ -296,6 +352,11 @@ class VoiceAgentNode(Node):
 
     def _remote_mode(self, msg):
         """Run the selected voice provider only while the arbiter is in AI mode."""
+        if hasattr(self, 'activation'):
+            self.remote_mode = msg.data
+            future = asyncio.run_coroutine_threadsafe(self.activation.mode_changed(msg.data), self.loop)
+            future.add_done_callback(self._remote_mode_done)
+            return
         if not self.remote_mode_controls_voice:
             return
         mode = msg.data
@@ -322,6 +383,8 @@ class VoiceAgentNode(Node):
         self.trigger_uuid = trigger_uuid
         self._publish_trigger_uuid()
         self.get_logger().info(f'Verasist trigger UUID updated: {trigger_uuid}')
+        if hasattr(self, 'activation'):
+            return
         if self._is_local() or self.remote_mode != 'ai' or (not self.session_active and not self.starting):
             return
         self.mode_generation += 1
@@ -403,8 +466,12 @@ class VoiceAgentNode(Node):
     def _camera_image(self, msg):
         if msg.encoding not in ('bgr8', 'rgb8'):
             return
+        now = time.monotonic()
+        if now - self.last_camera_sample_at < self.camera_sample_interval:
+            return
+        self.last_camera_sample_at = now
         snapshot = {
-            'received_at': time.monotonic(),
+            'received_at': now,
             'width': int(msg.width), 'height': int(msg.height),
             'step': int(msg.step), 'encoding': msg.encoding,
             'data': bytes(msg.data),
@@ -425,6 +492,13 @@ class VoiceAgentNode(Node):
         self.state_pub.publish(msg)
 
     def _start_service(self, _request, response):
+        if hasattr(self, 'activation'):
+            if self.session_active or self.starting:
+                response.success, response.message = False, 'Session already active'
+            else:
+                asyncio.run_coroutine_threadsafe(self.activation.start_requested(), self.loop)
+                response.success, response.message = True, 'Görüşme başlatılıyor'
+            return response
         if self.remote_mode_controls_voice and self.remote_mode != 'ai':
             response.success, response.message = (
                 False, 'Select AI mode from the remote controller first')
@@ -457,7 +531,8 @@ class VoiceAgentNode(Node):
         return response
 
     def _stop_service(self, _request, response):
-        future = asyncio.run_coroutine_threadsafe(self._stop_session(), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.activation.finish('manual') if hasattr(self, 'activation') else self._stop_session(), self.loop)
         try:
             future.result(timeout=10.0)
             response.success, response.message = True, 'Voice session stopped'
@@ -476,16 +551,29 @@ class VoiceAgentNode(Node):
                 models = [{k: v for k, v in m.items() if k != 'path'} for m in catalog()]
                 workflows = [{'id': w['id'], 'label': w.get('name', w['id'])} for w in WorkflowStore().all()]
                 self._catalog_cache = (models, workflows, '')
+                self._mimic_choices = self._activation_mimics()
             except (ValueError, OSError) as exc:
                 self._catalog_cache = ([], [], str(exc))
             self._catalog_cache_until = now + 5
         models, workflows, catalog_error = self._catalog_cache
         error = self.ai_settings_error or catalog_error or getattr(self, 'camera_status', '')
         self._workflow_updates_pending = False
+        self._activation_updates_pending = False
         self.ai_settings_pub.publish(String(data=json.dumps({
-            'settings': self.ai_settings, 'models': models, 'workflows': workflows,
+            'settings': getattr(self, 'pending_voice_settings', None) or self.ai_settings, 'models': models, 'workflows': workflows,
+            'mimics': getattr(self, '_mimic_choices', []),
+            'activation_status': {'last_heard': getattr(getattr(self, 'activation', None), 'last_heard', None),
+                                  'error': getattr(getattr(self, 'activation', None), 'last_error', ''),
+                                  'end_reason': getattr(getattr(self, 'activation', None), 'end_reason', '')},
             'workflow_event': getattr(self, 'workflow_event', None),
             'workflow_events': getattr(self, 'workflow_events', []), 'error': error})))
+
+    def _activation_mimics(self):
+        from .mimics import default_store
+        try:
+            return [{'id': m['id'], 'name': m['name']} for m in default_store().all().values()]
+        except (OSError, ValueError):
+            return []
 
     def _record_workflow_event(self, event):
         self.workflow_event = {'session_id': getattr(self, 'workflow_session_id', ''),
@@ -497,7 +585,7 @@ class VoiceAgentNode(Node):
         self._workflow_updates_pending = True
 
     def _publish_workflow_updates(self):
-        if getattr(self, '_workflow_updates_pending', False):
+        if getattr(self, '_workflow_updates_pending', False) or getattr(self, '_activation_updates_pending', False):
             self._publish_ai_settings()
 
     def _set_expression_embedding(self, model_path):
@@ -510,7 +598,7 @@ class VoiceAgentNode(Node):
         self.expression_worker = ExpressionWorker(
             self.expression_library,
             lambda: EmbeddingSelector(self.expression_library, **self.expression_options),
-            self.get_logger().warning, suspended=self._is_local())
+            self.get_logger().warning, suspended=True)
 
     def _set_ai_settings(self, msg):
         future = asyncio.run_coroutine_threadsafe(self._apply_ai_settings(msg.data), self.loop)
@@ -522,6 +610,8 @@ class VoiceAgentNode(Node):
             if isinstance(incoming, dict):
                 incoming.setdefault('camera_attach_to_every_user_turn',
                     self.ai_settings.get('camera_attach_to_every_user_turn', False))
+            if isinstance(incoming, dict):
+                incoming.setdefault('activation', (getattr(self, 'pending_voice_settings', None) or self.ai_settings).get('activation', DEFAULT_ACTIVATION))
             value = validate(incoming)
             old = self.ai_settings
             workflow_changed = False
@@ -539,9 +629,34 @@ class VoiceAgentNode(Node):
             self._publish_ai_settings()
             return
         self.ai_settings_error = ''
+        if camera_only:
+            # Camera turns are configured on the live session above. Keep the
+            # event handler in sync even when activation defers other settings.
+            self.ai_settings = value
+            self.camera_attach_to_every_user_turn = value['camera_attach_to_every_user_turn']
+            if getattr(self, 'pending_voice_settings', None) is not None:
+                self.pending_voice_settings = {**self.pending_voice_settings,
+                    'camera_attach_to_every_user_turn': self.camera_attach_to_every_user_turn}
+            if not self.camera_attach_to_every_user_turn:
+                if getattr(self, 'camera_turn_task', None):
+                    self.camera_turn_task.cancel()
+                self.camera_status = ''
+            self._publish_ai_settings()
+            return
+        if hasattr(self, 'activation'):
+            if self.session_active or self.starting or self.activation.phase == 'farewell':
+                self.pending_voice_settings = value
+                # There is no capture during a session; the saved switch governs
+                # the next listening cycle immediately after teardown.
+            else:
+                self.ai_settings = value
+                self.camera_attach_to_every_user_turn = value['camera_attach_to_every_user_turn']
+                await self.activation.settings_changed()
+            self._publish_ai_settings()
+            return
         if value != self.ai_settings or workflow_changed:
             self.ai_settings = value
-            if self._is_local() and hasattr(self, 'expression_options'):
+            if self._is_local() and value.get('embedding') and hasattr(self, 'expression_options'):
                 embedding = next(m for m in catalog()
                                  if m['id'] == value['embedding'] and m['kind'] == 'embedding')
                 self._set_expression_embedding(embedding['path'])
@@ -560,13 +675,17 @@ class VoiceAgentNode(Node):
         # inference call holding the GIL must not keep the session alive forever.
         await asyncio.sleep(seconds + 2)
         if self.local_process is process:
-            await self._stop_session()
-            self._publish_state('idle', 'Azami görüşme süresine ulaşıldı')
+            if hasattr(self, 'activation'):
+                self.activation.ended('timeout', True, self.activation.session_generation)
+            else:
+                await self._stop_session()
+                self._publish_state('idle', 'Azami görüşme süresine ulaşıldı')
 
     async def _local_events(self, process):
         error = None
         workflow_complete = False
         completion_detail = 'Yerel workflow tamamlandı'
+        activation_generation = getattr(getattr(self, 'activation', None), 'session_generation', None)
         previous_phase = None
         first_event = True
         startup_at = time.monotonic()
@@ -662,7 +781,10 @@ class VoiceAgentNode(Node):
         except (ValueError, KeyError, asyncio.TimeoutError) as exc:
             error = str(exc) or 'Local voice heartbeat timed out'
         finally:
-            if self.local_process is process:
+            if self.local_process is process and hasattr(self, 'activation'):
+                self.activation.ended(completion_detail if workflow_complete else (error or 'worker_error'),
+                                      workflow_complete, activation_generation)
+            elif self.local_process is process:
                 await self._stop_session()
                 if workflow_complete:
                     self._publish_state('idle', completion_detail)
@@ -676,6 +798,45 @@ class VoiceAgentNode(Node):
             if self.session_active:
                 return
             await self._start_session_unlocked()
+
+    async def _ensure_aec_module(self, audio):
+        """Apply saved PipeWire WebRTC settings before opening a capture track."""
+        settings = {key: audio.get(key, default)
+                    for key, default in AEC_MODULE_DEFAULTS.items()}
+        if settings == getattr(self, '_applied_aec_module_settings', None):
+            return
+        script = Path(__file__).resolve().parents[3] / 'tools' / 'setup_voice_aec.py'
+        command = [sys.executable, str(script), '--restart',
+                   '--play-delay-ms', str(settings['aec_play_delay_ms'])]
+        for key in ('high_pass_filter', 'noise_suppression', 'gain_control',
+                    'extended_filter', 'delay_agnostic'):
+            value = settings[f'aec_{key}']
+            command.append(f'--{key.replace("_", "-")}' if value
+                           else f'--no-{key.replace("_", "-")}')
+        process = await asyncio.create_subprocess_exec(
+            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await process.communicate()
+        if process.returncode:
+            raise RuntimeError('AEC module setup failed: ' +
+                               (stderr or stdout).decode(errors='replace').strip())
+        self._applied_aec_module_settings = settings
+
+    @staticmethod
+    def _connection_ready_future(session):
+        """Resolve when the SDK reports that WebRTC negotiation succeeded."""
+        ready = asyncio.get_running_loop().create_future()
+
+        @session.on_connection_state
+        def connection_state(state):
+            if ready.done():
+                return
+            if state in ('connected', 'completed'):
+                ready.set_result(None)
+            elif state in ('failed', 'closed'):
+                ready.set_exception(RuntimeError(
+                    f'WebRTC connection entered {state!r} state'))
+
+        return ready
 
     async def _start_session_unlocked(self):
         if self._is_local():
@@ -728,10 +889,21 @@ class VoiceAgentNode(Node):
             return
         self.expression_worker.suspend(False)
         from verasist_sdk import LiveSession, VerasistClient
-        from .audio import AlsaMicTrack, AlsaSpeaker, check_aec_devices
+        from .audio import AlsaMicTrack, AlsaSpeaker
+        from .audio_devices import local_audio_devices
+        audio = {**self.verasist_audio_defaults,
+                 **self.ai_settings.get('verasist_audio', {})}
+        # Half-duplex capture replaces microphone PCM with silence during
+        # playback, so it does not need a live echo-reference path.
+        effective_aec_mode = ('disabled' if audio['mute_mic_during_playback']
+                              else audio.get('aec_mode', 'system'))
+        if effective_aec_mode != 'disabled':
+            await self._ensure_aec_module(audio)
+        mic_device, speaker_device = await local_audio_devices(
+            effective_aec_mode, self.mic_device, self.speaker_device)
         self.get_logger().info(
-            f'Voice audio devices: microphone={self.mic_device}, speaker={self.speaker_device}')
-        await check_aec_devices(self.mic_device, self.speaker_device)
+            f'Voice audio devices: microphone={mic_device}, speaker={speaker_device}; '
+            f'AEC={effective_aec_mode}')
         self._reset_expression_turn(enabled=self.expressions_available)
         self._publish_state('connecting')
         self.client = VerasistClient(
@@ -739,17 +911,18 @@ class VoiceAgentNode(Node):
                      or os.environ.get('VERASIST_API_KEY')))
         self.session = LiveSession(self.client)
         current_session = self.session
+        connection_ready = self._connection_ready_future(current_session)
         self._register_tools(self.session)
         self.navigation.register(self.session)
         self.mic = AlsaMicTrack(
-            self.mic_device,
-            mute_during_playback=self.mute_mic_during_playback,
-            noise_gate_rms=self.mic_noise_gate_rms,
-            noise_gate_hangover_sec=self.mic_noise_gate_hangover,
-            noise_suppression_db=self.mic_noise_suppression_db,
-            barge_in_rms=self.mic_barge_in_rms,
-            barge_in_start_sec=self.mic_barge_in_start,
-            playback_echo_tail_sec=self.mic_playback_echo_tail)
+            mic_device,
+            mute_during_playback=audio['mute_mic_during_playback'],
+            noise_gate_rms=audio['noise_gate_rms'],
+            noise_gate_hangover_sec=audio['noise_gate_hangover_sec'],
+            noise_suppression_db=audio['noise_suppression_db'],
+            barge_in_rms=audio['barge_in_rms'],
+            barge_in_start_sec=audio['barge_in_start_sec'],
+            playback_echo_tail_sec=audio['playback_echo_tail_sec'])
         await self.mic.start_capture()
 
         @self.session.on_track
@@ -757,7 +930,7 @@ class VoiceAgentNode(Node):
             if track.kind != 'audio' or self.session is not current_session:
                 return
             self.speakers.append(AlsaSpeaker(
-                track, self.speaker_device, self.mic,
+                track, speaker_device, self.mic,
                 self._speaking_changed))
 
         @self.session.on_voice_event
@@ -789,6 +962,12 @@ class VoiceAgentNode(Node):
             trigger_uuid=self.trigger_uuid, tracks=[self.mic],
             ice_timeout_secs=self.ice_timeout,
             call_context_vars={'device_barge_in': True})
+        try:
+            await asyncio.wait_for(connection_ready, timeout=self.ice_timeout)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError(
+                f'WebRTC connection did not become ready within {self.ice_timeout:g} seconds'
+            ) from exc
         # The SDP answer can precede pipeline registration. Only retry an
         # explicit "not ready" response, never an ambiguous timed-out command.
         for attempt in range(20 if self.camera_attach_to_every_user_turn else 0):
@@ -1217,6 +1396,8 @@ class VoiceAgentNode(Node):
             self.expression_worker.submit(self.expression_generation, sentences[0])
 
     def _motion_tick(self):
+        if getattr(getattr(self, 'activation', None), 'phase', '') in ('greeting', 'farewell'):
+            return
         with self.expression_lock:
             now = time.monotonic()
             if now >= getattr(self, '_mimic_refresh_at', 0):
@@ -1308,10 +1489,15 @@ class VoiceAgentNode(Node):
         self.command_pub.publish(msg)
 
     async def _watch_session(self, watched_session):
+        generation = getattr(getattr(self, 'activation', None), 'session_generation', None)
         reason = await watched_session.wait_closed()
-        self._publish_state('disconnected', str(reason or 'session closed'))
         if self.session is watched_session:
-            await self._stop_session()
+            if hasattr(self, 'activation'):
+                self.activation.ended(str(reason or 'session closed'),
+                                      getattr(watched_session, 'close_event_type', None) == 'call-ended', generation)
+            else:
+                self._publish_state('disconnected', str(reason or 'session closed'))
+                await self._stop_session()
 
     async def _stop_session(self):
         if not hasattr(self, 'session_lock'):
@@ -1323,6 +1509,8 @@ class VoiceAgentNode(Node):
         if self.stopping:
             return
         self.stopping = True
+        if hasattr(self, 'expression_worker'):
+            self.expression_worker.suspend(True)
         deadline, self.local_session_deadline = getattr(self, 'local_session_deadline', None), None
         if deadline and deadline is not asyncio.current_task():
             deadline.cancel()
@@ -1382,7 +1570,8 @@ class VoiceAgentNode(Node):
             self.stopping = False
 
     def destroy_node(self):
-        future = asyncio.run_coroutine_threadsafe(self._stop_session(), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.activation.shutdown() if hasattr(self, 'activation') else self._stop_session(), self.loop)
         try:
             future.result(timeout=5.0)
         except Exception:

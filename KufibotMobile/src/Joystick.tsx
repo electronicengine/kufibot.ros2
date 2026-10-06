@@ -29,7 +29,7 @@ export function Joystick({ label, disabled, fourWay = false, onChange }: Props) 
     const scale = Math.max(52, Math.hypot(dx, dy));
     let x = dx / scale, y = dy / scale;
     // Movement is intentionally digital: each of the four sectors commands
-    // the matching direction at maximum motor power.
+    // one unambiguous direction. The parent applies the selected drive speed.
     if (props.current.fourWay && (x || y)) [x, y] = Math.abs(x) >= Math.abs(y)
       ? [Math.sign(x), 0] : [0, Math.sign(y)];
     setPosition({x: x * 52, y: y * 52});

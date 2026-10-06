@@ -20,6 +20,10 @@ class AgentNode_Extraction_variablesRow:
     and extraction hint.
     """
 
+    show_in_run_table: bool = False
+    """
+    Display this extracted variable in the execution table.
+    """
     name: str
     """
     snake_case identifier used downstream.
@@ -92,5 +96,11 @@ class AgentNode(TypedNode):
     document_uuids: list[str] = field(default_factory=list)
     """
     Documents the agent can reference during this step.
+    """
+
+    sdk_tool_names: Optional[list[str]] = None
+    """
+    Only SDK tools explicitly connected to this node are available. Missing,
+    null or empty selections disable SDK tools.
     """
 

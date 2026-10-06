@@ -4,6 +4,30 @@ import wave
 from kufibot_interaction.local_recording import SessionRecording
 
 
+def test_user_utterance_preserves_pcm_despite_processing_delays(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from kufibot_interaction import local_recording
+    clock = [10.0]
+    monkeypatch.setattr(local_recording, 'time', SimpleNamespace(
+        time=lambda: 1000, monotonic=lambda: clock[0], strftime=lambda _: 'continuous-'))
+    recording = SessionRecording(tmp_path)
+    recording.begin_utterance('user')
+    chunks = [bytes([value, 0]) * 512 for value in (1, 2, 3)]
+    for at, chunk in zip((10.1, 10.15, 10.21), chunks):
+        clock[0] = at
+        recording.write('user', chunk)
+    recording.begin_utterance('user')
+    clock[0] = 11.0
+    recording.write('user', b'\x04\x00' * 512)
+    info = recording.close()
+    with wave.open(str(tmp_path / info['file']), 'rb') as sound:
+        import numpy as np
+        user = np.frombuffer(sound.readframes(sound.getnframes()), dtype='<i2')[::2]
+    assert user[1600:1600 + 1536].tobytes() == b''.join(chunks)
+    assert not user[3136:16000].any()
+    assert user[16000:16512].tobytes() == b'\x04\x00' * 512
+
+
 def test_session_recording_merges_user_and_robot_into_stereo_wav(tmp_path):
     recording = SessionRecording(tmp_path)
     recording.write('user', b'\x01\x00' * 160)

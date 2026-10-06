@@ -18,13 +18,18 @@ For typed IDE autocomplete, generate per-node dataclasses via the SDK
 codegen (Phase 6) — the runtime and typed SDKs share this same core.
 """
 
+from .scheduling import Scheduling, SessionScheduling, SchedulingState, SchedulingError, SchedulingTimeoutError, SchedulingCancelledError
 from .client import VerasistClient
+from .text_session import TextSessions, TextStreamEvent
 from .errors import ApiError, VerasistSdkError, SpecMismatchError, ValidationError
 from .typed._base import TypedNode
 from .workflow import NodeRef, Workflow
 
 __all__ = [
+    "Scheduling", "SessionScheduling", "SchedulingState", "SchedulingError", "SchedulingTimeoutError", "SchedulingCancelledError",
     "ApiError",
+    "TextSessions",
+    "TextStreamEvent",
     "LiveSession",
     "VerasistClient",
     "VerasistSdkError",

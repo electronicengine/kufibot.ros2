@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-22",
+  "kind": "synthetic speech, no speaker playback",
+  "verasist_credentials_present": false,
+  "cue_prepare_sec": 3.471,
+  "cue_cache_hit_sec": 0.0,
+  "audio_sec": 1.03325,
+  "vosk_kufi_in_vocabulary": false,
+  "fallback_load_sec": 3.981,
+  "transcript": "Már haba kufi",
+  "matched": true,
+  "stt_sec": 0.943,
+  "peak_rss_kib": 628912,
+  "idle_capture": {
+    "microphone": "plughw:2,0",
+    "sample_kind": "5 seconds ambient capture, no retained audio or transcripts",
+    "capture_ready_sec": 2.106,
+    "observed_sec": 5.041,
+    "worker_cpu_percent_one_core": 2.58,
+    "worker_rss_kib": 244336
+  }
+}

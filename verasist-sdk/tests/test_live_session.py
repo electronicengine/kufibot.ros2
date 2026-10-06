@@ -33,6 +33,22 @@ def test_tool_decorator_defaults_name_and_parameters():
     assert tool.parameters == {"type": "object", "properties": {}}
 
 
+@pytest.mark.asyncio
+async def test_publish_toolset_exports_registered_schemas_without_handlers():
+    session = _make_session()
+    session._client.publish_toolset = MagicMock(return_value={"tools": []})
+
+    @session.tool(description="Read battery")
+    def battery():
+        raise AssertionError("Publishing must never invoke handlers")
+
+    await session.publish_toolset("workflow-uuid")
+    session._client.publish_toolset.assert_called_once_with("workflow-uuid", [
+        {"name": "battery", "description": "Read battery", "parameters": {"type": "object", "properties": {}}}
+    ])
+    session._client.close()
+
+
 def test_tool_decorator_explicit_name_and_parameters():
     session = _make_session()
 
@@ -370,3 +386,48 @@ async def test_turn_image_preserves_correlation():
     payload = session._send.await_args.args[0]['payload']
     assert payload['turn_id'] == 'turn-2'
     assert payload['trigger_response'] is False
+
+
+@pytest.mark.asyncio
+async def test_queued_connection_does_not_offer_until_worker_is_ready(monkeypatch):
+    session = _make_session()
+    session.session_token = "queued-token"
+    session._scheduling = {"state": "queued_org"}
+    session._fetch_ice_servers = AsyncMock(return_value=[])
+    session._send = AsyncMock()
+    # A listener that stays alive until close(), without network access.
+    async def listen():
+        await session._closed_event.wait()
+    session._listen = listen
+    peer = MagicMock()
+    peer.createOffer = AsyncMock()
+    peer.setLocalDescription = AsyncMock()
+    peer.localDescription.sdp = "sdp"
+    peer.close = AsyncMock()
+    monkeypatch.setattr("verasist_sdk.live_session.RTCPeerConnection", lambda _: peer)
+    monkeypatch.setattr("verasist_sdk.live_session.websockets.connect", AsyncMock(return_value=AsyncMock()))
+    pending = asyncio.create_task(session.connect(ice_timeout_secs=None))
+    try:
+        await asyncio.sleep(0)
+        peer.createOffer.assert_not_awaited()
+        states = []
+        session.on_connection_state(states.append)
+        await session._handle_message({"type": "scheduling", "payload": {"state": "queued_system"}})
+        assert states == ["queued_system"]
+        peer.createOffer.assert_not_awaited()
+        await session._handle_message({"type": "session-ready"})
+        await asyncio.wait_for(pending, 1)
+        peer.createOffer.assert_awaited_once()
+    finally:
+        await session.close()
+        session._client.close()
+
+
+@pytest.mark.asyncio
+async def test_assignment_wait_rejects_disconnect_without_offer():
+    session = _make_session()
+    pending = asyncio.create_task(session._wait_for_assignment())
+    await session._handle_message({"type": "call-ended", "payload": {"reason": "queue_timeout"}})
+    with pytest.raises(VerasistSdkError, match="closed while waiting"):
+        await asyncio.wait_for(pending, 1)
+    session._client.close()

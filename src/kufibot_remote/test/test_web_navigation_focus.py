@@ -29,13 +29,14 @@ assert.deepEqual(sent, []);
 assert.equal(link.axes.drive_y, 0);
 link.stop();
 assert.deepEqual(sent.pop(), {type: 'stop'});
-link.state.mode = 'remote';
+link.state.mode = link.state.appliedMode = 'remote';
 link.stopManualInput();
-assert.deepEqual(sent.pop(), {type: 'stop'});
+assert.deepEqual(sent.pop(), {type:'input', drive_x:0, drive_y:0, head_x:0, head_y:0});
 link.state.mode = 'ai';
 link.pendingMode = 'remote';
 link.stopManualInput();
-assert.deepEqual(sent.pop(), {type: 'stop'});
+assert.deepEqual(sent, []);
+assert.equal(link.pendingMode, 'remote');
 '''
     subprocess.run([node, '--input-type=module', '-e', script, url], check=True,
                    capture_output=True, text=True)
