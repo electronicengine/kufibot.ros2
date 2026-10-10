@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
 from .voice_activation import DEFAULT_ACTIVATION
@@ -35,6 +36,10 @@ AEC_MODULE_DEFAULTS = {
     'aec_noise_suppression': True, 'aec_gain_control': False,
     'aec_extended_filter': True, 'aec_delay_agnostic': True,
 }
+
+# Match the USB camera's sensor-data publisher and keep only the latest frame.
+# A RELIABLE reader cannot receive from a BEST_EFFORT camera publisher.
+CAMERA_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 
 class TimedCache:
@@ -260,7 +265,7 @@ class VoiceAgentNode(Node):
         self.create_subscription(
             TrackingTarget, 'perception/tracking_target', self._target, 10)
         self.create_subscription(
-            Image, 'camera/stream', self._camera_image, 1)
+            Image, 'camera/stream', self._camera_image, CAMERA_QOS)
         self.create_subscription(
             String, 'remote/applied_mode', self._remote_mode, 10)
         self.create_subscription(

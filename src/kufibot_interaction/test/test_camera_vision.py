@@ -5,8 +5,14 @@ from unittest.mock import AsyncMock
 
 import cv2
 import numpy as np
+import pytest
+from rclpy.context import Context
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import Image
 
-from kufibot_interaction.voice_agent_node import VoiceAgentNode
+from kufibot_interaction.voice_agent_node import CAMERA_QOS, VoiceAgentNode
 
 
 def snapshot(width=800, height=400, encoding='bgr8'):
@@ -22,6 +28,48 @@ def test_camera_frame_is_resized_and_encoded_as_jpeg():
     jpeg = VoiceAgentNode._encode_camera_jpeg(snapshot(), 640, 80)
     decoded = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     assert decoded.shape[:2] == (320, 640)
+
+
+@pytest.mark.parametrize('reliability', [ReliabilityPolicy.BEST_EFFORT,
+                                        ReliabilityPolicy.RELIABLE])
+def test_ros_camera_frame_reaches_sdk(reliability):
+    """USB sensor-data and simulation publishers both reach the vision tool."""
+    import uuid
+    context = Context()
+    context.init()
+    transport = Node('camera_vision_test', context=context)
+    executor = SingleThreadedExecutor(context=context)
+    executor.add_node(transport)
+    node = camera_node()
+    node.latest_camera_image = None
+    node.last_camera_sample_at = 0.0
+    node.camera_sample_interval = 0.2
+    node.camera_send_cooldown = 0.0
+    node.last_camera_send_at = 0.0
+    node.ice_timeout = 3.0
+    topic = '/camera_vision_test_' + uuid.uuid4().hex
+    try:
+        transport.create_subscription(Image, topic, node._camera_image, CAMERA_QOS)
+        publisher = transport.create_publisher(
+            Image, topic, QoSProfile(depth=1, reliability=reliability))
+        frame = snapshot(320, 240)
+        message = Image(width=frame['width'], height=frame['height'],
+                        step=frame['step'], encoding=frame['encoding'],
+                        data=frame['data'])
+        deadline = time.monotonic() + 5.0
+        while node.latest_camera_image is None and time.monotonic() < deadline:
+            publisher.publish(message)
+            executor.spin_once(timeout_sec=0.05)
+        assert node.latest_camera_image is not None
+        node.session.send_image.return_value = {'status': 'success'}
+        result = asyncio.run(node._send_camera_image(node.session, 'look'))
+        assert result['status'] == 'success'
+        jpeg = node.session.send_image.await_args.kwargs['image_bytes']
+        assert cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR).shape == (240, 320, 3)
+    finally:
+        executor.shutdown()
+        transport.destroy_node()
+        context.shutdown()
 
 
 def test_camera_image_is_sent_through_new_sdk_api():

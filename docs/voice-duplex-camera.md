@@ -114,6 +114,11 @@ başka içerikle değiştirilmiş yapılandırmayı silmez.
 
 ## Kamera davranışı
 
+`camera/stream` USB kamera tarafından sensör QoS'u (`BEST_EFFORT`) ile
+yayınlanır. Sesli ajan da `BEST_EFFORT`, bir karelik kuyruk kullanır; böylece
+WebRTC ve LLM aynı kamera akışını alır. `RELIABLE` abonelik bu yayıncıyla
+eşleşmez ve `analyze_camera` aracında `camera frame unavailable` hatasına yol açar.
+
 - Açıkken konuşma başlangıcındaki güncel kamera karesi alınır; aynı turun ara
   transkriptleri ikinci bir fotoğraf üretmez.
 - Kamera ayarı tek başına değiştiğinde ses oturumu yeniden başlamaz.

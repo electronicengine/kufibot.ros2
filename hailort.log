@@ -2035,3 +2035,597 @@
 [2026-10-06 13:42:51.137] [12275] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 12289)
 [2026-10-06 13:42:51.137] [12275] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
 [2026-10-06 13:42:51.137] [12275] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 12290)
+[2026-10-10 23:15:50.118] [8227] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:15:50.118] [8227] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:15:50.142] [8227] [HailoRT] [info] [vdevice.cpp:523] [create] Creating vdevice with params: device_count: 1, scheduling_algorithm: ROUND_ROBIN, multi_process_service: false
+[2026-10-10 23:15:50.162] [8227] [HailoRT] [info] [device.cpp:49] [Device] OS Version: Linux 6.12.34+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+[2026-10-10 23:15:50.166] [8227] [HailoRT] [info] [control.cpp:108] [control__parse_identify_results] firmware_version is: 4.20.0
+[2026-10-10 23:15:50.166] [8227] [HailoRT] [info] [vdevice.cpp:651] [create] VDevice Infos: 0001:01:00.0
+[2026-10-10 23:15:50.238] [8227] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:15:50.238] [8227] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:15:50.331] [8227] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:15:50.331] [8227] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:15:50.342] [8227] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1576448. memory to edge layer usage factor is 0.34360003
+[2026-10-10 23:15:50.342] [8227] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:15:50.418] [8227] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 86.396005 milliseconds
+[2026-10-10 23:15:50.418] [8227] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 87.077409 milliseconds
+[2026-10-10 23:15:50.418] [8227] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-encoder-5s' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:15:50.420] [8227] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl1base-whisper-encoder-5s/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -1.51241, limvals_max: 1.52432)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.9557, limvals_max: 14.4638)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:15:50.421] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-encoder-5s/input_layer1 | inputs: user | outputs: PreInferEl1base-whisper-encoder-5s/input_layer1(running in thread_id: 8237)
+[2026-10-10 23:15:50.423] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl1base-whisper-encoder-5s/input_layer1 | inputs: EntryPushQEl0base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl1base-whisper-encoder-5s/input_layer1
+[2026-10-10 23:15:50.424] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1base-whisper-encoder-5s/input_layer1 | inputs: PreInferEl1base-whisper-encoder-5s/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 8238)
+[2026-10-10 23:15:50.424] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl1base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl0AsyncHwEl
+[2026-10-10 23:15:50.424] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 8239)
+[2026-10-10 23:15:50.424] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:15:50.424] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:15:50.427] [8227] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:15:50.428] [8227] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1974272. memory to edge layer usage factor is 0.46450835
+[2026-10-10 23:15:50.428] [8227] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:15:50.470] [8227] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 132.651474 milliseconds
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 132.952121 milliseconds
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-decoder-fixed-sequence' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -0.535231, limvals_max: 0.556641)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -23.5596, limvals_max: 14.4638)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.8414, limvals_max: 72.6594)
+[2026-10-10 23:15:50.559] [8227] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl2AsyncHwEl | timeout: 10s)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl2AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.4195, limvals_max: 61.8944)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl2AsyncHwEl)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1AsyncHwEl | timeout: 10s)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl1AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.5004, limvals_max: 59.7302)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl1AsyncHwEl)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl3AsyncHwEl | timeout: 10s)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl3AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -24.3587, limvals_max: 63.1267)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl3AsyncHwEl)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | inputs: user | outputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1(running in thread_id: 8242)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 8243)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1[0] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2[1] | outputs: PushQEl0AsyncHwEl PushQEl1AsyncHwEl PushQEl2AsyncHwEl PushQEl3AsyncHwEl
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 8244)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl1AsyncHwEl(running in thread_id: 8246)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl1AsyncHwEl | inputs: PushQEl1AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl1AsyncHwEl
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl1AsyncHwEl | inputs: PostInferEl1AsyncHwEl[0] | outputs: user
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl2AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl2AsyncHwEl(running in thread_id: 8245)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl2AsyncHwEl | inputs: PushQEl2AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl2AsyncHwEl
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl2AsyncHwEl | inputs: PostInferEl2AsyncHwEl[0] | outputs: user
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl3AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl3AsyncHwEl(running in thread_id: 8247)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl3AsyncHwEl | inputs: PushQEl3AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl3AsyncHwEl
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl3AsyncHwEl | inputs: PostInferEl3AsyncHwEl[0] | outputs: user
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 8240)
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
+[2026-10-10 23:15:50.579] [8227] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 8241)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.496] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.497] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.497] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl2AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.497] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.497] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl3AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.497] [8227] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:16:43.498] [8227] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:18:57.626] [8795] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:18:57.626] [8795] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:18:57.650] [8795] [HailoRT] [info] [vdevice.cpp:523] [create] Creating vdevice with params: device_count: 1, scheduling_algorithm: ROUND_ROBIN, multi_process_service: false
+[2026-10-10 23:18:57.663] [8795] [HailoRT] [info] [device.cpp:49] [Device] OS Version: Linux 6.12.34+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+[2026-10-10 23:18:57.666] [8795] [HailoRT] [info] [control.cpp:108] [control__parse_identify_results] firmware_version is: 4.20.0
+[2026-10-10 23:18:57.666] [8795] [HailoRT] [info] [vdevice.cpp:651] [create] VDevice Infos: 0001:01:00.0
+[2026-10-10 23:18:57.735] [8795] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:18:57.735] [8795] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:18:57.856] [8795] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:18:57.856] [8795] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:18:57.867] [8795] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1576448. memory to edge layer usage factor is 0.34360003
+[2026-10-10 23:18:57.867] [8795] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:18:57.945] [8795] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 86.321618 milliseconds
+[2026-10-10 23:18:57.946] [8795] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 88.906233 milliseconds
+[2026-10-10 23:18:57.946] [8795] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-encoder-5s' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:18:57.946] [8795] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl1base-whisper-encoder-5s/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -1.51241, limvals_max: 1.52432)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.9557, limvals_max: 14.4638)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-encoder-5s/input_layer1 | inputs: user | outputs: PreInferEl1base-whisper-encoder-5s/input_layer1(running in thread_id: 8805)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl1base-whisper-encoder-5s/input_layer1 | inputs: EntryPushQEl0base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl1base-whisper-encoder-5s/input_layer1
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1base-whisper-encoder-5s/input_layer1 | inputs: PreInferEl1base-whisper-encoder-5s/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 8806)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl1base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl0AsyncHwEl
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 8807)
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:18:57.950] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:18:57.956] [8795] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:18:57.959] [8795] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1974272. memory to edge layer usage factor is 0.46450835
+[2026-10-10 23:18:57.959] [8795] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:18:58.024] [8795] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 154.298068 milliseconds
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 154.745287 milliseconds
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-decoder-fixed-sequence' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -0.535231, limvals_max: 0.556641)
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:18:58.107] [8795] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -23.5596, limvals_max: 14.4638)
+[2026-10-10 23:18:58.108] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:18:58.108] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:18:58.108] [8795] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.8414, limvals_max: 72.6594)
+[2026-10-10 23:18:58.108] [8795] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:18:58.140] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl2AsyncHwEl | timeout: 10s)
+[2026-10-10 23:18:58.140] [8795] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl2AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.4195, limvals_max: 61.8944)
+[2026-10-10 23:18:58.140] [8795] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl2AsyncHwEl)
+[2026-10-10 23:18:58.141] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1AsyncHwEl | timeout: 10s)
+[2026-10-10 23:18:58.141] [8795] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl1AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.5004, limvals_max: 59.7302)
+[2026-10-10 23:18:58.141] [8795] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl1AsyncHwEl)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl3AsyncHwEl | timeout: 10s)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl3AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -24.3587, limvals_max: 63.1267)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl3AsyncHwEl)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | inputs: user | outputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1(running in thread_id: 8810)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 8811)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1[0] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2[1] | outputs: PushQEl0AsyncHwEl PushQEl1AsyncHwEl PushQEl2AsyncHwEl PushQEl3AsyncHwEl
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 8812)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl1AsyncHwEl(running in thread_id: 8814)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl1AsyncHwEl | inputs: PushQEl1AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl1AsyncHwEl
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl1AsyncHwEl | inputs: PostInferEl1AsyncHwEl[0] | outputs: user
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl2AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl2AsyncHwEl(running in thread_id: 8813)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl2AsyncHwEl | inputs: PushQEl2AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl2AsyncHwEl
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl2AsyncHwEl | inputs: PostInferEl2AsyncHwEl[0] | outputs: user
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl3AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl3AsyncHwEl(running in thread_id: 8815)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl3AsyncHwEl | inputs: PushQEl3AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl3AsyncHwEl
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl3AsyncHwEl | inputs: PostInferEl3AsyncHwEl[0] | outputs: user
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 8808)
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
+[2026-10-10 23:18:58.142] [8795] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 8809)
+[2026-10-10 23:20:23.910] [8795] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl2AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.911] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl3AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.912] [8795] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:20:23.914] [8795] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:20:37.502] [8992] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:20:37.502] [8992] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:20:37.531] [8992] [HailoRT] [info] [vdevice.cpp:523] [create] Creating vdevice with params: device_count: 1, scheduling_algorithm: ROUND_ROBIN, multi_process_service: false
+[2026-10-10 23:20:37.543] [8992] [HailoRT] [info] [device.cpp:49] [Device] OS Version: Linux 6.12.34+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+[2026-10-10 23:20:37.550] [8992] [HailoRT] [info] [control.cpp:108] [control__parse_identify_results] firmware_version is: 4.20.0
+[2026-10-10 23:20:37.550] [8992] [HailoRT] [info] [vdevice.cpp:651] [create] VDevice Infos: 0001:01:00.0
+[2026-10-10 23:20:37.658] [8992] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:20:37.658] [8992] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:20:37.812] [8992] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:20:37.812] [8992] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:20:37.821] [8992] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1576448. memory to edge layer usage factor is 0.34360003
+[2026-10-10 23:20:37.821] [8992] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:20:37.930] [8992] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 117.714392 milliseconds
+[2026-10-10 23:20:37.930] [8992] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 118.010353 milliseconds
+[2026-10-10 23:20:37.931] [8992] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-encoder-5s' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:20:37.931] [8992] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:20:37.931] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:20:37.931] [8992] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl1base-whisper-encoder-5s/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -1.51241, limvals_max: 1.52432)
+[2026-10-10 23:20:37.932] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:20:37.933] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:20:37.933] [8992] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.9557, limvals_max: 14.4638)
+[2026-10-10 23:20:37.933] [8992] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:20:37.933] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-encoder-5s/input_layer1 | inputs: user | outputs: PreInferEl1base-whisper-encoder-5s/input_layer1(running in thread_id: 9192)
+[2026-10-10 23:20:42.033] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl1base-whisper-encoder-5s/input_layer1 | inputs: EntryPushQEl0base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl1base-whisper-encoder-5s/input_layer1
+[2026-10-10 23:20:42.141] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1base-whisper-encoder-5s/input_layer1 | inputs: PreInferEl1base-whisper-encoder-5s/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 9193)
+[2026-10-10 23:20:42.257] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl1base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl0AsyncHwEl
+[2026-10-10 23:20:42.257] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 9194)
+[2026-10-10 23:20:42.257] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:20:42.257] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:20:42.266] [8992] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:20:42.268] [8992] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1974272. memory to edge layer usage factor is 0.46450835
+[2026-10-10 23:20:42.268] [8992] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:20:42.379] [8992] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:20:42.625] [8992] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 364.769037 milliseconds
+[2026-10-10 23:20:42.625] [8992] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 365.125127 milliseconds
+[2026-10-10 23:20:46.003] [8992] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-decoder-fixed-sequence' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:20:46.003] [8992] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:20:46.006] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:20:46.006] [8992] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -0.535231, limvals_max: 0.556641)
+[2026-10-10 23:20:46.007] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:20:46.007] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:20:46.007] [8992] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -23.5596, limvals_max: 14.4638)
+[2026-10-10 23:20:46.008] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:20:46.009] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:20:46.009] [8992] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.8414, limvals_max: 72.6594)
+[2026-10-10 23:20:46.009] [8992] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:20:46.031] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl2AsyncHwEl | timeout: 10s)
+[2026-10-10 23:20:46.031] [8992] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl2AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.4195, limvals_max: 61.8944)
+[2026-10-10 23:20:46.031] [8992] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl2AsyncHwEl)
+[2026-10-10 23:20:46.032] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1AsyncHwEl | timeout: 10s)
+[2026-10-10 23:20:46.032] [8992] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl1AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.5004, limvals_max: 59.7302)
+[2026-10-10 23:20:46.032] [8992] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl1AsyncHwEl)
+[2026-10-10 23:20:46.034] [8992] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl3AsyncHwEl | timeout: 10s)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl3AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -24.3587, limvals_max: 63.1267)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl3AsyncHwEl)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | inputs: user | outputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1(running in thread_id: 9271)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 9272)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1[0] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2[1] | outputs: PushQEl0AsyncHwEl PushQEl1AsyncHwEl PushQEl2AsyncHwEl PushQEl3AsyncHwEl
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 9273)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl1AsyncHwEl(running in thread_id: 9276)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl1AsyncHwEl | inputs: PushQEl1AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl1AsyncHwEl
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl1AsyncHwEl | inputs: PostInferEl1AsyncHwEl[0] | outputs: user
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl2AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl2AsyncHwEl(running in thread_id: 9275)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl2AsyncHwEl | inputs: PushQEl2AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl2AsyncHwEl
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl2AsyncHwEl | inputs: PostInferEl2AsyncHwEl[0] | outputs: user
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl3AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl3AsyncHwEl(running in thread_id: 9277)
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl3AsyncHwEl | inputs: PushQEl3AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl3AsyncHwEl
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl3AsyncHwEl | inputs: PostInferEl3AsyncHwEl[0] | outputs: user
+[2026-10-10 23:20:46.035] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 9269)
+[2026-10-10 23:20:46.036] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
+[2026-10-10 23:20:46.036] [8992] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 9270)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.562] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl2AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:21:51.563] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:21:57.050] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl3AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:21:57.051] [8992] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:21:57.054] [8992] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:21:57.054] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:57.054] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:57.054] [8992] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:21:57.054] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:21:57.054] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:21:57.055] [8992] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:22:42.563] [9612] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:22:42.563] [9612] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:22:42.700] [9612] [HailoRT] [info] [vdevice.cpp:523] [create] Creating vdevice with params: device_count: 1, scheduling_algorithm: ROUND_ROBIN, multi_process_service: false
+[2026-10-10 23:22:42.716] [9612] [HailoRT] [info] [device.cpp:49] [Device] OS Version: Linux 6.12.34+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+[2026-10-10 23:22:42.736] [9612] [HailoRT] [info] [control.cpp:108] [control__parse_identify_results] firmware_version is: 4.20.0
+[2026-10-10 23:22:42.736] [9612] [HailoRT] [info] [vdevice.cpp:651] [create] VDevice Infos: 0001:01:00.0
+[2026-10-10 23:22:42.979] [9612] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:22:42.979] [9612] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:22:43.137] [9612] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:22:43.137] [9612] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:22:43.146] [9612] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1576448. memory to edge layer usage factor is 0.34360003
+[2026-10-10 23:22:43.146] [9612] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:22:43.275] [9612] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 137.416314 milliseconds
+[2026-10-10 23:22:43.275] [9612] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 137.763461 milliseconds
+[2026-10-10 23:22:43.275] [9612] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-encoder-5s' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:22:43.275] [9612] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:22:43.279] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:22:43.279] [9612] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl1base-whisper-encoder-5s/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -1.51241, limvals_max: 1.52432)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.9557, limvals_max: 14.4638)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-encoder-5s/input_layer1 | inputs: user | outputs: PreInferEl1base-whisper-encoder-5s/input_layer1(running in thread_id: 9658)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl1base-whisper-encoder-5s/input_layer1 | inputs: EntryPushQEl0base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl1base-whisper-encoder-5s/input_layer1
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1base-whisper-encoder-5s/input_layer1 | inputs: PreInferEl1base-whisper-encoder-5s/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 9659)
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl1base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl0AsyncHwEl
+[2026-10-10 23:22:43.280] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 9660)
+[2026-10-10 23:22:43.281] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:22:43.281] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:22:43.297] [9612] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:22:43.298] [9612] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1974272. memory to edge layer usage factor is 0.46450835
+[2026-10-10 23:22:43.298] [9612] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:22:43.864] [9612] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 1124.551688 milliseconds
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 1125.034518 milliseconds
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-decoder-fixed-sequence' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -0.535231, limvals_max: 0.556641)
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:22:44.410] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:22:44.411] [9612] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -23.5596, limvals_max: 14.4638)
+[2026-10-10 23:22:44.411] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:22:44.411] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:22:44.411] [9612] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.8414, limvals_max: 72.6594)
+[2026-10-10 23:22:44.413] [9612] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl2AsyncHwEl | timeout: 10s)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl2AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.4195, limvals_max: 61.8944)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl2AsyncHwEl)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1AsyncHwEl | timeout: 10s)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl1AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.5004, limvals_max: 59.7302)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl1AsyncHwEl)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl3AsyncHwEl | timeout: 10s)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl3AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -24.3587, limvals_max: 63.1267)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl3AsyncHwEl)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | inputs: user | outputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1(running in thread_id: 9675)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 9676)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1[0] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2[1] | outputs: PushQEl0AsyncHwEl PushQEl1AsyncHwEl PushQEl2AsyncHwEl PushQEl3AsyncHwEl
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 9677)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl1AsyncHwEl(running in thread_id: 9679)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl1AsyncHwEl | inputs: PushQEl1AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl1AsyncHwEl
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl1AsyncHwEl | inputs: PostInferEl1AsyncHwEl[0] | outputs: user
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl2AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl2AsyncHwEl(running in thread_id: 9678)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl2AsyncHwEl | inputs: PushQEl2AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl2AsyncHwEl
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl2AsyncHwEl | inputs: PostInferEl2AsyncHwEl[0] | outputs: user
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl3AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl3AsyncHwEl(running in thread_id: 9680)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl3AsyncHwEl | inputs: PushQEl3AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl3AsyncHwEl
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl3AsyncHwEl | inputs: PostInferEl3AsyncHwEl[0] | outputs: user
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 9673)
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
+[2026-10-10 23:22:44.442] [9612] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 9674)
+[2026-10-10 23:35:10.005] [9612] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.007] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.008] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.008] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.008] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl2AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.008] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.014] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl3AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.014] [9612] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:35:10.033] [9612] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:35:20.430] [11008] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:35:20.430] [11008] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:35:20.468] [11008] [HailoRT] [info] [vdevice.cpp:523] [create] Creating vdevice with params: device_count: 1, scheduling_algorithm: ROUND_ROBIN, multi_process_service: false
+[2026-10-10 23:35:20.483] [11008] [HailoRT] [info] [device.cpp:49] [Device] OS Version: Linux 6.12.34+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+[2026-10-10 23:35:20.487] [11008] [HailoRT] [info] [control.cpp:108] [control__parse_identify_results] firmware_version is: 4.20.0
+[2026-10-10 23:35:20.487] [11008] [HailoRT] [info] [vdevice.cpp:651] [create] VDevice Infos: 0001:01:00.0
+[2026-10-10 23:35:20.588] [11008] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:35:20.588] [11008] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:35:20.743] [11008] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:35:20.743] [11008] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:35:20.754] [11008] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1576448. memory to edge layer usage factor is 0.34360003
+[2026-10-10 23:35:20.754] [11008] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 100.04734 milliseconds
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 100.317006 milliseconds
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-encoder-5s' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl1base-whisper-encoder-5s/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -1.51241, limvals_max: 1.52432)
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.9557, limvals_max: 14.4638)
+[2026-10-10 23:35:20.844] [11008] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-encoder-5s/input_layer1 | inputs: user | outputs: PreInferEl1base-whisper-encoder-5s/input_layer1(running in thread_id: 11049)
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl1base-whisper-encoder-5s/input_layer1 | inputs: EntryPushQEl0base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl1base-whisper-encoder-5s/input_layer1
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1base-whisper-encoder-5s/input_layer1 | inputs: PreInferEl1base-whisper-encoder-5s/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 11050)
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl1base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl0AsyncHwEl
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 11051)
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:35:20.845] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:35:20.849] [11008] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:35:20.850] [11008] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1974272. memory to edge layer usage factor is 0.46450835
+[2026-10-10 23:35:20.850] [11008] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:35:20.883] [11008] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:35:20.990] [11008] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 143.019779 milliseconds
+[2026-10-10 23:35:20.990] [11008] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 143.339092 milliseconds
+[2026-10-10 23:35:20.990] [11008] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-decoder-fixed-sequence' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:35:20.990] [11008] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -0.535231, limvals_max: 0.556641)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -23.5596, limvals_max: 14.4638)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.8414, limvals_max: 72.6594)
+[2026-10-10 23:35:20.992] [11008] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:35:21.024] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl2AsyncHwEl | timeout: 10s)
+[2026-10-10 23:35:21.024] [11008] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl2AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.4195, limvals_max: 61.8944)
+[2026-10-10 23:35:21.024] [11008] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl2AsyncHwEl)
+[2026-10-10 23:35:21.024] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1AsyncHwEl | timeout: 10s)
+[2026-10-10 23:35:21.024] [11008] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl1AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.5004, limvals_max: 59.7302)
+[2026-10-10 23:35:21.024] [11008] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl1AsyncHwEl)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl3AsyncHwEl | timeout: 10s)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl3AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -24.3587, limvals_max: 63.1267)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl3AsyncHwEl)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | inputs: user | outputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1(running in thread_id: 11054)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 11055)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1[0] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2[1] | outputs: PushQEl0AsyncHwEl PushQEl1AsyncHwEl PushQEl2AsyncHwEl PushQEl3AsyncHwEl
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 11056)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl1AsyncHwEl(running in thread_id: 11058)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl1AsyncHwEl | inputs: PushQEl1AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl1AsyncHwEl
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl1AsyncHwEl | inputs: PostInferEl1AsyncHwEl[0] | outputs: user
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl2AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl2AsyncHwEl(running in thread_id: 11057)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl2AsyncHwEl | inputs: PushQEl2AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl2AsyncHwEl
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl2AsyncHwEl | inputs: PostInferEl2AsyncHwEl[0] | outputs: user
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl3AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl3AsyncHwEl(running in thread_id: 11059)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl3AsyncHwEl | inputs: PushQEl3AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl3AsyncHwEl
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl3AsyncHwEl | inputs: PostInferEl3AsyncHwEl[0] | outputs: user
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 11052)
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
+[2026-10-10 23:35:21.025] [11008] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 11053)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl2AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl3AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.306] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.307] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.307] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.307] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.307] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl2AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl3AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [async_infer_runner.cpp:86] [shutdown] Pipeline was aborted. Shutting it down
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl0AsyncHwEl was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element PushQEl1base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:570] [execute_deactivate] enqueue() in element EntryPushQEl0base-whisper-encoder-5s/input_layer1 was aborted, got status = HAILO_SHUTDOWN_EVENT_SIGNALED(57)
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element EntryPushQEl0base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.308] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl1base-whisper-encoder-5s/input_layer1 has 0 frames in his Queue on destruction
+[2026-10-10 23:37:49.309] [11008] [HailoRT] [info] [queue_elements.cpp:46] [~BaseQueueElement] Queue element PushQEl0AsyncHwEl has 0 frames in his Queue on destruction
+[2026-10-10 23:40:03.912] [11710] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:40:03.912] [11710] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:40:03.941] [11710] [HailoRT] [info] [vdevice.cpp:523] [create] Creating vdevice with params: device_count: 1, scheduling_algorithm: ROUND_ROBIN, multi_process_service: false
+[2026-10-10 23:40:03.952] [11710] [HailoRT] [info] [device.cpp:49] [Device] OS Version: Linux 6.12.34+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+[2026-10-10 23:40:03.955] [11710] [HailoRT] [info] [control.cpp:108] [control__parse_identify_results] firmware_version is: 4.20.0
+[2026-10-10 23:40:03.955] [11710] [HailoRT] [info] [vdevice.cpp:651] [create] VDevice Infos: 0001:01:00.0
+[2026-10-10 23:40:04.043] [11710] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:40:04.043] [11710] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-encoder-5s
+[2026-10-10 23:40:04.215] [11710] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:40:04.215] [11710] [HailoRT] [info] [hef.cpp:1929] [get_network_group_and_network_name] No name was given. Addressing all networks of default network_group: base-whisper-decoder-fixed-sequence
+[2026-10-10 23:40:04.224] [11710] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1576448. memory to edge layer usage factor is 0.34360003
+[2026-10-10 23:40:04.224] [11710] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:40:04.313] [11710] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 97.721042 milliseconds
+[2026-10-10 23:40:04.313] [11710] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 97.997782 milliseconds
+[2026-10-10 23:40:04.313] [11710] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-encoder-5s' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:40:04.313] [11710] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:40:04.313] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:40:04.313] [11710] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl1base-whisper-encoder-5s/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -1.51241, limvals_max: 1.52432)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1base-whisper-encoder-5s/input_layer1 | timeout: 10s)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.9557, limvals_max: 14.4638)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-encoder-5s/input_layer1 | inputs: user | outputs: PreInferEl1base-whisper-encoder-5s/input_layer1(running in thread_id: 11720)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl1base-whisper-encoder-5s/input_layer1 | inputs: EntryPushQEl0base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl1base-whisper-encoder-5s/input_layer1
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1base-whisper-encoder-5s/input_layer1 | inputs: PreInferEl1base-whisper-encoder-5s/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 11721)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl1base-whisper-encoder-5s/input_layer1[0] | outputs: PushQEl0AsyncHwEl
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 11722)
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:40:04.314] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:40:04.320] [11710] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:40:04.321] [11710] [HailoRT] [info] [internal_buffer_manager.cpp:204] [print_execution_results] Planned internal buffer memory: CMA memory 0, user memory 1974272. memory to edge layer usage factor is 0.46450835
+[2026-10-10 23:40:04.321] [11710] [HailoRT] [info] [internal_buffer_manager.cpp:212] [print_execution_results] Default Internal buffer planner executed successfully
+[2026-10-10 23:40:04.365] [11710] [HailoRT] [info] [buffer_requirements.cpp:195] [find_initial_desc_page_size] Using non-default initial_desc_page_size of 64, due to a small transfer size (48)
+[2026-10-10 23:40:04.485] [11710] [HailoRT] [info] [device_internal.cpp:57] [configure] Configuring HEF took 167.687267 milliseconds
+[2026-10-10 23:40:04.485] [11710] [HailoRT] [info] [vdevice.cpp:749] [configure] Configuring HEF on VDevice took 168.877946 milliseconds
+[2026-10-10 23:40:04.485] [11710] [HailoRT] [info] [infer_model.cpp:436] [configure] Configuring network group 'base-whisper-decoder-fixed-sequence' with params: batch size: 0, power mode: PERFORMANCE, latency: NONE
+[2026-10-10 23:40:04.485] [11710] [HailoRT] [info] [multi_io_elements.cpp:756] [create] Created (AsyncHwEl)
+[2026-10-10 23:40:04.485] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:40:04.485] [11710] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -0.535231, limvals_max: 0.556641)
+[2026-10-10 23:40:04.486] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | timeout: 10s)
+[2026-10-10 23:40:04.486] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:40:04.486] [11710] [HailoRT] [info] [filter_elements.cpp:101] [create] Created (PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | Quantization - src_type: FLOAT32, dst_type UINT8, limvals_min: -23.5596, limvals_max: 14.4638)
+[2026-10-10 23:40:04.486] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | timeout: 10s)
+[2026-10-10 23:40:04.486] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl0AsyncHwEl | timeout: 10s)
+[2026-10-10 23:40:04.487] [11710] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl0AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.8414, limvals_max: 72.6594)
+[2026-10-10 23:40:04.489] [11710] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl0AsyncHwEl)
+[2026-10-10 23:40:04.511] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl2AsyncHwEl | timeout: 10s)
+[2026-10-10 23:40:04.511] [11710] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl2AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.4195, limvals_max: 61.8944)
+[2026-10-10 23:40:04.511] [11710] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl2AsyncHwEl)
+[2026-10-10 23:40:04.511] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl1AsyncHwEl | timeout: 10s)
+[2026-10-10 23:40:04.511] [11710] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl1AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -23.5004, limvals_max: 59.7302)
+[2026-10-10 23:40:04.511] [11710] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl1AsyncHwEl)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [queue_elements.cpp:450] [create] Created (PushQEl3AsyncHwEl | timeout: 10s)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [filter_elements.cpp:375] [create] Created (PostInferEl3AsyncHwEl | Quantization - src_type: UINT8, dst_type FLOAT32, limvals_min: -24.3587, limvals_max: 63.1267)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [edge_elements.cpp:187] [create] Created (LastAsyncEl0PostInferEl3AsyncHwEl)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1 | inputs: user | outputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1(running in thread_id: 11725)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl12base-whisper-decoder-fixed-sequence/input_layer1 | inputs: PreInferEl12base-whisper-decoder-fixed-sequence/input_layer1[0] | outputs: AsyncHwEl(running in thread_id: 11726)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] AsyncHwEl | inputs: PushQEl12base-whisper-decoder-fixed-sequence/input_layer1[0] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2[1] | outputs: PushQEl0AsyncHwEl PushQEl1AsyncHwEl PushQEl2AsyncHwEl PushQEl3AsyncHwEl
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl0AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl0AsyncHwEl(running in thread_id: 11727)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl0AsyncHwEl | inputs: PushQEl0AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl0AsyncHwEl
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl0AsyncHwEl | inputs: PostInferEl0AsyncHwEl[0] | outputs: user
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl1AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl1AsyncHwEl(running in thread_id: 11729)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl1AsyncHwEl | inputs: PushQEl1AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl1AsyncHwEl
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl1AsyncHwEl | inputs: PostInferEl1AsyncHwEl[0] | outputs: user
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl2AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl2AsyncHwEl(running in thread_id: 11728)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl2AsyncHwEl | inputs: PushQEl2AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl2AsyncHwEl
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl2AsyncHwEl | inputs: PostInferEl2AsyncHwEl[0] | outputs: user
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl3AsyncHwEl | inputs: AsyncHwEl[0] | outputs: PostInferEl3AsyncHwEl(running in thread_id: 11730)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PostInferEl3AsyncHwEl | inputs: PushQEl3AsyncHwEl[0] | outputs: LastAsyncEl0PostInferEl3AsyncHwEl
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] LastAsyncEl0PostInferEl3AsyncHwEl | inputs: PostInferEl3AsyncHwEl[0] | outputs: user
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2 | inputs: user | outputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2(running in thread_id: 11723)
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: EntryPushQEl0base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: PushQEl6base-whisper-decoder-fixed-sequence/input_layer2
+[2026-10-10 23:40:04.512] [11710] [HailoRT] [info] [pipeline.cpp:891] [print_deep_description] PushQEl6base-whisper-decoder-fixed-sequence/input_layer2 | inputs: PreInferEl6base-whisper-decoder-fixed-sequence/input_layer2[0] | outputs: AsyncHwEl(running in thread_id: 11724)
