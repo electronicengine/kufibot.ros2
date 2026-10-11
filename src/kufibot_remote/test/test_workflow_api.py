@@ -59,7 +59,7 @@ def test_workflow_ownership_upload_revocation_and_assets(tmp_path, monkeypatch):
 def test_live_test_waits_for_voice_ack_and_can_be_stopped(tmp_path, monkeypatch):
     monkeypatch.setenv('KUFIBOT_KNOWLEDGE_ROOT', str(tmp_path / 'knowledge'))
     monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
-    monkeypatch.setattr('kufibot_remote.workflow_api.validate', lambda value: value)
+    monkeypatch.setattr('kufibot_remote.workflow_api.validate', lambda value, **kwargs: value)
     monkeypatch.setattr('kufibot_remote.control.validate', lambda value: value)
 
     async def scenario():

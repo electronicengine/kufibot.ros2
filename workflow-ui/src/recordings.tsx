@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { CameraResult } from "./motion-editor";
 
 type Activity = {
   type: string; offset_ms: number; sequence: number; role?: string; text?: string;
   name?: string; node_id?: string; from_node?: string; arguments?: unknown;
-  result?: any; score?: number; matched?: boolean; completion?: Activity;
+  result?: any; output?: unknown; score?: number; matched?: boolean; completion?: Activity; edge_id?: string;
 };
 type Recording = {
   id: string; created_at: number; duration_sec: number; workflow_name?: string;
@@ -132,12 +133,12 @@ export function RecordingResult({ id, token, get, back }: { id: string; token?: 
             const tool = item.type.startsWith("tool_");
             const result = item.completion?.result ?? item.result;
             const failed = result?.status === "error" || result?.success === false || !!result?.error;
-            const title = item.type === "transcript" ? item.role === "user" ? "Siz" : "Kufi" : item.type === "transition" ? `${node(item.from_node)} → ${node(item.node_id)}` : item.type === "node" ? `Etkin düğüm: ${node(item.node_id)}` : tool ? `Araç çağrısı: ${item.name}` : "Anlamsal eşleşme";
+            const title = item.type === "transcript" ? item.role === "user" ? "Siz" : "Kufi" : item.type === "transition" ? `${node(item.from_node)} → ${node(item.node_id)}` : item.type === "node" ? `Etkin düğüm: ${node(item.node_id)}` : item.type === "node_output" ? `Node çıkışı: ${node(item.node_id)}` : tool ? `Araç çağrısı: ${item.name}` : item.type.startsWith("motion_") ? `Hareket ${item.type === "motion_start" ? "başladı" : item.type === "motion_complete" ? "tamamlandı" : "iptal edildi"}: ${item.name}` : item.type === "decision" ? `Karar çıkışı: ${item.edge_id}` : "Anlamsal eşleşme";
             return <li key={item.sequence} className={`recording-event ${item.type === "transcript" ? item.role : "activity"}`}>
               <button className="recording-event-time" aria-label={`${duration(item.offset_ms / 1000)} zamanına git`} onClick={() => seek(item.offset_ms / 1000)}>{duration(item.offset_ms / 1000)}</button>
               <div className="recording-event-card"><div className="recording-event-title"><strong>{title}</strong>{tool && <span className={`recording-chip ${failed ? "failed" : ""}`}>{failed ? "Hata" : result !== undefined ? "Sonuç alındı" : "Sonuç kaydedilmedi"}</span>}</div>
-                {item.type === "transcript" ? <p>{item.text}</p> : tool ? <details><summary>Çağrı detayları</summary>{item.arguments !== undefined && <><h4>Argümanlar</h4><pre>{JSON.stringify(item.arguments, null, 2)}</pre></>}{result !== undefined && <><h4>Sonuç</h4><pre>{JSON.stringify(result, null, 2)}</pre></>}{item.completion && <button className="recording-event-time" onClick={() => seek(item.completion!.offset_ms / 1000)}>Sonuç zamanı · {duration(item.completion.offset_ms / 1000)}</button>}</details> : item.type === "semantic_match" ? <p>{item.matched ? "Eşleşme seçildi" : "Eşleşme seçilmedi"} · Skor {item.score?.toFixed(2)}</p> : null}
-              </div></li>;
+                {item.type === "transcript" ? <p>{item.text}</p> : item.type === "node_output" ? <details><summary>Çıkış verisi</summary><pre>{JSON.stringify(item.output, null, 2)}</pre></details> : tool ? <details><summary>Çağrı detayları</summary>{item.arguments !== undefined && <><h4>Argümanlar</h4><pre>{JSON.stringify(item.arguments, null, 2)}</pre></>}{result !== undefined && <><h4>Sonuç</h4><pre>{JSON.stringify(result, null, 2)}</pre></>}{item.completion && <button className="recording-event-time" onClick={() => seek(item.completion!.offset_ms / 1000)}>Sonuç zamanı · {duration(item.completion.offset_ms / 1000)}</button>}</details> : item.type === "semantic_match" ? <p>{item.matched ? "Eşleşme seçildi" : "Eşleşme seçilmedi"} · Skor {item.score?.toFixed(2)}</p> : null}
+              <CameraResult result={result}/></div></li>;
           })}</ol>}
         </section>
       </>}

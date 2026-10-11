@@ -40,7 +40,7 @@ export function WorkflowEditor({visible,robot,state,event,send,onClose,subscribe
   }
   if(!visible)return null;
   const close=()=>{send({type:'workflow',action:'testStop'});onClose()};
-  return <Modal visible animationType="slide" onRequestClose={close}><SafeAreaView style={{flex:1,backgroundColor:'#101721'}}>
+  return <Modal visible animationType="slide" onRequestClose={() => web.current?.injectJavaScript('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));true;')}><SafeAreaView style={{flex:1,backgroundColor:'#101721'}}>
     <WebView ref={web} source={{uri:`${origin}/workflows?native=1`}} originWhitelist={[origin]}
       onShouldStartLoadWithRequest={r=>r.url.startsWith(`${origin}/`)} onLoadEnd={()=>state&&publish(state)}
       onMessage={e=>{try{const value=JSON.parse(e.nativeEvent.data);if(value.type==='workflowClose')close();

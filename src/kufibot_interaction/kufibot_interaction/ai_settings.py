@@ -55,6 +55,11 @@ def discover_models(root):
             entries.append(dict(id=folder.name, kind='stt', languages=['tr', 'en'],
                                 backend='hailo_whisper', path=str(folder),
                                 label=f'Whisper {variant} · Hailo-8L'))
+    folder = root / 'turkish-stt-zipformer'
+    if (folder / 'manifest.json').is_file():
+        entries.append(dict(id=folder.name, kind='stt', languages=['tr'],
+                            backend='sherpa_zipformer', path=str(folder),
+                            label='Türkçe Zipformer · INT8 (CPU)'))
     return entries
 
 
@@ -65,16 +70,17 @@ def catalog():
     entries = json.loads(path.read_text()) if custom_catalog else discovered
     if not isinstance(entries, list):
         raise ValueError('Model kataloğu bir liste olmalı')
-    # The optional catalog supplements hardware-specific STT/TTS declarations;
-    # it must not hide GGUF files copied into llamaModel by an operator.
+    # Keep declared hardware-specific STT/TTS entries, while exposing newly
+    # installed GGUF and Turkish Zipformer packages alongside them.
     declared = {entry.get('id') for entry in entries if isinstance(entry, dict)}
     additions = (entry for entry in discovered if entry['id'] not in declared and
-                 (not custom_catalog or entry['kind'] in ('llm', 'embedding')))
+                 (not custom_catalog or entry['kind'] in ('llm', 'embedding')
+                  or entry.get('backend') == 'sherpa_zipformer'))
     entries = [*entries, *additions]
     result = []
     seen = set()
     for entry in entries:
-        if (not isinstance(entry, dict) or entry.get('kind') not in KINDS
+        if (not isinstance(entry, dict) or entry.get('kind') not in (*KINDS, 'decision')
                 or not isinstance(entry.get('id'), str) or not entry['id']
                 or entry['id'] in seen
                 or not isinstance(entry.get('languages'), list)
@@ -90,7 +96,7 @@ def catalog():
                      else model.is_file())
         if entry['kind'] == 'stt':
             backend = entry.get('backend', 'vosk')
-            if backend not in ('vosk', 'hailo_whisper'):
+            if backend not in ('vosk', 'hailo_whisper', 'sherpa_zipformer'):
                 raise ValueError('Unsupported STT backend')
             entry = {**entry, 'backend': backend}
             if backend == 'hailo_whisper':
@@ -100,8 +106,18 @@ def catalog():
                     available = all(lang in manifest['languages'] for lang in entry['languages'])
                 except (OSError, ValueError, KeyError, TypeError):
                     available = False
+            if backend == 'sherpa_zipformer':
+                from .sherpa_zipformer import package_manifest
+                try:
+                    manifest = package_manifest(model)
+                    available = all(lang in manifest['languages'] for lang in entry['languages'])
+                except (OSError, ValueError, KeyError, TypeError):
+                    available = False
         if entry['kind'] == 'tts':
             available = available and Path(str(model) + '.json').is_file()
+        if entry['kind'] == 'decision':
+            from .workflow_decision import providers
+            available = available and entry.get('backend') in providers()
         result.append({**entry, 'path': str(model), 'available': available})
     return result
 
@@ -122,21 +138,25 @@ def normalize(value):
 def workflow_voice_settings(document):
     """Keep workflow routing settings separate from the voice provider schema."""
     value = dict(document.get('settings', {}))
+    from .workflows import uses_llm
     llm_enabled = value.pop('llm_enabled', True)
     if type(llm_enabled) is not bool:
         raise ValueError('LLM kullanımı boolean olmalı')
     value.pop('semantic_threshold', None)
     value.pop('voice', None)
     value.pop('activation', None)
+    value.pop('no_match_text', None)
+    value.pop('decision', None)
     # Workflow prompts live exclusively on nodes. Ignore old shared prompts.
     value['system_prompt'] = ''
-    if not llm_enabled:
+    if not uses_llm(document):
         value['llm'] = ''
-        value['embedding'] = ''
+        if document.get('workflow_type') != 'scripted':
+            value['embedding'] = ''
     return value
 
 
-def validate(value, models=None, *, workflow_llm_enabled=True):
+def validate(value, models=None, *, workflow_llm_enabled=True, workflow_type=None):
     value = normalize(value)
     if not isinstance(value, dict) or set(value) != set(DEFAULT):
         raise ValueError('Sağlayıcı, dil, STT, LLM, embedding ve TTS seçimi gerekli')
@@ -180,11 +200,12 @@ def validate(value, models=None, *, workflow_llm_enabled=True):
         document = WorkflowStore().snapshot(value['workflow_id'])
         llm_enabled = document.get('settings', {}).get('llm_enabled', True)
         resolved = validate({**value, **workflow_voice_settings(document), 'provider': 'local', 'workflow_id': ''},
-                           models, workflow_llm_enabled=llm_enabled)
+                           models, workflow_llm_enabled=llm_enabled, workflow_type=document.get('workflow_type'))
+        validate_decision_models(document, models)
         return {**resolved, 'workflow_id': value['workflow_id']}
     if value['provider'] == 'local':
         models = catalog() if models is None else models
-        required_kinds = KINDS if workflow_llm_enabled else ('stt', 'tts')
+        required_kinds = ('stt', 'tts', 'embedding') if workflow_type == 'scripted' else KINDS if workflow_type == 'llm' or workflow_llm_enabled else ('stt', 'tts')
         for kind in required_kinds:
             match = next((m for m in models if m['id'] == value[kind] and m['kind'] == kind), None)
             if not match or not match['available']:
@@ -192,6 +213,17 @@ def validate(value, models=None, *, workflow_llm_enabled=True):
             if value['language'] not in match['languages']:
                 raise ValueError(f'{kind.upper()} modeli seçilen dili desteklemiyor')
     return dict(value)
+
+
+def validate_decision_models(document, models=None):
+    if not any(n.get('type') == 'decision' for n in document.get('nodes', [])):
+        return
+    from .workflow_decision import providers
+    models = catalog() if models is None else models
+    selected = document.get('settings', {}).get('decision')
+    entry = next((m for m in models if m['id'] == selected and m['kind'] == 'decision'), None)
+    if not entry or not entry['available'] or entry.get('backend') not in providers():
+        raise ValueError('Uyumlu karar modeli ve sağlayıcısı robotta kurulu değil')
 
 
 def read_settings():
@@ -213,7 +245,19 @@ def read_settings():
 
 
 def save_settings(value):
-    value = validate(value)
+    _write_settings(validate(value))
+
+
+def forget_workflow(key):
+    """Detach a deleted selection without requiring a replacement chat model."""
+    value = read_settings()
+    if value.get('workflow_id') == key:
+        value['workflow_id'] = ''
+        _write_settings(value)
+    return value
+
+
+def _write_settings(value):
     path = settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix='.ai-')

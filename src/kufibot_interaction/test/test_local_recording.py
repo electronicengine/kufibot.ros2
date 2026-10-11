@@ -42,6 +42,16 @@ def test_session_recording_merges_user_and_robot_into_stereo_wav(tmp_path):
         assert b'\x01\x00' in data and b'\x02\x00' in data
 
 
+def test_archive_keeps_node_output_values(tmp_path):
+    recording = SessionRecording(tmp_path)
+    output = {'type':'node_output','node_id':'search','output':{'cevap':'12 volt','found':True}}
+    recording.record_event('workflow_event', event=output)
+    output['output']['cevap'] = 'Değişti'
+    info = recording.close()
+    assert info['events'][0]['output'] == {'cevap':'12 volt','found':True}
+    assert json.loads((tmp_path / f"{info['id']}.json").read_text())['events'][0]['type'] == 'node_output'
+
+
 def test_archive_clock_final_messages_snapshot_and_session_isolation(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from kufibot_interaction import local_recording

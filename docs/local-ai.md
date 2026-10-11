@@ -159,6 +159,40 @@ yanıt sınırı `local_llm_*`; Piper thread sayısı `local_tts_threads` ROS
 parametreleridir. Başlangıç değerleri `interactive_robot.yaml` içindedir.
 Ayarlar bir sonraki yerel oturum başlangıcında okunur.
 
+## Türkçe Zipformer STT
+
+[duxx/turkish-stt-zipformer](https://huggingface.co/duxx/turkish-stt-zipformer)
+modelinin INT8 ONNX sürümü Sherpa-ONNX ile CPU üzerinde çalışır. Web, mobil ve
+workflow model seçiminde **Türkçe Zipformer · INT8 (CPU)** olarak görünür.
+Türkçe (`tr`), 16 kHz mono ses, canlı ara metin ve mevcut VAD konuşma sonu
+algılamasını destekler. Vosk ve Hailo seçenekleri kullanılmaya devam eder.
+
+```bash
+.venv/bin/python -m pip install 'sherpa-onnx==1.13.8'
+.venv/bin/python tools/local_voice/prepare_assets.py --zipformer
+tools/local_voice/test_stt.sh --backend sherpa_zipformer --language tr
+```
+
+Kurulum dizini `/usr/local/ai.models/turkish-stt-zipformer` yazılabilir olmalıdır;
+alternatif kök için kurucuda `--root` ve çalışma ortamında
+`KUFIBOT_AI_MODEL_ROOT` kullanın. Model **STT** listesinden seçilir; kurulum
+mevcut seçimi değiştirmez. Kaynak commit ve SHA256 özetleri
+`tools/local_voice/assets.lock.json` içinde sabittir. Model yüklenirken gerekli
+dosyaların bütünlüğü doğrulanır; çalışma sırasında indirme veya başka modele
+sessiz geçiş yapılmaz. Bu paket özel bir katalog olsa da otomatik keşfedilir.
+Katalogda açıkça tanımlamak için:
+
+```json
+{"id":"turkish-stt-zipformer","kind":"stt","backend":"sherpa_zipformer",
+ "languages":["tr"],"path":"turkish-stt-zipformer",
+ "label":"Türkçe Zipformer · INT8 (CPU)"}
+```
+
+Paketin `manifest.json` dosyasında varsayılan CPU thread sayısı 3, çözümleme
+`modified_beam_search`, etkin yol sayısı 12’dir. Her konuşma için yeni stream
+açılır; konuşma sonundaki son parçayı tamamlamak için sessizlik eklenir.
+Model lisansı **CC BY-NC 4.0**’dır; model kartı ticari olmayan kullanım belirtir.
+
 ## İsteğe bağlı Hailo-8L Whisper
 
 Vosk kurulumları varsayılan olarak korunur. Hailo seçimi Vosk'u otomatik

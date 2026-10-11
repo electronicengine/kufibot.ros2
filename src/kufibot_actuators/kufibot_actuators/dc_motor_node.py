@@ -2,12 +2,15 @@
 """Control Kufibot's differential-drive DC motors."""
 
 import math
+import json
 import time
 from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from kufibot_interfaces.msg import DriveCommand
 from .dc_motor_config import DEFAULT_CONFIG_PATH, load_speed_limits
 from .pca9685 import PCA9685
@@ -61,9 +64,17 @@ class DcMotorNode(Node):
         self.sub = self.create_subscription(
             DriveCommand, 'drive/command', self.drive_callback, 1)
         self.safety_timer = self.create_timer(0.1, self.safety_check)
+        self.limits_pub = self.create_publisher(String, 'drive/limits',
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.limits_timer = self.create_timer(.5, self.publish_limits)
+        self.publish_limits()
 
         self.get_logger().info(
             f'DC motor node başlatıldı (adres=0x{address:02X}).')
+
+    def publish_limits(self):
+        self.limits_pub.publish(String(data=json.dumps({'min_speed_mps': self.min_linear,
+                                                       'max_speed_mps': self.max_linear})))
 
     def _set_motor(self, pwm_ch, in1_ch, in2_ch, speed_percent, inverted):
         speed_percent = max(-100.0, min(100.0, speed_percent))

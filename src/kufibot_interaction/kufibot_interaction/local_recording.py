@@ -96,9 +96,12 @@ class SessionRecording:
                 if not values.get('text'):
                     return
                 event = {'type': 'transcript', 'role': role, 'text': values['text']}
+            elif kind == 'error':
+                event = {'type': 'error', 'message': values.get('message', '')}
             elif kind == 'workflow_event':
                 event = values.get('event', {})
-                if event.get('type') not in ('node', 'transition', 'tool_start', 'tool_result', 'semantic_match'):
+                if event.get('type') not in ('node', 'transition', 'tool_start', 'tool_result', 'semantic_match', 'node_output',
+                                           'decision', 'motion_start', 'motion_complete', 'motion_cancelled', 'error'):
                     return
             else:
                 return

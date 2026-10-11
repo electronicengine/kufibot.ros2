@@ -156,3 +156,42 @@ def test_llm_disabled_workflow_only_requires_stt_and_tts(registry, tmp_path, mon
     WorkflowStore().publish(document)
     settings = ai.validate({**registry, 'llm': 'missing', 'embedding': 'missing', 'workflow_id': 'dedicated'})
     assert settings['llm'] == settings['embedding'] == ''
+
+
+def test_scripted_workflow_requires_embedding_but_not_chat_model(registry, tmp_path, monkeypatch):
+    from kufibot_interaction.workflows import WorkflowStore
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path/'workflows'))
+    flow = {'id': 'scripted', 'schema_version': 1, 'workflow_type': 'scripted', 'settings': {
+        **registry, 'llm': 'not-installed', 'no_match_text': 'Tekrar söyle.', 'decision': ''},
+        'nodes': [{'id': 's', 'type': 'start', 'data': {'prompt': 'Karşılama'}},
+                  {'id': 'a', 'type': 'agent', 'data': {'prompt': 'Hazırım'}}],
+        'edges': [{'source': 's', 'target': 'a'}]}
+    WorkflowStore().publish(flow)
+    settings = ai.validate({**registry, 'workflow_id': 'scripted'})
+    assert settings['llm'] == '' and settings['embedding'] == 'embedding'
+    assert 'no_match_text' not in settings and 'decision' not in settings
+    flow['settings']['embedding'] = 'not-installed'
+    WorkflowStore().publish(flow)
+    with pytest.raises(ValueError, match='EMBEDDING'):
+        ai.validate({**registry, 'workflow_id': 'scripted'})
+
+
+def test_decision_catalog_requires_registered_adapter(registry, tmp_path, monkeypatch):
+    from kufibot_interaction import workflow_decision
+    from kufibot_interaction.ai_settings import validate_decision_models
+    monkeypatch.setattr(workflow_decision, '_factories', {})
+    monkeypatch.setattr(workflow_decision, '_discovered', True)
+    entries = json.loads(ai.catalog_path().read_text())
+    entries.append(dict(id='policy', kind='decision', path='chat.gguf', languages=['tr'], backend='robot-policy'))
+    ai.catalog_path().write_text(json.dumps(entries))
+    flow = {'nodes': [{'type': 'decision'}], 'settings': {'decision': 'policy'}}
+    assert not next(m for m in ai.catalog() if m['id'] == 'policy')['available']
+    with pytest.raises(ValueError, match='karar modeli'):
+        validate_decision_models(flow)
+    workflow_decision.register_provider('robot-policy', lambda entry: lambda node, context, edges: {'edge_id': edges[0]['id']})
+    validate_decision_models(flow)
+    provider = workflow_decision.DecisionProvider(next(m for m in ai.catalog() if m['id'] == 'policy'))
+    try:
+        assert provider({}, {}, [{'id': 'edge'}]) == {'edge_id': 'edge'}
+    finally:
+        provider.close()

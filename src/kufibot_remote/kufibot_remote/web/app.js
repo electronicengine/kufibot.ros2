@@ -522,12 +522,35 @@ workflowDialog.addEventListener('close', () => {
 let workflowLoading = false;
 let workflowLoaded = false;
 let renderedWorkflowLink;
+let renderedWorkflowOwner;
+let workflowDeletion = null;
+function workflowDeleted(id) {
+  localWorkflows = localWorkflows.filter(w => w.id !== id);
+  if (aiDraft?.workflow_id === id) { aiDraft = {...aiDraft, workflow_id:''}; aiSaved = null; }
+  renderWorkflowList();
+  refreshWorkflowOptions();
+}
+function deleteWorkflow(workflow) {
+  if (!link.state?.owner || workflowDeletion) return;
+  if (!confirm(`“${workflow.name}” workflow’u silinsin mi? Bu işlem geri alınamaz. Ses ajanına bağlıysa ilgili oturum durdurulur.`)) return;
+  const requestId = `workflow-delete-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (!link.send({type:'workflow',action:'delete',request_id:requestId,id:workflow.id,revision:workflow.revision})) return;
+  workflowDeletion = {requestId,id:workflow.id,timer:setTimeout(() => {
+    workflowDeletion = null;
+    $('workflow-error').hidden = false;
+    $('workflow-error').querySelector('span').textContent = 'Silme işlemi yanıt vermedi. Listeyi yenileyip yeniden deneyin.';
+    renderWorkflowList();
+  }, 15000)};
+  $('workflow-error').hidden = true;
+  renderWorkflowList();
+}
 function renderWorkflowList() {
   const query = $('workflow-search').value.trim().toLocaleLowerCase('tr');
   const workflows = localWorkflows.filter(w => w.name.toLocaleLowerCase('tr').includes(query))
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   const linked = link.state?.aiConfig?.settings?.workflow_id;
   renderedWorkflowLink = linked;
+  renderedWorkflowOwner = !!link.state?.owner;
   $('workflow-list').replaceChildren(...workflows.map(w => {
     const card = document.createElement('div');
     card.className = 'workflow-card';
@@ -537,11 +560,17 @@ function renderWorkflowList() {
     top.append(icon);
     if (w.id === linked) { const badge = document.createElement('span'); badge.className = 'workflow-linked'; badge.textContent = 'Ses ajanına bağlı'; top.append(badge); }
     const title = document.createElement('h4'); title.textContent = w.name;
-    const meta = document.createElement('p'); meta.textContent = `${w.nodes?.length || 0} düğüm · Revizyon ${w.revision}`;
+    const meta = document.createElement('p'); meta.textContent = `${w.workflow_type === "scripted" ? "Robot Akışı · LLM’siz" : w.settings?.llm_enabled === false ? "Eski sabit akış" : "LLM Ajanı"} · ${w.nodes?.length || 0} düğüm · Revizyon ${w.revision}`;
     const button = document.createElement('button'); button.className = 'workflow-card-open';
     button.textContent = 'Düzenle →'; button.setAttribute('aria-label', `${w.name} · Düzenle`);
     button.addEventListener('click', () => openWorkflowEditor(w.id));
-    card.append(top, title, meta, button); return card;
+    const remove = document.createElement('button'); remove.className = 'workflow-card-delete';
+    remove.textContent = workflowDeletion?.id === w.id ? 'Siliniyor…' : 'Sil';
+    remove.setAttribute('aria-label', `${w.name} · Sil`);
+    remove.disabled = !renderedWorkflowOwner || !!workflowDeletion;
+    remove.addEventListener('click', () => deleteWorkflow(w));
+    const actions = document.createElement('div'); actions.className = 'workflow-card-actions'; actions.append(button, remove);
+    card.append(top, title, meta, actions); return card;
   }));
   $('workflow-list-status').textContent = workflowLoading ? 'Workflowlar yükleniyor…' : query ? `${workflows.length} / ${localWorkflows.length} workflow` : `${localWorkflows.length} kayıtlı workflow`;
   $('workflow-empty').hidden = workflows.length > 0 || !workflowLoaded || workflowLoading;
@@ -583,7 +612,7 @@ $('ai-workflow').addEventListener('change', event => {
 });
 function openWorkflowEditor(id = '') {
   link.stopManualInput(); closeDrawer();
-  workflowFrame.src=`/workflows?embedded=1${id ? `&workflow=${encodeURIComponent(id)}` : ''}`;
+  workflowFrame.src=`/workflows?embedded=1${id ? `&workflow=${encodeURIComponent(id)}` : '&new=1'}`;
   workflowDialog.showModal();
 }
 $('open-workflows').addEventListener('click', () => openWorkflowEditor());
@@ -671,9 +700,20 @@ workflowFrame.addEventListener('load', () => {
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== workflowFrame.contentWindow || !workflowDialog.open) return;
   if (event.data?.type === 'workflowClose') {workflowDialog.close();}
+  if (event.data?.type === 'workflowDeleted') workflowDeleted(event.data.id);
   if (event.data?.type === 'workflowCommand' && event.data.command?.type === 'workflow') link.send(event.data.command);
 });
 link.addEventListener('workflow', ({detail}) => {if(workflowDialog.open)workflowFrame.contentWindow?.postMessage(detail,location.origin)});
+link.addEventListener('workflow', ({detail}) => {
+  if (!workflowDeletion || detail.request_id !== workflowDeletion.requestId) return;
+  clearTimeout(workflowDeletion.timer);
+  const id = workflowDeletion.id; workflowDeletion = null;
+  if (detail.error) {
+    $('workflow-error').hidden = false;
+    $('workflow-error').querySelector('span').textContent = detail.error;
+    renderWorkflowList();
+  } else workflowDeleted(id);
+});
 link.addEventListener('workflow', ({detail}) => {
   if (detail.request_id !== 'voice-workflow-activate') return;
   if (detail.error) { aiWorkflowError = detail.error; renderAiSettings(link.state); return; }
@@ -687,7 +727,7 @@ link.addEventListener('state', ({detail}) => {
     $('recordings-frame').contentWindow?.postMessage(detail, location.origin);
     refreshRecordings();
   }
-  if (activePage === 'workflows' && renderedWorkflowLink !== detail?.aiConfig?.settings?.workflow_id) renderWorkflowList();
+  if (activePage === 'workflows' && (renderedWorkflowLink !== detail?.aiConfig?.settings?.workflow_id || renderedWorkflowOwner !== !!detail?.owner)) renderWorkflowList();
   if(!aiDirty) $('ai-workflow').value=detail?.aiConfig?.settings?.workflow_id || '';
 });
 refreshWorkflowOptions();

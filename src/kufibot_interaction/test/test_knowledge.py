@@ -70,6 +70,31 @@ def test_index_search_delete_and_model_change(store, tmp_path):
     assert store.search('pil', [key])['results'] == []
 
 
+def test_workflow_knowledge_step_reads_index_and_protects_collection(store, tmp_path, monkeypatch):
+    from kufibot_interaction.workflows import WorkflowEngine, WorkflowStore
+    monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path / 'workflows'))
+    key = store.create('Robot kılavuzu', 'embedding')['id']
+    source = tmp_path / 'robot.json'
+    source.write_text('{"pil":"12 volt"}')
+    store.add(key, source, 'robot.json')
+    store.index(key)
+    flow = {'schema_version':1, 'id':'read-manual', 'name':'Kılavuz oku', 'revision':0, 'workflow_type':'scripted', 'settings':{}, 'nodes':[
+        {'id':'s','type':'start','data':{'prompt':'Kılavuzu okuyorum.'}},
+        {'id':'k','type':'knowledgeStep','data':{'collection_id':key,'query':{'$ref':'user'}}},
+        {'id':'end','type':'end','data':{'prompt':'{{last_output.text}}'}},
+        {'id':'error','type':'end','data':{'prompt':'Arama hatası'}},
+    ], 'edges':[{'source':'s','target':'k'}, {'source':'k','target':'end','sourceHandle':'success'}, {'source':'k','target':'error','sourceHandle':'error'}]}
+    workflows = WorkflowStore()
+    workflows.publish(workflows.save(flow))
+    engine = WorkflowEngine(flow, None, lambda name, params:store.search(**params))
+    answer = engine.turn('pil')
+    assert '12 volt' in answer['text']
+    assert answer['sources'][0]['filename'] == 'robot.json'
+    assert engine.context['outputs']['k']['found'] is True
+    with pytest.raises(ValueError):
+        store.delete_collection(key)
+
+
 def test_failed_reindex_keeps_previous_generation(store, tmp_path):
     key = store.create('Test', 'embedding')['id']
     source = tmp_path / 'a.json'

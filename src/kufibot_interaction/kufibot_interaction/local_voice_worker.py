@@ -119,6 +119,9 @@ def create_stt(config):
     if config['stt_backend'] == 'hailo_whisper':
         from .hailo_whisper import HailoWhisper
         return HailoWhisper(config['stt'], config['language'], config['hailo_timeout_sec'])
+    if config['stt_backend'] == 'sherpa_zipformer':
+        from .sherpa_zipformer import SherpaZipformer
+        return SherpaZipformer(config['stt'], config.get('language', 'tr'))
     raise ValueError('Unsupported STT backend')
 
 
@@ -473,11 +476,12 @@ def run(config, max_turns=None):
     global _session_recording
     config = validate_runtime(config)
     reporter = Reporter(emit)
-    backend = llm = recorder = router = None
+    backend = llm = recorder = router = decision_provider = None
     deadline = SessionDeadline(config.get('max_session_sec', 0))
     try:
         reporter.set_phase('loading')
-        llm_enabled = not config.get('workflow') or config['workflow'].get('settings', {}).get('llm_enabled', True)
+        from .workflows import uses_llm
+        llm_enabled = not config.get('workflow') or uses_llm(config['workflow'])
         reporter.mark('load_start', language=config['language'], stt_backend=config.get('stt_backend', 'vosk'),
                       llm_model=config.get('llm', '') if llm_enabled else '',
                       llm_threads=config['llm_threads'], llm_batch_threads=config['llm_batch_threads'])
@@ -507,26 +511,30 @@ def run(config, max_turns=None):
         if config.get('workflow'):
             from .workflow_inference import ToolChannel
             from .workflows import WorkflowEngine
-            channel = ToolChannel(emit, config['workflow_session_id'])
-            decider = None
-            if llm_enabled:
-                from .workflow_inference import make_decider
+            channel = ToolChannel(emit, config['workflow_session_id'], async_events=True)
+            decider = resource_selector = None
+            if llm_enabled or config['workflow'].get('workflow_type') == 'scripted':
                 from .workflow_routing import SemanticRouter
+                router = SemanticRouter(config['workflow'], config.get('embedding'),
+                    notify=lambda event: emit('workflow_event', event=event), metric=reporter.mark, include_resources=not llm_enabled)
+            if config.get('decision_model'):
+                from .workflow_decision import DecisionProvider
+                decision_provider = DecisionProvider(config['decision_model'])
+            if llm_enabled:
+                from .workflow_inference import make_decider, make_resource_selector
                 def stream_reply(messages):
                     nonlocal reply_streamed
                     reply_streamed = True
                     return generate_and_speak(config, llm, messages, voice, reporter,
                         sampling={'temperature': .3, 'top_k': 40, 'top_p': .9, 'min_p': 0, 'repeat_penalty': 1}, recorder=recorder)
-                router = SemanticRouter(config['workflow'], config.get('embedding'),
-                    notify=lambda event: emit('workflow_event', event=event), metric=reporter.mark)
                 decider = make_decider(llm, reply_generator=stream_reply,
                                        reply_max_tokens=config['llm_max_tokens'], metric=reporter.mark)
+                resource_selector = make_resource_selector(llm, metric=reporter.mark)
             workflow = WorkflowEngine(config['workflow'], decider, channel.call,
-                                      lambda event: emit('workflow_event', event=event), router=router)
+                                      lambda event: emit('workflow_event', event=event), router=router, decision_provider=decision_provider, resource_selector=resource_selector)
             emit('workflow_event', event={'type': 'node', 'node_id': workflow.current})
         reporter.mark('load_end')
-        # Every session begins with the start node's own LLM reply. Its outgoing
-        # condition is evaluated only after that reply and a user utterance.
+        # Workflow entry emits its own speech before listening for commands.
         opening_turn = bool(workflow)
         while max_turns is None or reporter.turn < max_turns:
             reporter.turn += 1
@@ -541,8 +549,8 @@ def run(config, max_turns=None):
                 reply_streamed = False
                 channel.turn_id = reporter.turn
                 reporter.mark('workflow_start')
-                reporter.set_phase('thinking')
-                emit('compute', active=True)
+                reporter.set_phase('thinking' if llm_enabled else 'idle')
+                emit('compute', active=bool(llm_enabled))
                 try:
                     result = workflow.turn(text)
                 finally:
@@ -587,6 +595,8 @@ def run(config, max_turns=None):
                     if router:
                         router.close()
                 finally:
+                    if decision_provider:
+                        decision_provider.close()
                     reporter.close()
 
 

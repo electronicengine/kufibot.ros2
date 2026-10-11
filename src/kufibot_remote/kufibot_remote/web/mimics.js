@@ -37,6 +37,7 @@ let joint = "headLeftRight",
   socket,
   reconnectTimer;
 const embedded = window.parent !== window;
+const workflowMode = embedded && new URLSearchParams(location.search).get('workflow') === '1';
 const native = !!window.ReactNativeWebView;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(38, 1, 0.005, 10);
@@ -100,7 +101,8 @@ function updateState(value) {
   state = value;
   const ready =
     state?.owner && state.mode === "remote" && state.appliedMode === "remote";
-  $("run").disabled = !ready || dirty || !motion;
+  $("run").disabled = workflowMode || !ready || dirty || !motion;
+  $("apply-workflow").disabled = !state?.owner || !motion;
   $("claim").disabled = !!state?.owner;
   const m = state?.mimic;
   const phase = {
@@ -116,6 +118,13 @@ function updateState(value) {
 }
 window.kufibotMimicState = updateState;
 window.addEventListener("message", (event) => {
+  if (event.origin === location.origin && event.source === window.parent && workflowMode) {
+    if (event.data?.type === 'mimicWorkflowInit') {
+      if (event.data.motion) openMotion(copy(event.data.motion));
+      updateState(event.data.state);
+    }
+    if (event.data?.type === 'mimicRequestClose') $('close').click();
+  }
   if (event.origin === location.origin && event.source === parent) {
     if (event.data?.type === "mimicState") updateState(event.data.state);
     if (event.data?.type === "mimicError") notice(event.data.message);
@@ -400,7 +409,7 @@ $("stop").onclick = () => {
 };
 $("close").onclick = () => {
   if (!discard()) return;
-  send({ type: "stopMimic" });
+  if (!workflowMode) send({ type: "stopMimic" });
   if (native)
     window.ReactNativeWebView.postMessage(
       JSON.stringify({ type: "mimicClose" }),
@@ -408,6 +417,10 @@ $("close").onclick = () => {
   else if (embedded)
     parent.postMessage({ type: "mimicClose" }, location.origin);
   else location.href = "/";
+};
+$("apply-workflow").onclick = () => {
+  if (!workflowMode || !state?.owner || !motion) return;
+  parent.postMessage({type:'mimicApply', motion:copy(motion), pose:copy(motion.keyframes[selected].joints)}, location.origin);
 };
 function hit(event) {
   const rect = renderer.domElement.getBoundingClientRect();
@@ -492,6 +505,11 @@ try {
   if (records.length) openMotion(records[0]);
   else $("new").click();
   chooseJoint(joint);
+  if (workflowMode) {
+    $('apply-workflow').hidden = false;
+    for (const id of ['save', 'claim', 'remote', 'run', 'stop']) $(id).hidden = true;
+    parent.postMessage({type:'mimicReady'}, location.origin);
+  }
   notice("Model hazır · Düzenleme yalnızca önizlemeyi hareket ettirir.");
 } catch (error) {
   notice("Editör yüklenemedi: " + error.message);

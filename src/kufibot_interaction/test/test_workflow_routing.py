@@ -6,6 +6,7 @@ import pytest
 from kufibot_interaction.workflow_routing import SemanticRouter
 from kufibot_interaction.workflow_inference import make_decider
 from kufibot_interaction.workflows import WorkflowEngine, validate_graph
+from kufibot_interaction.joint_limits import NEUTRAL_ANGLES
 
 
 def graph():
@@ -14,6 +15,47 @@ def graph():
         {'id': 'a', 'type': 'agent', 'data': {'prompt': 'Eski komut'}},
         {'id': 'b', 'type': 'agent', 'data': {'prompt': 'Yeni komut'}}],
         'edges': [{'source': 'start', 'target': 'a'}, {'source': 'a', 'target': 'b', 'label': 'devam'}]}
+
+
+@pytest.mark.parametrize('workflow_type', ['llm', None])
+@pytest.mark.parametrize('node_kind', ['tool', 'toolResource'])
+@pytest.mark.parametrize('name,params', [
+    ('set_joint_positions', {'names': ['rightArm'], 'angles_deg': [55], 'hold_sec': 2}),
+    ('play_motion', {'motion': {'id': 'arm', 'name': 'Kol', 'description': '', 'revision': 0,
+        'duration_ms': 100, 'interpolation': 'linear', 'keyframes': [
+            {'time_ms': 0, 'joints': dict(NEUTRAL_ANGLES)},
+            {'time_ms': 100, 'joints': {**NEUTRAL_ANGLES, 'rightArm': 55}}]}}),
+    ('move_base', {'direction': 'backward', 'speed_mps': .3, 'duration_sec': 2}),
+    ('stop_base', {}),
+])
+def test_llm_workflows_use_fixed_robot_motion_tools(workflow_type, node_kind, name, params):
+    flow = graph()
+    if workflow_type:
+        flow['workflow_type'] = workflow_type
+    flow['nodes'].append({'id': 'motion', 'type': node_kind,
+        'data': {'tool': name, 'arguments': params, 'trigger_phrases': 'hareket et'}})
+    if node_kind == 'toolResource':
+        flow['edges'].append({'source': 'motion', 'target': 'a'})
+    else:
+        flow['edges'][1].update(target='motion', label='hareket et')
+        flow['nodes'].append({'id': 'failed', 'type': 'end', 'data': {'prompt': 'Hata'}})
+        flow['edges'] += [{'source': 'motion', 'target': 'b', 'sourceHandle': 'success'},
+                          {'source': 'motion', 'target': 'failed', 'sourceHandle': 'error'}]
+    assert not validate_graph(flow)
+    route, _ = router(flow, {'devam': [0, 1], 'hareket et': [1, 0]})
+    calls, replies = [], []
+    def reply(node, context, *args):
+        replies.append((node['id'], context.get('last_result')))
+        return {'action': 'reply', 'text': 'Hareket kabul edildi.'}
+    engine = WorkflowEngine(flow, reply,
+        lambda tool, args: calls.append((tool, args)) or {'status': 'ok', 'accepted': True}, router=route)
+    engine.turn('')
+    engine.turn('')
+    result = engine.turn('hareket et')
+    assert calls == [(name, params)]
+    assert replies[-1] == ('a' if node_kind == 'toolResource' else 'b', {'status': 'ok', 'accepted': True})
+    assert result['text'] == 'Hareket kabul edildi.'
+    route.close()
 
 
 def router(document, vectors, events=None):

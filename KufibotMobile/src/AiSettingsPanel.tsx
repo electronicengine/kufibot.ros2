@@ -1,15 +1,51 @@
 import {HeardText} from './HeardText';
-import React, {useEffect, useState} from 'react';
-import {Pressable, StyleSheet, Switch, Text, TextInput, View} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {Alert, Pressable, StyleSheet, Switch, Text, TextInput, View} from 'react-native';
 import {AiConfig, AiSettings, ActivationSettings, activationDefaults} from './useRobot';
 
-export function AiSettingsPanel({config, owner, send, status, error}: {
+export function AiSettingsPanel({config, owner, send, subscribe, status, error}: {
   config?: AiConfig; owner: boolean; send: (data: {type: string; [key: string]: unknown}) => unknown;
+  subscribe: (listener: (event: any) => void) => () => void;
   status?: {state: string; detail: string}; error?: string;
 }) {
   const [draft, setDraft] = useState<AiSettings>({provider: 'verasist', language: 'tr', stt: '', llm: '', embedding: '', tts: '', system_prompt: '', camera_attach_to_every_user_turn: false});
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState('');
+  const [deletionMessage, setDeletionMessage] = useState('');
+  const [deletedIds, setDeletedIds] = useState<string[]>([]);
+  const deletion = useRef<{requestId: string; id: string} | null>(null);
+  useEffect(() => subscribe(event => {
+    if (!deletion.current || event.request_id !== deletion.current.requestId) return;
+    const id = deletion.current.id; deletion.current = null; setDeleting('');
+    setDeletionMessage(event.error || 'Workflow silindi.');
+    if (!event.error) {
+      setDeletedIds(previous => [...previous, id]);
+      setDraft(previous => previous.workflow_id === id ? {...previous, workflow_id:''} : previous);
+      setPending(null);
+    }
+  }), [subscribe]);
+  useEffect(() => {
+    if (!deleting) return;
+    const timer = setTimeout(() => {
+      deletion.current = null; setDeleting('');
+      setDeletionMessage('Silme işlemi yanıt vermedi. Listeyi kontrol edip yeniden deneyin.');
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [deleting]);
+  function removeWorkflow(item: {id: string; label?: string}) {
+    Alert.alert('Workflow’u sil', `“${item.label || item.id}” workflow’u silinsin mi? Bu işlem geri alınamaz. Ses ajanına bağlıysa ilgili oturum durdurulur.`, [
+      {text:'İptal', style:'cancel'},
+      {text:'Sil', style:'destructive', onPress:() => {
+        if (!owner || deletion.current) return;
+        const requestId = `workflow-delete-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        deletion.current = {requestId,id:item.id}; setDeleting(item.id); setDeletionMessage('');
+        if (send({type:'workflow',action:'delete',request_id:requestId,id:item.id}) === false) {
+          deletion.current = null; setDeleting(''); setDeletionMessage('Robot bağlantısı yok.');
+        }
+      }},
+    ]);
+  }
   const saved = JSON.stringify(config?.settings);
   useEffect(() => {
     if (config && (!dirty || pending === saved)) {
@@ -39,12 +75,20 @@ export function AiSettingsPanel({config, owner, send, status, error}: {
     setDirty(true); setPending(null);
   }
   function choices(key: keyof AiSettings, items: {id: string; label?: string}[]) {
-    return <View style={styles.options}>{items.map(item => <Pressable key={item.id}
+    return <View style={styles.options}>{items.filter(item => key !== 'workflow_id' || !deletedIds.includes(item.id)).map(item => {
+      const option = <Pressable key={item.id}
       accessibilityRole="radio" accessibilityState={{selected: draft[key] === item.id, disabled: !owner}}
       disabled={!owner || !config} onPress={() => choose(key, item.id)}
-      style={[styles.option, draft[key] === item.id && styles.selected]}>
+      style={[styles.option, key === 'workflow_id' && styles.workflowChoice, draft[key] === item.id && styles.selected]}>
       <Text style={styles.text}>{item.label || item.id}</Text>
-    </Pressable>)}</View>;
+    </Pressable>;
+      return key === 'workflow_id' && item.id ? <View key={item.id} style={styles.workflowOption}>{option}
+        <Pressable accessibilityRole="button" accessibilityLabel={`${item.label || item.id} workflow’unu sil`}
+          disabled={!owner || !config || !!deleting} onPress={() => removeWorkflow(item)}
+          style={[styles.remove, (!owner || !!deleting) && {opacity:0.4}]}>
+          <Text style={styles.removeText}>{deleting === item.id ? 'Siliniyor…' : 'Sil'}</Text>
+        </Pressable></View> : option;
+    })}</View>;
   }
   return <View>
     <Text style={styles.title}>Sesli Ajan Ayarları</Text>
@@ -53,6 +97,7 @@ export function AiSettingsPanel({config, owner, send, status, error}: {
     {local && <>
       <Text style={styles.text}>Workflow</Text>
       {choices('workflow_id', [{id:'',label:'Düz sohbet'}, ...(config?.workflows || [])])}
+      {!!deletionMessage && <Text accessibilityLiveRegion="polite" style={styles.notice}>{deletionMessage}</Text>}
       <Text style={styles.text}>Dil</Text>
       {choices('language', languages.map(id => ({id, label: ({tr: 'Türkçe', en: 'English'} as Record<string, string>)[id] || id})))}
       {(['stt', 'llm', 'embedding', 'tts'] as const).map(kind => <View key={kind}>
@@ -118,6 +163,10 @@ const styles = StyleSheet.create({
   options: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 8},
   option: {padding: 12, backgroundColor: '#17233d', borderRadius: 8, borderWidth: 1, borderColor: '#4d70d3', marginVertical: 4},
   selected: {borderColor: '#7d9ef0', backgroundColor: '#2b50b8'},
+  workflowOption: {flexDirection:'row', alignItems:'center', maxWidth:'100%', flexShrink:1, gap:6},
+  workflowChoice: {flexShrink:1},
+  remove: {padding:12, minHeight:44, borderRadius:8, borderWidth:1, borderColor:'#754444'},
+  removeText: {color:'#ff9c9c'},
   prompt: {minHeight: 130, color: '#f7f9ff', backgroundColor: '#17233d', borderColor: '#4d70d3', borderWidth: 1, borderRadius: 8, padding: 10, textAlignVertical: 'top', marginVertical: 8},
   text: {color: '#f7f9ff'}, notice: {color: '#bdd0f9', marginVertical: 8},
 });

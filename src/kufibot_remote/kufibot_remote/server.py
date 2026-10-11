@@ -25,9 +25,11 @@ class Discovery(asyncio.DatagramProtocol):
 
 
 class Server:
-    def __init__(self, control, status, video_track=None, tool_call=None, tool_image=None, publish_toolset=None):
+    def __init__(self, control, status, video_track=None, tool_call=None, tool_image=None, publish_toolset=None, workflow_camera=None, workflow_unlink=None):
         self.publish_toolset = publish_toolset
+        self.workflow_camera = workflow_camera
         self.control, self.status = control, status
+        self.workflow_unlink = workflow_unlink
         self.video_track = video_track
         self.tool_call, self.tool_image = tool_call, tool_image
         self.mimics = control.mimic_store or default_store()

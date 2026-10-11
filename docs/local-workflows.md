@@ -2,20 +2,130 @@
 
 Web arayüzünde **☰ Menü → Workflowlar** sayfasından kayıtlı workflow'ları
 listeleyin, **Yeni workflow oluştur** veya bir kaydın **Düzenle** düğmesini açın.
+Workflow adları benzersizdir; boşluk ve Türkçe büyük/küçük harf farkları aynı adı
+oluşturmaz. Web listesindeki **Sil**, masaüstü/mobil editördeki **Sil** ve mobil
+workflow seçimindeki **Sil** düğmeleri onaydan sonra taslağı ve yayınlanmış sürümü
+kaldırır. Bağlı yerel oturum durdurulur ve ses ajanının workflow seçimi temizlenir.
+Bilgi koleksiyonları ve geçmiş görüşme kayıtları korunur. Silinen ad yeni bir
+workflow için kullanılabilir; eski açık editör silinen kaydı yeniden oluşturamaz.
 Bu giriş sağlayıcı seçiminden bağımsızdır. Alternatif olarak
 **Ses Ajanı → Local AI → Local Workflow düzenle** veya mobilde
 **Local Workflow düzenle** düğmesini açın. Canvas iki arayüzde aynı paketi kullanır.
 Robotun `/workflows` adresi tek başına da açılabilir. Bağımsız sayfa kendi kontrol
 bağlantısını kullanır; ana ekran ve mobil içindeki editör mevcut sahipliği paylaşır.
 
-Node ekleyin, bağlantı noktalarını sürükleyin ve node'a tıklayarak ayarlarını açın.
-Araç kaynağı ve bilgi koleksiyonu node'larını ajana bağlamak erişim verir;
-Araç Adımı ise akış o node'a geldiğinde aracı doğrudan çalıştırır.
-Koşul çıkışları `true/false`, araç çıkışları `success/error` olarak bağlanmalıdır.
-Ajan çıkışlarına **Geçiş tetikleme ifadeleri** yazın; her satıra örnek bir
-kullanıcı cümlesi girin. Araç kaynağı ve bilgi koleksiyonu düğümlerindeki
-**Tetikleme ifadeleri** de aynı şekilde çalışır. Boş ifadeler otomatik seçilmez;
-araç adlarından, modelden veya kodda tutulan hazır komutlardan tetikleyici türetilmez.
+## Workflow türleri
+
+**Yeni workflow oluştur** ekranında **LLM Ajanı** veya **Robot Akışı · LLM’siz**
+seçilir. Tür, editörün **Modeller → Workflow türü** alanından da değiştirilebilir.
+LLM Ajanı için aşağıda açıklanan sistem komutu ve model yanıtı davranışı geçerlidir.
+Türü olmayan eski kayıtlar mevcut davranışıyla açılır; eski “LLM kullan” kapalı
+akışlar kendiliğinden embedding gerektiren Robot Akışı türüne dönüştürülmez.
+
+Eklem ve motor hareket araçları **her iki workflow türünde** kullanılabilir.
+**Araç Adımı** veya **Araç Kaynağı** ekleyin. **Hareketi belirle** ile 3D editörden
+tek poz (`set_joint_positions`) ya da hareket dizisi (`play_motion`) aktarın.
+Araç listesinden **Motor sürüşü · move_base** seçerek yön, hız ve süreyi belirleyin;
+**Motorları durdur · stop_base** ile sürüşü durdurun. Araç Kaynağı’nı ajana bağlayıp
+kullanım açıklaması yazın; Araç Adımı’nı akışın uygun yerine bağlayın. LLM Ajanı
+türünde bağlı kaynağı LLM seçer; **LLM doldurabilir** olarak açılmayan hareket
+değerleri node’da saklanan değerlerdir. LLM’siz türde embedding kaynak seçimini yapar. Hareket sınırları ve kontrol sahipliği kuralları ortaktır.
+
+### Robot Akışı · LLM’siz
+
+STT, TTS ve embedding modeli seçin. Sohbet modeli seçilmez ve yüklenmez.
+Başlangıç metni ve girilen Konuşma node’unun metni doğrudan TTS’ye gönderilir.
+Koşulsuz tek çıkış otomatik ilerler; Araç Adımı ve Koşul node’ları zincir halinde
+çalışabilir. Tetikleme ifadeli çıkışlarda kullanıcı komutu beklenir. Aynı node’a
+yeniden girilince konuşması tekrar okunur; beklerken giriş metni tekrarlanmaz.
+
+Embedding yalnız etkin node’un bağlı çıkış ve araç kaynakları arasından seçim
+yapar. Komut, açı/hız/süre üretmez: araç değerleri workflow’da belirlenir.
+Bir kullanıcı cümlesi en fazla bir anlamsal seçim yapar. Varsayılan eşik 0,70’tir.
+Eşik altında veya eşit puanlarda node değişmez, araç çalışmaz ve **Eşleşmeme metni**
+okunur. Varsayılan metin: “Komutu anlayamadım, tekrar söyler misin?”
+Embedding hatası görünür hata olur; LLM ile seçim veya yanıt üretimine dönülmez.
+
+Konuşmada araç değerini okumak için `{{last_result.range_m.value}}` veya
+`{{results.mesafe.range_m.value}}` kullanın. Öncesindeki Araç Adımı’nın sonucu
+bu alanı sağlamalıdır. Alan bulunamazsa, güncel değilse veya nesne/listeyse
+konuşma açık hata verir; serbest kod veya ifade çalıştırılmaz. Sonuçlar oturum
+bağlamında tutulur; araç yeniden çalıştığında ilgili node’un sonucu güncellenir.
+
+Araç node’unda **Hareketi belirle** mevcut 3D mimik editörünü açar. **Tek poz**
+seçili zaman adımının altı eklem açısını, **Hareket dizisi** tüm zaman adımlarını
+**Node’a uygula** ile workflow’a kopyalar. Poz `set_joint_positions`, dizi
+`play_motion` aracını kullanır. Kitaplıktaki değişiklikler bu kopyayı değiştirmez.
+3D önizleme robotu hareket ettirmez. Dizinin başarı sonucu kabul edildiğini
+bildirir; başlama, tamamlanma ve iptal olayları canlı kayıtta görünür. Oturum
+sonlandırıldığında hareket iptal edilir. Workflow hareketi konuşma mimikiyle
+üzerine yazılmaz.
+
+`move_base` aracında `direction` (`forward`/`backward`), `speed_mps` ve
+`duration_sec` belirleyin. Süre varsayılan 1, üst sınır 5 saniyedir. Motorun etkin
+hız sınırları `drive/limits` üzerinden alınır; sınırlar yoksa/eskiyse hareket
+başlatılmaz. Komut merkezi sürüş hakeminden geçer; süre sonunda, oturum kapanınca
+veya kontrol sahipliği kaybolunca durur. `stop_base` sürüşü durdurur. Bu araç
+süreli sürüştür; hedefe navigasyon ve engelden kaçınma planlaması yapmaz.
+
+`read_camera` güncel JPEG görüntüsü ile yerel yüz, el ve nesne algılama
+sonuçlarını döndürür. Görüntü test panelinde ve kayıt sonucunda gösterilir.
+Algılama alanları `perception.faces`, `perception.hands`, `perception.objects`
+altında `status`, `age_sec`, `value` taşır. Kurulu olmayan veya eski algılama
+sonucu boş tespit gibi yorumlanmaz. Koşulda önce `status == ok` kontrol edin.
+
+**Karar** node’u gelecekteki karar modelleri için genişleme noktasıdır. Node
+ayarları, kullanıcı metni, robot araç sonuçları ve izinli çıkışlar sağlayıcıya
+verilir; sağlayıcı yalnız izinli `edge_id` döndürür. Sağlayıcı katalogda
+`kind: decision`, `backend` ve model yolu ile tanımlanır; Python paketi
+`kufibot.workflow_decision` entry point’i üzerinden bir fabrika sağlar.
+Fabrika katalog kaydını alır; dönen çağrılabilir nesne `(node, context, edges)`
+alıp `{"edge_id": "bağlantı-kimliği"}` döndürür. Çağrı 10 saniye ile sınırlıdır.
+Uyumlu sağlayıcısı bulunmayan karar node’u taslakta saklanabilir ama etkinleştirilemez.
+JEPA/STEVE ağırlıkları ve robot adaptörleri bu sürümde dahil değildir.
+
+Metin testinde giriş konuşmaları ilk komuttan önce üretilir ve hareketler
+varsayılan olarak taklit edilir. Gerçek robot hareketi yalnız mevcut test
+seçeneği açıldığında uygulanır. Masaüstü ve mobil aynı workflow editörünü kullanır.
+
+
+## Adımlar, kaynaklar ve çıkış verileri
+
+Kütüphanede **Düğümler** sekmesi akış adımlarını; **Araçlar** sekmesi Araç Kaynağı
+ve Bilgi Koleksiyonu Kaynağı’nı içerir. Kaynakları ajanın altındaki mor girişe
+bağlayın. Eski `knowledge` kayıtları kaynak olarak açılır; akışa girecek yeni tür
+`knowledgeStep` (Bilgi Koleksiyonu Adımı) adını taşır. Kaynak çizgileri kesiklidir.
+Koşul çıkışları `true/false`, araç ve bilgi adımı çıkışları `success/error` olmalıdır.
+
+Bilgi adımında koleksiyon, arama girdisi ve sonuç sayısı seçilir. Girdi kullanıcı
+metni, sabit metin, önceki veya belirli node’un çıkış alanı olabilir. Varsayılan
+kullanıcı metni ve dört sonuçtur; üst sınır sekizdir. Arama koleksiyonun indeks
+modelini kullanır, LLM çağırmaz. Sonuç `results`, kaynak metinlerini birleştiren
+`text` ve `found` alanlarını içerir. Eşleşme yoksa başarılı sonuç ve `found=false`
+döner. Eksik/boş sorgu ve indeks hataları Hata çıkışını izler.
+
+LLM Ajanı yalnız bağlı kaynakları seçebilir. Bilgi kaynağının `query` parametresi
+varsayılan olarak LLM’e açıktır; diğer parametreler **LLM doldurabilir** bölümünde
+tek tek açılır. Araç kaynaklarında tüm değerler başlangıçta sabittir. Koleksiyon
+kimliği LLM’e açılamaz. Seçim yapısal JSON üretir; bu JSON seslendirilmez. Gerçek
+araç değerleri çalıştırılmadan önce robotun mevcut sınırlarıyla doğrulanır.
+LLM’siz türde kaynakların **Tetikleme ifadeleri** embedding tarafından eşleştirilir;
+LLM türünde bu ifadeler modele kullanım örnekleri sağlar.
+
+Her node’un **Çıkış sonucu** doğal veri, kullanıcı sözü, özel metin veya özel JSON olabilir.
+**Kullanıcı sözü** seçildiğinde son kullanıcı metni `{text}` çıktısı olarak saklanır;
+sonraki node’lar bunu `last_output.text` veya `outputs.node_id.text` ile kullanabilir.
+Örneğin `{"cevap":{"$ref":"result.results.0.text"}}` arama sonucundan bir alan
+seçer. `result` yalnız node’un kendi çıkışını düzenlerken kullanılır. Sonraki node
+`last_output`, belirli node ise `outputs.node_id` ile okunur. Liste alanları
+`outputs.arama.results.0.text` biçimindedir; sabit TTS metninde
+`{{outputs.arama.text}}` kullanılabilir. Çıkış, konuşma metninden ayrıdır.
+
+**Koşul girdisi** kullanıcı metni, önceki/belirli node çıktısı veya özel alan
+olabilir. Eski `last_result` ve `results.node_id` araç verilerini okumaya devam
+eder. Node çıkışları oturum boyunca saklanır; node’a dönüşte son değer yenilenir.
+Eksik alan hata verir, eski/kullanılamayan gözlem geçerli ölçüm sayılmaz. Çıkışlar
+hem test zaman çizelgesinde hem görüşme kayıtlarında `node_output` olayıyla yer alır.
 
 Başlangıç, Ajan ve Bitiş kutularındaki **Düğüm komutu**, düğümün etkin olduğu
 her LLM çağrısında ilk `system` mesajı olarak gönderilir. Kullanıcının gerçek
@@ -31,13 +141,13 @@ talimatı ve araç/çıkış şeması eklenmez. Araç sonuçları kullanıcı me
 olarak eklenir. Bağlam daraldığında önce eski konuşma turları azaltılır;
 etkin sistem talimatı ve kullanıcının güncel mesajı kesilmez.
 
-Kullanıcının son cümlesi, seçili embedding modeliyle etkin ajanın çıkış ve bağlı
-kaynak ifadeleriyle karşılaştırılır. En yüksek kosinüs benzerliği
+Kullanıcının son cümlesi, seçili embedding modeliyle etkin ajanın çıkış
+ifadeleriyle karşılaştırılır. LLM’siz türde bağlı kaynak ifadeleri de karşılaştırılır. En yüksek kosinüs benzerliği
 `settings.semantic_threshold` değerine eşit veya yüksekse ilgili işlem seçilir.
 **Modeller → Anlamsal eşleşme eşiği** varsayılanı `0.70`'tir; bu puan bir olasılık
 veya doğruluk yüzdesi değildir. Eşit en yüksek puanlarda işlem seçilmez.
 Eşik altında ajan normal sohbete devam eder. Embedding hatasında LLM ile
-araç seçimine geri dönülmez; hata görünür olarak bildirilir.
+kaynak seçimine devam edilmez; hata görünür olarak bildirilir.
 
 Başlangıç ve ajan düğümlerinde **her girişte en az bir başarılı, boş olmayan LLM
 yanıtı** gerekir. İlk kullanıcı mesajı koşula uysa bile bu yanıt alınmadan
@@ -48,11 +158,10 @@ yeniden uygulanır; önceki ziyaretin yanıtı sayılmaz.
 Bir kullanıcı turunda en fazla bir anlamsal işlem seçilir. Geçiş seçilirse
 hedef düğüm etkinleşir; hedefin komutu `system`, geçişi tetikleyen gerçek
 kullanıcı cümlesi `user` olarak birlikte gönderilir. Aynı cümle birden fazla ajan atlatmaz. Geçişler araç çağrısı değildir;
-`semantic_match` ve `transition` olaylarıyla izlenir. Araç eşleşmesinde parametreler
-kaynak düğümünün **Parametreler (JSON)** alanından gelir; `{"$ref":"user"}` gibi
-bağlar desteklenir. LLM araç adı veya parametre üretmez. Bilgi koleksiyonu
-eşleşmesinde yalnız eşleşen koleksiyonda kullanıcının cümlesi aranır. Araç ve
-belge sonuçları başka anlamsal işlemleri tetiklemez.
+`semantic_match` ve `transition` olaylarıyla izlenir. LLM türünde kaynak seçimi
+ayrı JSON model çağrısıdır; bir turda en fazla dört araç çağrısı yapılır. Sabit
+parametrelerde `{"$ref":"user"}` ve `{"$ref":"outputs.node_id.alan"}` bağları
+desteklenir. Kaynakların çağrı sonuçları aktif ajana veri olarak döner.
 
 Sabit Araç Adımı ve `true/false` koşulları akışa girildiğinde tanımlı işlevlerini
 çalıştırır; bu işlem düğümleri konuşma düğümü değildir. Başlangıç düğümü talimatı
@@ -109,7 +218,7 @@ CSV/JSON araması anlamsal aramadır; kesin toplama veya SQL sorgusu değildir.
 ## Test ve model sınırlamaları
 
 Workflow ses hattı, yanıtın tamamını beklemek yerine LLM cümlelerini sınırlı
-kuyruk üzerinden Piper'a aktarır. Yönlendirme embedding ile yapılır; LLM yalnız seslendirilecek yanıtı üretir. Ölçümler ve sınırlar:
+kuyruk üzerinden Piper'a aktarır. Bu eski ölçümlerde yönlendirme embedding ile yapılır ve LLM yalnız yanıt üretir. Güncel kaynak seçimi ek JSON model çağrısı kullanır. Ölçümler ve sınırlar:
 [Workflow gecikme raporu](benchmarks/workflow-stream-2026-09-18.md).
 
 **Test** paneli dört sekmeye ayrılır:
@@ -168,9 +277,9 @@ Test paneli gerçek yerel LLM ve belge indeksini kullanır; hareket araçları
 kumanda modunda mevcut sınırlarla uygulanır. Testler 120 saniye ile sınırlıdır;
 yanıttan sonra aynı akışta sonraki metin turu gönderilebilir. Akış değiştiğinde sonraki metin gönderimi yeni test oturumu açar. Sesli görüşme açıkken ikinci LLM testi başlatılmaz.
 
-Araç ve geçiş seçimi artık sohbet modelinden bağımsızdır. Başarı, seçili embedding
-modelinin Türkçe anlamsal kalitesine, tetikleme örneklerine ve eşiğe bağlıdır.
-Test günlüğü eşleşme puanını, eşiği ve seçilen işlemi gösterir.
+Geçişler ve LLM’siz kaynak seçimi embedding kalitesine, tetikleme örneklerine ve
+eşiğe bağlıdır. LLM türünde kaynak seçimi sohbet modelinin JSON seçimine bağlıdır.
+Test günlüğü eşleşmeleri, araç çağrılarını ve node çıkışlarını gösterir.
 
 Belge yanıtında **Otomatik (modelle yanıtla)** ve **Modelle yanıtla** LLM'i kullanır;
 modele göre gizli bir alıntı davranışı uygulanmaz. Açıkça **Doğrudan alıntı**

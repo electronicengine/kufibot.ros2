@@ -37,6 +37,10 @@ class NavigationNode(Node):
             self.declare_parameter(name, value)
             config[name] = self.get_parameter(name).value
         self.nav = Navigator(Config(**config))
+        from .workflow_drive import WorkflowDrive
+        self.workflow_drive = WorkflowDrive(self.nav.c.linear_speed_min_mps, self.nav.c.linear_speed_max_mps)
+        self.workflow_drive.limits_ready = False
+        self.motor_limits_at = -math.inf
         self.nav.metric_map.enable_background_reconstruction()
         # Compass samples are noisy in both hardware and the simulation. Keep
         # a small circular moving average so a stationary robot does not look
@@ -58,6 +62,10 @@ class NavigationNode(Node):
         self.motion_pub = self.create_publisher(JointCommand, 'servo/motion_targets', 1)
         self.create_subscription(Range, 'lidar/range', self._range, qos_profile_sensor_data)
         self.create_subscription(String, 'navigation/authority', self._authority, 1)
+        self.workflow_result_pub = self.create_publisher(String, 'workflow/drive_result', 10)
+        self.create_subscription(String, 'workflow/drive_request', self._workflow_drive_request, 10)
+        self.create_subscription(String, 'workflow/session', self._workflow_session, 1)
+        self.create_subscription(String, 'drive/limits', self._motor_limits, 1)
         self.create_subscription(String, 'navigation/session', self._session, 1)
         self.create_subscription(String, 'remote/applied_mode', self._mode, 1)
         self.create_subscription(Twist, 'drive/manual_cmd', self._manual, 1)
@@ -77,11 +85,27 @@ class NavigationNode(Node):
 
     def _authority(self, msg):
         data = json_data(msg)
+        self.workflow_drive.authority_update(data)
         if (self.nav.task_id and self.nav.authority.get('epoch') != data.get('epoch')):
             self.get_logger().warning(
                 f"Navigation authority revoked: {data.get('reason', 'authority_changed')}; "
                 f"task_id={self.nav.task_id}")
         self.nav.set_authority(data)
+
+    def _workflow_session(self, msg):
+        self.workflow_drive.session = json_data(msg)
+        self.workflow_drive.session_at = time.monotonic()
+
+    def _motor_limits(self, msg):
+        data = json_data(msg)
+        low, high = data.get('min_speed_mps'), data.get('max_speed_mps')
+        if type(low) in (int, float) and type(high) in (int, float) and math.isfinite(low) and math.isfinite(high) and 0 < low <= high:
+            self.workflow_drive.min_speed, self.workflow_drive.max_speed = low, high
+            self.workflow_drive.limits_ready = True
+            self.motor_limits_at = time.monotonic()
+
+    def _workflow_drive_request(self, msg):
+        self.workflow_drive.request(json_data(msg), self.nav.applied_mode, self.nav.applied_at)
 
     def _session(self, msg):
         data = json_data(msg)
@@ -269,6 +293,15 @@ class NavigationNode(Node):
         linear, angular = self.nav.tick()
         profile = ('manual' if self.nav.authority.get('mode') == 'remote'
                    else 'navigation' if self.nav.enabled and self.nav.c.calibrated else 'stop')
+        if time.monotonic()-self.motor_limits_at > 2:
+            self.workflow_drive.limits_ready = False
+            self.workflow_drive.finish('error', 'motor_limits_unavailable')
+        demand = self.workflow_drive.tick(self.nav.applied_mode, self.nav.applied_at)
+        if demand is not None:
+            linear, angular = demand
+            profile = 'manual'
+        while self.workflow_drive.results:
+            self.workflow_result_pub.publish(String(data=json.dumps(self.workflow_drive.results.popleft())))
         twist = Twist()
         twist.linear.x, twist.angular.z = float(linear), float(angular)
         command = DriveCommand(profile=profile, twist=twist)

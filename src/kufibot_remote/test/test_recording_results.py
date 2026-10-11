@@ -29,7 +29,8 @@ def archive(root, key='meeting', legacy=False):
             {'type': 'tool_start', 'name': 'battery_status', 'arguments': {'verbose': True}, 'node_id': 'start', 'offset_ms': 3000, 'sequence': 1},
             {'type': 'tool_result', 'name': 'battery_status', 'result': {'status': 'error', 'error': 'Sensöre ulaşılamadı'}, 'node_id': 'start', 'offset_ms': 3500, 'sequence': 2},
             {'type': 'transcript', 'role': 'assistant', 'text': 'Pil sensörüne şu anda ulaşamıyorum.', 'offset_ms': 5000, 'sequence': 3},
-            {'type': 'transition', 'from_node': 'start', 'node_id': 'end', 'offset_ms': 9000, 'sequence': 4}])
+            {'type': 'transition', 'from_node': 'start', 'node_id': 'end', 'offset_ms': 9000, 'sequence': 4},
+            {'type':'node_output','node_id':'end','output':{'text':'Arama sonuçlandı'},'offset_ms':9500,'sequence':5}])
     (root / f'{key}.json').write_text(json.dumps(info))
     return info
 
@@ -138,6 +139,9 @@ def test_recording_browser_navigation_audio_timeline_and_mobile(tmp_path, monkey
                 assert 'recording=meeting' in page.url
                 await playwright.expect(page.get_by_text('Merhaba, pil durumu nedir?', exact=True)).to_be_visible()
                 await playwright.expect(page.get_by_text('Karşılama → Tamamlandı', exact=True)).to_be_visible()
+                await playwright.expect(page.get_by_text('Node çıkışı: Tamamlandı', exact=True)).to_be_visible()
+                await page.get_by_text('Çıkış verisi', exact=True).click()
+                await playwright.expect(page.get_by_text('"Arama sonuçlandı"', exact=False)).to_be_visible()
                 await page.get_by_text('Çağrı detayları', exact=True).click()
                 await playwright.expect(page.get_by_text('Sensöre ulaşılamadı', exact=False)).to_be_visible()
                 await page.wait_for_function('document.querySelector("audio").readyState >= 1')

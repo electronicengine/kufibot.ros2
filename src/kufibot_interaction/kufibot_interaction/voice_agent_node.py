@@ -2,6 +2,7 @@
 """ROS gateway for selectable Verasist and offline voice sessions."""
 
 import asyncio
+import base64
 from collections import deque
 import math
 import json
@@ -42,23 +43,7 @@ AEC_MODULE_DEFAULTS = {
 CAMERA_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 
-class TimedCache:
-    def __init__(self):
-        self.values = {}
-        self.lock = threading.Lock()
-
-    def set(self, name, value):
-        with self.lock:
-            self.values[name] = (time.monotonic(), value)
-
-    def get(self, name, max_age):
-        with self.lock:
-            item = self.values.get(name)
-        if item is None:
-            return {'status': 'unavailable'}
-        age = time.monotonic() - item[0]
-        return {'status': 'ok' if age <= max_age else 'stale',
-                'age_sec': round(age, 2), 'value': item[1]}
+from .workflow_robot_tools import TimedCache
 
 
 class UnavailableExpressionLibrary:
@@ -241,6 +226,14 @@ class VoiceAgentNode(Node):
         self.motion_started_at = 0.0
         self.motion_event_index = 0
         self.motion_pose = dict(self.expression_library.idle)
+        self.workflow_motion = None
+        self.workflow_drive_pending = {}
+        self.workflow_authority, self.workflow_authority_at = {}, 0.
+        self.workflow_drive_pub = self.create_publisher(String, 'workflow/drive_request', 10)
+        self.workflow_session_pub = self.create_publisher(String, 'workflow/session', 1)
+        self.create_subscription(String, 'workflow/drive_result', self._workflow_drive_result, 10)
+        self.create_subscription(String, 'navigation/authority', self._workflow_authority, 1)
+        self.create_timer(.1, self._workflow_session_heartbeat)
         self.command_pub = self.create_publisher(
             JointCommand, 'servo/agent_targets', 10)
         self.state_pub = self.create_publisher(
@@ -258,10 +251,10 @@ class VoiceAgentNode(Node):
             JointState, 'servo/joint_states', self._joints, 10)
         self.create_subscription(
             DetectionArray, 'perception/faces',
-            lambda msg: self.cache.set('face_count', len(msg.detections)), 10)
+            lambda msg: self._workflow_detections('faces', msg), 10)
         self.create_subscription(
             DetectionArray, 'perception/hands',
-            lambda msg: self.cache.set('hand_count', len(msg.detections)), 10)
+            lambda msg: self._workflow_detections('hands', msg), 10)
         self.create_subscription(
             TrackingTarget, 'perception/tracking_target', self._target, 10)
         self.create_subscription(
@@ -275,6 +268,7 @@ class VoiceAgentNode(Node):
         self.stop_srv = self.create_service(
             Trigger, 'voice_session/stop', self._stop_service)
         self.ai_settings_pub = self.create_publisher(String, 'voice_session/ai_settings', 10)
+        self.workflow_unlinked_pub = self.create_publisher(String, 'voice_session/workflow_unlinked', 10)
         from rclpy.qos import QoSProfile, DurabilityPolicy
         self.local_phase_pub = self.create_publisher(
             String, 'local_ai/phase', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -282,8 +276,10 @@ class VoiceAgentNode(Node):
         self.local_compute_pub = self.create_publisher(
             Bool, 'local_ai/compute_active', 10)
         self.create_subscription(String, 'voice_session/set_ai_settings', self._set_ai_settings, 10)
+        self.create_subscription(String, 'voice_session/unlink_workflow', self._unlink_workflow, 10)
         self.create_timer(1.0, self._publish_ai_settings)
         self.create_timer(.2, self._publish_workflow_updates)
+        self.create_subscription(String, 'perception/navigation_obstacles', self._workflow_objects, 1)
         self.navigation_camera_lock = asyncio.Lock()
         from .navigation_tools import NavigationTools
         self.navigation = NavigationTools(self)
@@ -570,6 +566,7 @@ class VoiceAgentNode(Node):
             'activation_status': {'last_heard': getattr(getattr(self, 'activation', None), 'last_heard', None),
                                   'error': getattr(getattr(self, 'activation', None), 'last_error', ''),
                                   'end_reason': getattr(getattr(self, 'activation', None), 'end_reason', '')},
+            'workflow_session_id': getattr(self, 'workflow_session_id', '') if getattr(self, 'local_process', None) else '',
             'workflow_event': getattr(self, 'workflow_event', None),
             'workflow_events': getattr(self, 'workflow_events', []), 'error': error})))
 
@@ -608,6 +605,36 @@ class VoiceAgentNode(Node):
     def _set_ai_settings(self, msg):
         future = asyncio.run_coroutine_threadsafe(self._apply_ai_settings(msg.data), self.loop)
         future.add_done_callback(self._remote_mode_done)
+
+    def _unlink_workflow(self, msg):
+        request = json.loads(msg.data)
+        future = asyncio.run_coroutine_threadsafe(self._apply_workflow_unlink(request['id']), self.loop)
+        def completed(result):
+            error = ''
+            try:
+                result.result()
+            except Exception as exc:
+                error = str(exc)
+            self.workflow_unlinked_pub.publish(String(data=json.dumps({
+                'request_id': request['request_id'], 'error': error})))
+        future.add_done_callback(completed)
+
+    async def _apply_workflow_unlink(self, key):
+        from .ai_settings import forget_workflow
+        from .workflows import identifier
+        identifier(key)
+        if self.ai_settings.get('workflow_id') == key:
+            if self._is_local():
+                await self._stop_session()
+            if self.ai_settings.get('workflow_id') == key:
+                self.ai_settings = {**self.ai_settings, 'workflow_id': ''}
+                self.active_workflow_revision = None
+        pending = getattr(self, 'pending_voice_settings', None)
+        if pending and pending.get('workflow_id') == key:
+            self.pending_voice_settings = {**pending, 'workflow_id': ''}
+        forget_workflow(key)
+        self._catalog_cache_until = 0
+        self._publish_ai_settings()
 
     async def _apply_ai_settings(self, raw):
         try:
@@ -719,6 +746,7 @@ class VoiceAgentNode(Node):
                     if kind == 'session_complete':
                         completion_detail = 'Azami görüşme süresine ulaşıldı'
                 elif kind == 'recording' and event.get('status') == 'started':
+                    self._publish_state('connecting', 'Yerel modeller hazır')
                     seconds = getattr(self, 'local_session_max_sec', 0)
                     if seconds:
                         self.local_session_deadline = asyncio.create_task(self._enforce_local_session_limit(process, seconds))
@@ -848,12 +876,17 @@ class VoiceAgentNode(Node):
             value = validate(self.ai_settings)
             workflow = None
             if value.get('workflow_id'):
-                from .workflows import WorkflowStore
+                from .workflows import WorkflowStore, model_kinds
                 workflow = WorkflowStore().snapshot(value['workflow_id'])
                 self.active_workflow_revision = workflow['revision']
-                value = validate({**value, **workflow_voice_settings(workflow), 'provider': 'local'})
+                value = validate({**value, **workflow_voice_settings(workflow), 'provider': 'local'},
+                                 workflow_type=workflow.get('workflow_type'),
+                                 workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
             models = {m['id']: m for m in catalog()}
-            config = {kind: models[value[kind]]['path'] for kind in ('stt', 'llm', 'tts', 'embedding')}
+            kinds = model_kinds(workflow) if workflow else ('stt', 'llm', 'tts', 'embedding')
+            config = {kind: models[value[kind]]['path'] for kind in kinds}
+            if workflow and any(n['type'] == 'decision' for n in workflow['nodes']):
+                config['decision_model'] = models[workflow['settings']['decision']]
             config.update({key: self.get_parameter('local_' + key).value for key in LOCAL_DEFAULTS})
             from .local_voice_settings import apply_voice_options
             config = apply_voice_options(config, workflow)
@@ -989,10 +1022,135 @@ class VoiceAgentNode(Node):
         self._publish_state('connected')
         asyncio.create_task(self._watch_session(self.session))
 
+    def _workflow_detections(self, kind, msg):
+        age = self.get_clock().now().nanoseconds/1e9-(msg.header.stamp.sec+msg.header.stamp.nanosec/1e9)
+        if not 0 <= age <= self.max_age:
+            return
+        self.cache.set('face_count' if kind == 'faces' else 'hand_count', len(msg.detections), age_sec=age)
+        self.cache.set(kind, [{'id': d.id, 'kind': d.kind, 'confidence': d.confidence}
+                              for d in msg.detections], age_sec=age)
+
+    def _workflow_objects(self, msg):
+        try:
+            value = json.loads(msg.data)
+            age = self.get_clock().now().nanoseconds/1e9-value['image_stamp_sec']
+            if 0 <= age <= self.camera_max_age and isinstance(value.get('objects'), list):
+                self.cache.set('objects', value['objects'], age_sec=age)
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    def _workflow_session_heartbeat(self):
+        session_id = getattr(self, 'workflow_session_id', '')
+        connected = bool(session_id and getattr(self, 'local_process', None) and not self.stopping)
+        self.workflow_session_pub.publish(String(data=json.dumps({'session_id': session_id, 'connected': connected})))
+
+    def _workflow_drive_result(self, msg):
+        try:
+            result = json.loads(msg.data)
+        except (ValueError, TypeError):
+            return
+        def deliver():
+            future = self.workflow_drive_pending.get(result.get('request_id'))
+            if future and not future.done() and result.get('session_id') == getattr(self, 'workflow_session_id', ''):
+                future.set_result(result)
+        self.loop.call_soon_threadsafe(deliver)
+
+    def _workflow_authority(self, msg):
+        try:
+            authority = json.loads(msg.data)
+            if isinstance(authority, dict):
+                self.workflow_authority, self.workflow_authority_at = authority, time.monotonic()
+        except (ValueError, TypeError):
+            pass
+
+    async def _workflow_base_tool(self, name, arguments):
+        request_id = uuid.uuid4().hex
+        payload = {**arguments, 'operation': 'stop' if name == 'stop_base' else 'move',
+                   'request_id': request_id, 'session_id': self.workflow_session_id}
+        future = self.loop.create_future()
+        self.workflow_drive_pending[request_id] = future
+        try:
+            # Wait for the owner gateway to publish this session's authority.
+            self._publish_ai_settings()
+            deadline = time.monotonic()+1.5
+            while time.monotonic() < deadline:
+                authority = self.workflow_authority
+                if (authority.get('workflow_session_id') == self.workflow_session_id
+                        and authority.get('workflow_enabled') is True and authority.get('owner') is True
+                        and authority.get('mode') == 'ai' and time.monotonic()-self.workflow_authority_at < .5):
+                    break
+                await asyncio.sleep(.02)
+            else:
+                return {'status': 'error', 'error': 'Workflow sürüş yetkisi onaylanmadı'}
+            self.workflow_drive_pub.publish(String(data=json.dumps(payload)))
+            result = await asyncio.wait_for(future, 6)
+            if result.get('status') == 'cancelled':
+                result = {**result, 'status': 'error'}
+            return result
+        finally:
+            self.workflow_drive_pending.pop(request_id, None)
+            if name == 'move_base' and (future.cancelled() or not future.done()):
+                self.workflow_drive_pub.publish(String(data=json.dumps({**payload, 'operation': 'stop'})))
+
+    def _workflow_robot_event(self, event):
+        if not getattr(self, 'local_process', None):
+            self._record_workflow_event(event)
+            return
+        process = getattr(self, 'local_process', None)
+        async def forward():
+            if process and process.stdin and not process.stdin.is_closing():
+                process.stdin.write((json.dumps({'type': 'robot_event', 'event': event})+'\n').encode())
+                try:
+                    await process.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+        if getattr(self, 'local_process', None):
+            asyncio.run_coroutine_threadsafe(forward(), self.loop)
+
+    def _workflow_cancel_motion(self):
+        if not getattr(self, 'workflow_motion', None):
+            return
+        with self.expression_lock:
+            if getattr(self, 'workflow_motion', None):
+                motion, _ = self.workflow_motion
+                self.workflow_motion = None
+                self._workflow_robot_event({'type': 'motion_cancelled', 'name': motion['name']})
+
+    def _workflow_start_motion(self, motion):
+        with self.expression_lock:
+            self._workflow_cancel_motion()
+            self.expression_generation += 1
+            self.expression_worker.invalidate(self.expression_generation)
+            self.expression_queue.clear()
+            self.active_motion = None
+            self.speech_motion_active = False
+            self.expression_reset_pending = False
+            self.expression_selected_for_response = True
+            self.workflow_pose_until = 0
+            self.workflow_motion = (motion, time.monotonic())
+            self._workflow_robot_event({'type': 'motion_start', 'name': motion['name']})
+
     async def _local_workflow_tool(self, name, arguments):
         from .workflows import TOOLS
         if name not in TOOLS or not isinstance(arguments, dict):
             raise ValueError('Geçersiz workflow aracı')
+        from .workflow_robot_tools import validate_tool_arguments
+        validate_tool_arguments(name, arguments)
+        if name in ('move_base', 'stop_base'):
+            return await self._workflow_base_tool(name, arguments)
+        if name == 'read_camera':
+            from .workflow_robot_tools import perception_snapshot
+            with self.camera_lock:
+                frame = self.latest_camera_image
+            if frame is None or time.monotonic()-frame['received_at'] > self.camera_max_age:
+                return {'status': 'error', 'error': 'Kamera görüntüsü yok veya eski'}
+            jpeg = await asyncio.to_thread(self._encode_camera_jpeg, frame, self.camera_jpeg_max_width, self.camera_jpeg_quality)
+            return {'status': 'ok', 'image': {'mime_type': 'image/jpeg', 'base64': base64.b64encode(jpeg).decode()},
+                    'perception': perception_snapshot(self.cache, self.max_age)}
+        if name == 'play_motion':
+            from .mimics import validate
+            self._workflow_start_motion(validate(arguments['motion']))
+            return {'status': 'ok', 'accepted': True}
         if name == 'search_documents':
             from .knowledge import KnowledgeStore
             store = KnowledgeStore()
@@ -1004,8 +1162,15 @@ class VoiceAgentNode(Node):
         if name == 'get_joint_positions':
             return {'positions': self.cache.get('joints_deg', self.max_age), 'limits_deg': JOINT_LIMITS}
         if name == 'set_joint_positions':
+            self._workflow_cancel_motion()
+            self.active_motion = None
+            self.speech_motion_active = False
+            self.expression_queue.clear()
+            self.workflow_pose_until = time.monotonic()+float(arguments.get('hold_sec', 2))
             return self._set_joint_positions(arguments['names'], arguments['angles_deg'], arguments.get('hold_sec', 2))
         if name == 'stop_joint_motion':
+            self._workflow_cancel_motion()
+            self.workflow_pose_until = 0
             msg = JointCommand()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.hold_sec, msg.cancel_agent = .01, True
@@ -1017,8 +1182,12 @@ class VoiceAgentNode(Node):
             if name == 'play_mimic':
                 if arguments.get('id') not in self.expression_library.motions:
                     raise ValueError('Mimik bulunamadı')
-                self.expression_queue.append(arguments['id'])
+                from .mimics import default_store
+                self._workflow_start_motion(default_store(*[self.get_parameter(parameter).value or None
+                    for parameter in ('gesture_config_file', 'motion_config_file', 'joint_angles_file')]).get(arguments['id']))
+                return {'status': 'ok', 'accepted': True}
             elif name == 'stop_mimic':
+                self._workflow_cancel_motion()
                 self.expression_queue.clear()
                 self.active_motion = None
                 self._return_to_rest()
@@ -1341,6 +1510,8 @@ class VoiceAgentNode(Node):
 
     def _start_speech_motion(self):
         """Reserve the expression channel for a looping talking motion."""
+        if getattr(self, 'workflow_motion', None) or time.monotonic() < getattr(self, 'workflow_pose_until', 0):
+            return
         if (not self.expression_enabled
                 or 'talking' not in self.expression_library.motions):
             return
@@ -1405,6 +1576,17 @@ class VoiceAgentNode(Node):
             return
         with self.expression_lock:
             now = time.monotonic()
+            if getattr(self, 'workflow_motion', None):
+                motion, started = self.workflow_motion
+                from .mimics import evaluate
+                pose = evaluate(motion, int((now-started)*1000))
+                self._publish_gesture(list(pose), list(pose.values()), .5)
+                if (now-started)*1000 >= motion['duration_ms']:
+                    self.workflow_motion = None
+                    self._workflow_robot_event({'type': 'motion_complete', 'name': motion['name']})
+                return
+            if now < getattr(self, 'workflow_pose_until', 0):
+                return
             if now >= getattr(self, '_mimic_refresh_at', 0):
                 self._mimic_refresh_at = now + 1.0
                 refresh = getattr(self.expression_library, 'refresh_users', None)
@@ -1520,6 +1702,10 @@ class VoiceAgentNode(Node):
         if deadline and deadline is not asyncio.current_task():
             deadline.cancel()
             await asyncio.gather(deadline, return_exceptions=True)
+        self._workflow_cancel_motion()
+        self.workflow_pose_until = 0
+        if hasattr(self, 'workflow_session_pub'):
+            self.workflow_session_pub.publish(String(data=json.dumps({'session_id': getattr(self, 'workflow_session_id', ''), 'connected': False})))
         if hasattr(self, 'navigation'):
             self.navigation.disconnect()
         self._reset_expression_turn(enabled=False)

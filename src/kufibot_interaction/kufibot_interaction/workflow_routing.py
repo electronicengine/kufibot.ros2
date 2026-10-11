@@ -17,7 +17,7 @@ def phrases(value):
 
 class SemanticRouter:
     def __init__(self, document, model_path, *, factory=None, notify=lambda event: None,
-                 metric=lambda *args, **kwargs: None):
+                 metric=lambda *args, **kwargs: None, include_resources=True):
         self.threshold = document.get('settings', {}).get('semantic_threshold', DEFAULT_THRESHOLD)
         if isinstance(self.threshold, bool) or not isinstance(self.threshold, (int, float)) or not math.isfinite(self.threshold) or not 0 < self.threshold <= 1:
             raise ValueError('Anlamsal eşik 0 ile 1 arasında olmalı (0 hariç)')
@@ -34,8 +34,11 @@ class SemanticRouter:
                 if edge['source'] == node['id']:
                     examples = phrases(edge.get('label'))
                     if examples:
-                        choices.append((examples, {'action': 'transition', 'target': edge['target']}))
+                        choices.append((examples, {'action': 'transition', 'target': edge['target'],
+                                                  **({'edge_id': edge['id']} if edge.get('id') else {})}))
                 if edge['target'] != node['id']:
+                    continue
+                if not include_resources:
                     continue
                 resource = nodes[edge['source']]
                 data = resource['data']

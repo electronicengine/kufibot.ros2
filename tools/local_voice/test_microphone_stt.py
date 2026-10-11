@@ -92,7 +92,7 @@ class Probe:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--language', choices=['tr', 'en'], default='tr')
-    parser.add_argument('--backend', choices=['vosk', 'hailo_whisper'], default='vosk')
+    parser.add_argument('--backend', choices=['vosk', 'hailo_whisper', 'sherpa_zipformer'], default='vosk')
     parser.add_argument('--model', help='Override the model directory')
     parser.add_argument('--mic', help='Override the robot microphone')
     parser.add_argument('--gain-db', type=float, default=0, help='Gain before VAD and STT (0–24 dB); start with 6')
@@ -121,7 +121,8 @@ def main():
     for key in ('vad_threshold', 'vad_silence_ms', 'vad_pre_roll_ms'):
         if getattr(args, key) is not None:
             config[key] = getattr(args, key)
-    model = ('trRecognizeModel' if args.language == 'tr' else 'engRecognizeModel') if args.backend == 'vosk' else 'whisper-base-hailo8l'
+    model = (('trRecognizeModel' if args.language == 'tr' else 'engRecognizeModel') if args.backend == 'vosk'
+             else 'turkish-stt-zipformer' if args.backend == 'sherpa_zipformer' else 'whisper-base-hailo8l')
     config.update(language=args.language, stt_backend=args.backend,
                   stt=args.model or '/usr/local/ai.models/' + model, mic=args.mic or params['mic_device'])
     config['test_gain_db'] = args.gain_db
@@ -139,7 +140,7 @@ def main():
         if args.backend == 'vosk':
             from vosk import SetLogLevel
             SetLogLevel(-1)
-        else:
+        elif args.backend == 'hailo_whisper':
             print('Hailo yalnızca konuşma sonunda sonuç verir; canlı ara metin için --backend vosk kullanın.', flush=True)
         backend = worker.create_stt(config)
         gain = PcmGain(args.gain_db)

@@ -12,11 +12,12 @@ import wave
 import uuid
 
 from aiohttp import web
-from kufibot_interaction.ai_settings import workflow_voice_settings, catalog, DEFAULT, validate
-from kufibot_interaction.workflows import WorkflowStore, validate_graph, TOOLS, NODE_TYPES, MOTION_TOOLS
+from kufibot_interaction.ai_settings import workflow_voice_settings, catalog, DEFAULT, validate, validate_decision_models
+from kufibot_interaction.workflows import WorkflowStore, validate_graph, TOOLS, NODE_TYPES, MOTION_TOOLS, WORKFLOW_TYPES, model_kinds
 from kufibot_interaction.knowledge import KnowledgeStore, MAX_BYTES
 from kufibot_interaction.local_voice_settings import VOICE_FIELDS
 from kufibot_interaction.local_recording import recording_root, recording_waveform
+from kufibot_interaction.workflow_decision import providers as decision_providers
 
 
 class WorkflowAPI:
@@ -111,8 +112,13 @@ class WorkflowAPI:
                                 headers={'Cache-Control': 'no-cache'})
 
     async def capabilities(self, request):
+        from kufibot_interaction.workflow_resources import PARAMETERS, OUTPUT_FIELDS, TOOL_OUTPUT_FIELDS
         return web.json_response({'nodes': NODE_TYPES, 'tools': TOOLS, 'models': catalog(),
-                                  'model_notes': {'ufakzeka-1-q8_0': 'Türkçe sohbet modeli. Yerel testte otomatik araç seçimi 0/2; güvenilir araç çalıştırmak için sabit Araç Adımı kullanın.'},
+                                  'tool_parameters': PARAMETERS, 'output_fields': OUTPUT_FIELDS, 'tool_output_fields':TOOL_OUTPUT_FIELDS,
+                                  'workflow_types': WORKFLOW_TYPES, 'decision_providers': decision_providers(),
+                                  'drive_limits': {**(self.server.status().get('driveLimits') or
+                                      {'min_speed_mps': .25, 'max_speed_mps': self.server.control.DRIVE_MAX_LINEAR_MPS}), 'max_duration_sec': 5},
+                                  'model_notes': {'ufakzeka-1-q8_0': 'Türkçe sohbet modeli. Kaynak seçimi JSON şemasıyla yapılır; yalnız bağlı kaynaklar ve açılmış parametreler kullanılabilir.'},
                                   'defaults': DEFAULT, 'voice_fields': VOICE_FIELDS, 'max_upload_bytes': MAX_BYTES})
 
     async def list_workflows(self, request):
@@ -269,7 +275,8 @@ class WorkflowAPI:
             self.workflows.publish(workflow)
             settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local',
                                  'workflow_id': workflow['id']},
-                                workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
+                                workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True),
+                     workflow_type=workflow.get('workflow_type'))
             self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
             settings['activation'] = data.get('activation') or (self.server.status().get('aiConfig') or {}).get('settings', {}).get('activation', DEFAULT['activation'])
             self.server.control.command(ws, {'type': 'setAiSettings', 'settings': settings})
@@ -279,6 +286,36 @@ class WorkflowAPI:
             return {'status': 'starting', 'workflow': workflow}
         if action == 'save':
             return self.workflows.save(data['workflow'])
+        if action == 'delete':
+            key = data['id']
+            try:
+                document = self.workflows.get(key)
+            except FileNotFoundError:
+                raise ValueError('Workflow bulunamadı') from None
+            if data.get('revision', document['revision']) != document['revision']:
+                raise ValueError('Workflow değişti; silmeden önce yeniden yükleyin')
+            reported = (self.server.status().get('aiConfig') or {}).get('settings', {})
+            pending = self.server.control.ai_settings_requested or {}
+            linked = reported.get('workflow_id') == key or pending.get('workflow_id') == key
+            channel = self.test_channels.get(ws) or {}
+            if linked or channel.get('workflow', {}).get('id') == key:
+                await self.stop_test(ws, stop_local=linked and reported.get('provider') == 'local')
+            if pending.get('workflow_id') == key:
+                self.server.control.ai_settings_requested = None
+                if pending.get('provider') == 'local':
+                    self.server.control.command(ws, {'type': 'mode', 'mode': 'remote'})
+            if linked:
+                self.server.control.local_workflow_enabled = False
+                self.server.control.disable_navigation('workflow_deleted')
+            if linked and self.server.workflow_unlink:
+                await self.server.workflow_unlink(key)
+            else:
+                from kufibot_interaction.ai_settings import forget_workflow
+                forget_workflow(key)
+            if self.server.control.owner is not ws:
+                raise ValueError('Kontrol kaybedildi')
+            self.workflows.delete(key, document['revision'])
+            return {'status': 'deleted', 'id': key}
         if action == 'validate':
             return {'errors': self.validate(data['workflow'])}
         if action == 'activate':
@@ -287,7 +324,8 @@ class WorkflowAPI:
             if errors:
                 raise ValueError('; '.join(errors))
             settings = validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''},
-                                workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
+                                workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True),
+                     workflow_type=workflow.get('workflow_type'))
             self.workflows.publish(workflow)
             settings['workflow_id'] = workflow['id']
             settings['activation'] = data.get('activation') or (self.server.status().get('aiConfig') or {}).get('settings', {}).get('activation', DEFAULT['activation'])
@@ -347,10 +385,12 @@ class WorkflowAPI:
         errors = validate_graph(workflow)
         try:
             validate({**DEFAULT, **workflow_voice_settings(workflow), 'provider': 'local', 'workflow_id': ''},
-                     workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True))
+                     workflow_llm_enabled=workflow.get('settings', {}).get('llm_enabled', True),
+                     workflow_type=workflow.get('workflow_type'))
+            validate_decision_models(workflow)
             for node in workflow.get('nodes', []):
                 data = node.get('data', {})
-                keys = ([data['collection_id']] if node.get('type') == 'knowledge' else data.get('collection_ids', []))
+                keys = ([data['collection_id']] if node.get('type') in ('knowledge', 'knowledgeStep') else data.get('collection_ids', []))
                 for key in keys:
                     if not self.knowledge.collection(key)['generation']:
                         errors.append('Bağlı koleksiyon henüz hazır değil')
@@ -359,19 +399,37 @@ class WorkflowAPI:
         return errors
 
     async def test(self, ws, workflow, text, real):
-        process = None
+        process = watcher = None
+        motion_sequence = self.server.control.motion_event_sequence
+        epoch = self.server.control.mode_epoch
+        async def send_motion_events():
+            nonlocal motion_sequence
+            for event in list(self.server.control.motion_events):
+                if event['sequence'] >= motion_sequence:
+                    motion_sequence = event['sequence']+1
+                    if not ws.closed:
+                        await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'trace', 'event': event,
+                            'test_mode': 'text', 'workflow_id': workflow.get('id')}})
+        async def watch_motion():
+            while True:
+                await send_motion_events()
+                await asyncio.sleep(.05)
         try:
             models = {m['id']: m for m in catalog()}
             config = {'workflow': workflow, 'text': text}
-            if workflow.get('settings', {}).get('llm_enabled', True):
-                config.update(llm=models[workflow['settings']['llm']]['path'],
-                              embedding=models[workflow['settings']['embedding']]['path'])
+            for kind in model_kinds(workflow):
+                if kind not in ('stt', 'tts'):
+                    config[kind] = models[workflow['settings'][kind]]['path']
+            if any(n['type'] == 'decision' for n in workflow['nodes']):
+                config['decision_model'] = models[workflow['settings']['decision']]
             process = await asyncio.create_subprocess_exec(sys.executable, '-m',
                 'kufibot_interaction.workflow_test_worker', stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, limit=1024*1024)
             process.stdin.write((json.dumps(config)+'\n').encode())
             await process.stdin.drain()
             self.test_channels[ws] = {'process': process, 'ready': False, 'workflow': workflow, 'real': real}
+            if real:
+                watcher = asyncio.create_task(watch_motion())
             async def read():
                 while line := await process.stdout.readline():
                     if self.server.control.owner is not ws:
@@ -393,6 +451,12 @@ class WorkflowAPI:
             if not ws.closed:
                 await ws.send_json({'type': 'workflowEvent', 'event': {'type': 'error', 'test_mode': 'text', 'workflow_id': workflow.get('id'), 'message': str(exc)}})
         finally:
+            if real and self.server.control.owner is ws and self.server.control.mode_epoch == epoch:
+                self.server.control.stop()
+            if watcher:
+                watcher.cancel()
+                await asyncio.gather(watcher, return_exceptions=True)
+                await send_motion_events()
             if process and process.returncode is None:
                 process.terminate()
                 try:
@@ -410,6 +474,12 @@ class WorkflowAPI:
     async def test_tool(self, ws, name, args, real):
         if self.server.control.owner is not ws or name not in TOOLS:
             raise ValueError('Araç yetkisi yok')
+        from kufibot_interaction.workflow_robot_tools import validate_tool_arguments
+        validate_tool_arguments(name, args)
+        if name == 'read_camera':
+            if self.server.workflow_camera is None:
+                return {'status': 'error', 'error': 'Kamera aracı kullanılamıyor'}
+            return await self.server.workflow_camera()
         if name == 'search_documents':
             return await asyncio.to_thread(self.knowledge.search, **args)
         if name in MOTION_TOOLS and not real:
@@ -425,6 +495,31 @@ class WorkflowAPI:
             return {'mimics': list(self.server.mimics.all())}
         if self.server.control.mode != 'remote':
             raise ValueError('Gerçek hareket testi için kumanda modu gerekli')
+        if name == 'play_motion':
+            self.server.control.play_motion(ws, args['motion'])
+            return {'status': 'ok', 'accepted': True}
+        if name == 'move_base':
+            control = self.server.control
+            limits = state.get('driveLimits', {'min_speed_mps': .25, 'max_speed_mps': control.DRIVE_MAX_LINEAR_MPS})
+            if not limits:
+                raise ValueError('Motor hız sınırları kullanılamıyor')
+            validate_tool_arguments(name, args, min_speed=limits['min_speed_mps'], max_speed=limits['max_speed_mps'])
+            deadline = time.monotonic()+args.get('duration_sec', 1)
+            epoch = control.mode_epoch
+            try:
+                while time.monotonic() < deadline:
+                    if control.owner is not ws or control.mode != 'remote' or control.mode_epoch != epoch:
+                        raise ValueError('Sürüş kontrolü kaybedildi')
+                    control.command(ws, {'type': 'input', 'drive_y':
+                        (-1 if args['direction'] == 'forward' else 1)*args['speed_mps']/control.DRIVE_MAX_LINEAR_MPS})
+                    await asyncio.sleep(.05)
+            finally:
+                if control.owner is ws and control.mode_epoch == epoch:
+                    control.stop()
+            return {'status': 'ok', 'reason': 'completed'}
+        if name == 'stop_base':
+            self.server.control.axes = dict.fromkeys(self.server.control.axes, 0.)
+            return {'status': 'ok'}
         if name == 'play_mimic':
             motion = self.server.mimics.get(args['id'])
             self.server.control.command(ws, {'type': 'playMimic', 'id': args['id'], 'revision': motion['revision']})

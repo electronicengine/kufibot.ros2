@@ -1,7 +1,54 @@
 {
   "hailo_revision": "891ce701c2ebe239a5d277759eb75a30f76678a9",
   "silero_revision": "867c2aa692646a1f1de3e94a15c9dd9f614c0acb",
+  "zipformer": {
+    "source": "https://huggingface.co/duxx/turkish-stt-zipformer",
+    "upstream_revision": "cebec199e0a9a1bdcd195b9124922b4a33e98bc8",
+    "license": "cc-by-nc-4.0",
+    "components": {
+      "encoder": "encoder-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "decoder": "decoder-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "joiner": "joiner-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "tokens": "tokens.txt"
+    }
+  },
   "files": [
+    {
+      "group": "zipformer",
+      "path": "turkish-stt-zipformer/encoder-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "url": "https://huggingface.co/duxx/turkish-stt-zipformer/resolve/cebec199e0a9a1bdcd195b9124922b4a33e98bc8/encoder-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "sha256": "f5a4b439cf0dd11d01774a97fd580c20ad944756c7e44f539cb6a46165013432"
+    },
+    {
+      "group": "zipformer",
+      "path": "turkish-stt-zipformer/decoder-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "url": "https://huggingface.co/duxx/turkish-stt-zipformer/resolve/cebec199e0a9a1bdcd195b9124922b4a33e98bc8/decoder-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "sha256": "28f4caee9c57dc22afc0967b7e81994b85c0b67f9980f1df0bb5648a7554b18b"
+    },
+    {
+      "group": "zipformer",
+      "path": "turkish-stt-zipformer/joiner-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "url": "https://huggingface.co/duxx/turkish-stt-zipformer/resolve/cebec199e0a9a1bdcd195b9124922b4a33e98bc8/joiner-epoch-1-avg-1-chunk-32-left-128.int8.onnx",
+      "sha256": "c1f4ebed5cbbed2fceefabca8c2657f157bcf2deead3ad067c8b2dc1d2c3bfb1"
+    },
+    {
+      "group": "zipformer",
+      "path": "turkish-stt-zipformer/tokens.txt",
+      "url": "https://huggingface.co/duxx/turkish-stt-zipformer/resolve/cebec199e0a9a1bdcd195b9124922b4a33e98bc8/tokens.txt",
+      "sha256": "1885ade359d5939dde820f0f0a1b31f43dad6e5bf8362ad66983fb78d24d65b6"
+    },
+    {
+      "group": "zipformer",
+      "path": "turkish-stt-zipformer/bpe.model",
+      "url": "https://huggingface.co/duxx/turkish-stt-zipformer/resolve/cebec199e0a9a1bdcd195b9124922b4a33e98bc8/bpe.model",
+      "sha256": "2738b130ffa5201d3a35b5950616d523e77cf6d41af383e402c06f0df4b28fc7"
+    },
+    {
+      "group": "zipformer",
+      "path": "turkish-stt-zipformer/README.md",
+      "url": "https://huggingface.co/duxx/turkish-stt-zipformer/resolve/cebec199e0a9a1bdcd195b9124922b4a33e98bc8/README.md",
+      "sha256": "1e2a6083baad931e301c8c7390ca72e0e36e91963e6b74f1b15e947e703e6d47"
+    },
     {
       "group": "vad",
       "path": "vad/silero_vad.onnx",

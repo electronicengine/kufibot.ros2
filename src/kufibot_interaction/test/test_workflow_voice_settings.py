@@ -129,16 +129,25 @@ def test_aec_routing_uses_paired_devices_and_fails_when_unavailable(monkeypatch)
     assert '--device=kufibot_aec_sink' in audio.audio_command(False, audio.AEC_PAIR[1], 16000, 1)
 
 
-def test_voice_node_passes_workflow_options_into_normal_local_session(tmp_path, monkeypatch):
+@pytest.mark.parametrize('scripted', [False, True])
+@pytest.mark.parametrize('stt_backend', ['vosk', 'sherpa_zipformer'])
+def test_voice_node_passes_workflow_options_into_normal_local_session(tmp_path, monkeypatch, scripted, stt_backend):
     from kufibot_interaction import voice_agent_node as module
     from kufibot_interaction import audio_devices
     monkeypatch.setenv('KUFIBOT_WORKFLOW_ROOT', str(tmp_path))
     store = WorkflowStore()
     document = flow({'max_session_sec': 90, 'vad_silence_ms': 800, 'aec_mode': 'enabled'})
     document['settings'].update(provider='local', **{kind: kind for kind in ('stt', 'llm', 'embedding', 'tts')})
+    if scripted:
+        document['workflow_type'] = 'scripted'
+        document['settings']['llm'] = ''
+        for node_data in document['nodes']:
+            node_data['data']['prompt'] = 'Hazırım.'
     store.publish(store.save(document))
-    monkeypatch.setattr(module, 'validate', lambda value: value)
-    monkeypatch.setattr(module, 'catalog', lambda: [{'id': kind, 'path': '/fake/' + kind} for kind in ('stt', 'llm', 'embedding', 'tts')])
+    monkeypatch.setattr(module, 'validate', lambda value, **kwargs: value)
+    monkeypatch.setattr(module, 'catalog', lambda: [{'id': kind, 'path': '/fake/' + kind,
+        **({'backend': stt_backend} if kind == 'stt' else {})}
+        for kind in (('stt', 'embedding', 'tts') if scripted else ('stt', 'llm', 'embedding', 'tts'))])
     audio = AsyncMock(return_value=audio_devices.AEC_PAIR)
     monkeypatch.setattr(audio_devices, 'local_audio_devices', audio)
     node = module.VoiceAgentNode.__new__(module.VoiceAgentNode)
@@ -159,7 +168,11 @@ def test_voice_node_passes_workflow_options_into_normal_local_session(tmp_path, 
         await node.local_task
     asyncio.run(scenario())
     config = json.loads(process.stdin.write.call_args.args[0])
+    assert config['stt_backend'] == stt_backend
     assert config['max_session_sec'] == 90
+    if scripted:
+        assert not config.get('llm')
+        assert config['embedding'] == '/fake/embedding'
     assert config['vad_silence_ms'] == 800
     assert config['vad_threshold'] == DEFAULTS['vad_threshold']
     assert (config['mic'], config['speaker']) == audio_devices.AEC_PAIR

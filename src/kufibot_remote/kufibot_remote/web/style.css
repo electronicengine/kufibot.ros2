@@ -122,7 +122,9 @@ noscript { position: fixed; inset: 45% 10% auto; padding: 20px; background: #4b2
 .workflow-linked { font-size:10px; padding:6px 8px; border-radius:20px; background:#243a38; color:#9cdbcd; }
 .workflow-card h4 { font-size:18px; margin:22px 0 8px; overflow-wrap:anywhere; }
 .workflow-card p { color:#94a1b5; font-size:12px; margin:0 0 22px; }
-.workflow-card-open { width:100%; text-align:left; min-height:44px; border-top:1px solid #303948; padding:16px 0 0; color:#a7c0ff; background:none; font-size:13px; }
+.workflow-card-actions { display:flex; gap:12px; border-top:1px solid #303948; padding-top:10px; }
+.workflow-card-open { flex:1; text-align:left; min-height:44px; padding:6px 0; color:#a7c0ff; background:none; font-size:13px; }
+.workflow-card-delete { min-height:44px; padding:6px 14px; color:#ff9c9c; border:1px solid #754444; background:none; font-size:13px; }
 #workflow-empty { text-align:center; padding:60px 20px; border:1px dashed #354053; border-radius:16px; }
 .workflow-empty-icon { font-size:38px; color:#8ca8ea; }
 #workflow-empty h4 { font-size:20px; margin:16px 0 8px; }

@@ -21,10 +21,13 @@ import "./style.css";
 import { RecordingsTable, RecordingResult } from "./recordings";
 import { state, seenRuntimeEvents, send, command, get } from "./transport";
 import { VoiceSettings } from "./voice-settings";
+import { MotionEditor, CameraResult } from "./motion-editor";
+import { ValueInput, OutputEditor } from "./value-editor";
 
 type Workflow = {
   id: string;
   schema_version: number;
+  workflow_type?: "llm" | "scripted";
   name: string;
   revision: number;
   nodes: Node[];
@@ -39,7 +42,7 @@ const labels: Record<string, string> = {
   tool: "Araç adımı",
   end: "Bitiş",
   toolResource: "Araç kaynağı",
-  knowledge: "Bilgi koleksiyonu",
+  knowledge: "Bilgi koleksiyonu kaynağı", knowledgeStep: "Bilgi koleksiyonu adımı", decision: "Karar",
 };
 const iconPaths: Record<string, string> = {
   start: "m9 5 10 7-10 7Z", agent: "M5 8h14v12H5z M12 4v4 M8 12h1 M15 12h1 M8 16h8",
@@ -51,15 +54,23 @@ function Icon({kind}: {kind: string}) {
   return <svg className="flow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[kind] || iconPaths.agent}/></svg>;
 }
 const descriptions: Record<string, string> = {
+  decision: "Robot gözlemlerine göre sağlayıcı ile bir çıkış seçin",
   start: "Akışın giriş noktası", agent: "Konuşmayı ve davranışı yönetin", condition: "Bir koşula göre yolu ayırın",
-  tool: "Robotun bir işlemi yürütmesini sağlayın", end: "Akışı tamamlayın", toolResource: "Ajana kullanabileceği bir araç verin", knowledge: "Dosyalarınızdan bilgi sağlayın",
+  tool: "Robotun bir işlemi yürütmesini sağlayın", end: "Akışı tamamlayın", toolResource: "Ajana kullanabileceği bir araç verin", knowledge: "Ajana arayabileceği bir bilgi koleksiyonu verin", knowledgeStep: "Embedding ile arayın ve sonucu sonraki node’a aktarın",
+};
+const toolLabels: Record<string, string> = {
+  set_joint_positions: "Eklem pozu · set_joint_positions",
+  play_motion: "Eklem hareket dizisi · play_motion",
+  stop_joint_motion: "Eklem hareketini durdur · stop_joint_motion",
+  move_base: "Motor sürüşü · move_base",
+  stop_base: "Motorları durdur · stop_base",
 };
 function Card({ id, data, type, selected }: any) {
   const resource = ["toolResource", "knowledge"].includes(type);
   const outputs =
     type === "condition"
       ? ["true", "false"]
-      : type === "tool"
+      : ["tool", "knowledgeStep"].includes(type)
         ? ["success", "error"]
         : [""];
   return (
@@ -69,11 +80,12 @@ function Card({ id, data, type, selected }: any) {
       {!resource && type !== "start" && (
         <Handle type="target" position={Position.Left} />
       )}
+      {type === "agent" && <Handle id="resource" type="target" position={Position.Bottom} className="resource-handle" title="Kaynak bağla"/>}
       <div className="card-title">
         <span className="node-icon"><Icon kind={type}/></span>
         {String(data.name || labels[type])}
       </div>
-      <small>{labels[type]}</small>
+      <small>{type === "agent" && data.scripted ? "Konuşma" : labels[type]}</small>
       <p>
         {String(
           data.tool ||
@@ -99,15 +111,18 @@ function Card({ id, data, type, selected }: any) {
   );
 }
 const nodeTypes = Object.fromEntries(Object.keys(labels).map((k) => [k, Card]));
-function blank(settings: Record<string, any>): Workflow {
+function blank(settings: Record<string, any>, workflowType: "llm" | "scripted" = "llm"): Workflow {
   return {
     id: crypto.randomUUID(),
     name: "Yeni workflow",
+    workflow_type: workflowType,
     schema_version: 1,
     revision: 0,
     settings: {
       ...settings,
       provider: "local",
+      llm_enabled: workflowType !== "scripted",
+      no_match_text: "Komutu anlayamadım, tekrar söyler misin?",
       workflow_id: "",
       system_prompt:
         "Sen Kufibot, Türkçe konuşan yardımcı bir robotsun. Yalnız bağlı araçları kullan. Yanıtlarını kısa tut.",
@@ -117,13 +132,13 @@ function blank(settings: Record<string, any>): Workflow {
         id: "start",
         type: "start",
         position: { x: 80, y: 160 },
-        data: { name: "Başlangıç" },
+        data: { name: "Başlangıç", ...(workflowType === "scripted" ? {prompt:"Merhaba, ben Kufi."} : {}) },
       },
       {
         id: "agent",
         type: "agent",
         position: { x: 400, y: 160 },
-        data: { name: "Türkçe Ajan", prompt: "" },
+        data: { name: workflowType === "scripted" ? "Konuşma" : "Türkçe Ajan", prompt: workflowType === "scripted" ? "Hazırım. Ne yapmamı istersin?" : "" },
       },
     ],
     edges: [{ id: "start-agent", source: "start", target: "agent" }],
@@ -132,12 +147,24 @@ function blank(settings: Record<string, any>): Workflow {
 }
 
 function Editor() {
+  const [createOpen, setCreateOpen] = useState(new URLSearchParams(location.search).get("new") === "1");
+  const [createType, setCreateType] = useState<"llm" | "scripted">("llm");
+  const [motionNode, setMotionNode] = useState<string>("");
+
   const [caps, setCaps] = useState<any>(null),
     [robot, setRobot] = useState<any>(state),
     [flow, setFlow] = useState<Workflow>(blank({}));
+  const scripted = flow.workflow_type === "scripted";
+  const llmEnabled = flow.workflow_type ? flow.workflow_type === "llm" : flow.settings.llm_enabled !== false;
+  const displayLabel = (kind: string) => scripted && kind === "agent" ? "Konuşma" : labels[kind];
   const [list, setList] = useState<Workflow[]>([]),
     [collections, setCollections] = useState<any[]>([]),
     [docs, setDocs] = useState<any[]>([]);
+  const referenceFields = {...(caps?.output_fields || {}), ...Object.fromEntries(flow.nodes.map(n=>[n.id,
+    [...(caps?.output_fields?.[n.type!] || []), ...(caps?.tool_output_fields?.[String(n.data.tool)] || [])]]))};
+  const normalizedName = (name: string) => name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
+  const nameError = !flow.name.trim() ? "Workflow adı gerekli." : flow.name.trim().length > 120 ? "Workflow adı en fazla 120 karakter olabilir." :
+    list.some(w => w.id !== flow.id && normalizedName(w.name) === normalizedName(flow.name)) ? "Bu isimde bir workflow zaten var. Farklı bir ad kullanın." : "";
   const [recordingId, setRecordingId] = useState(() => new URLSearchParams(location.search).get("recording") || "");
   function openRecording(id: string) {
     const url = new URL(location.href);
@@ -166,6 +193,8 @@ function Editor() {
     [message, setMessage] = useState(""),
     [dirty, setDirty] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryTab, setLibraryTab] = useState("nodes");
+  const [outputError, setOutputError] = useState("");
   const [nodeSearch, setNodeSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -240,12 +269,14 @@ function Editor() {
   const nodeName = (id: string) => String(flow.nodes.find(n => n.id === id)?.data.name || id || "—");
   const activity = visibleEvents.flatMap((event, i) => {
     const trace = event.event;
-    if (!trace || !["node", "transition", "tool_start", "tool_result", "semantic_match"].includes(trace.type)) return [];
+    if (!trace || !["node", "transition", "tool_start", "tool_result", "semantic_match", "decision", "motion_start", "motion_complete", "motion_cancelled", "node_output"].includes(trace.type)) return [];
     if (trace.name === "transition_node") return [];
     const transition = trace.type === "transition";
     return [{id:`activity-${i}`, role:"activity", timestamp_ms:event.timestamp_ms, sequence:i,
       title: trace.type === "semantic_match" ? `Anlamsal eşleşme: ${Number(trace.score).toFixed(2)} / ${Number(trace.threshold).toFixed(2)} · ${trace.matched ? "Seçildi" : trace.ambiguous ? "Eşit puan, işlem yapılmadı" : "Eşik altında"}` : transition ? `Düğüm geçişi: ${nodeName(trace.from_node)} → ${nodeName(trace.node_id)}` :
+        trace.type === "node_output" ? `Node çıkışı: ${nodeName(trace.node_id)}` :
         trace.type === "node" ? `Etkin düğüm: ${nodeName(trace.node_id)}` :
+        trace.type.startsWith("motion_") ? `Hareket ${trace.type === "motion_start" ? "başladı" : trace.type === "motion_complete" ? "tamamlandı" : "iptal edildi"}: ${trace.name}` : trace.type === "decision" ? `Karar çıkışı: ${trace.edge_id}` :
         `${trace.type === "tool_start" ? "Araç çağrısı" : trace.result?.status === "error" ? "Araç hatası" : "Araç sonucu"}: ${trace.name}`,
       trace}];
   });
@@ -259,7 +290,7 @@ function Editor() {
     seenRuntimeEvents.clear();
     setEvents([]); setActiveNodes({live:"",text:""});
     const ids = new Set(saved.nodes.map(n => n.id));
-    const edges = saved.edges.filter(e => ids.has(e.source) && ids.has(e.target));
+    const edges = saved.edges.filter(e => ids.has(e.source) && ids.has(e.target)).map(e => ["knowledge","toolResource"].includes(saved.nodes.find(n=>n.id === e.source)?.type || "") ? {...e,targetHandle:"resource",animated:true,style:{...e.style,stroke:"#a78bfa",strokeDasharray:"5 4"}} : e);
     setFlow({...saved, edges});
     setDirty(edges.length !== saved.edges.length);
     if (edges.length !== saved.edges.length)
@@ -355,7 +386,7 @@ function Editor() {
   }, [dirty]);
   const node = flow.nodes.find((n) => n.id === selected);
   useEffect(
-    () => setArgsText(JSON.stringify(node?.data.arguments || {}, null, 2)),
+    () => setArgsText(JSON.stringify(node?.type === "decision" ? node.data.config || {} : node?.data.arguments || {}, null, 2)),
     [selected],
   );
   function change(next: Workflow | ((previous: Workflow) => Workflow), record = true) {
@@ -438,6 +469,8 @@ function Editor() {
     }
   }
   async function save() {
+    if (outputError) throw new Error(outputError);
+    if (nameError) throw new Error(nameError);
     const version = mutationVersion.current;
     setSaving(true);
     try {
@@ -446,6 +479,22 @@ function Editor() {
       setDirty(version !== mutationVersion.current);
       return result;
     } finally { setSaving(false); }
+  }
+  function deleteWorkflow() {
+    const saved = list.find(w => w.id === flow.id);
+    if (!saved || !confirm(`“${saved.name}” workflow’u silinsin mi? Bu işlem geri alınamaz. Ses ajanına bağlıysa ilgili oturum durdurulur.${dirty ? " Kaydedilmeyen değişiklikler de kaldırılır." : ""}`)) return;
+    run(async () => {
+      const result = await command("delete", {id:flow.id, revision:flow.revision});
+      const remaining: Workflow[] = await get("/api/workflows");
+      setList(remaining); restore(remaining[0] || blank(flow.settings));
+      mutationVersion.current++; setSelected(""); setMotionNode("");
+      setTextPhase("idle"); setLivePhase("idle"); textSnapshot.current = "";
+      const url = new URL(location.href); url.searchParams.delete("workflow");
+      if (remaining[0]) url.searchParams.set("workflow", remaining[0].id);
+      window.history.replaceState({}, "", url);
+      if (window.parent !== window) window.parent.postMessage({type:"workflowDeleted", id:result.id}, location.origin);
+      return result;
+    });
   }
   function add(kind: string) {
     const id = crypto.randomUUID();
@@ -462,14 +511,16 @@ function Editor() {
           type: kind,
           position,
           data: {
-            name: labels[kind],
+            name: displayLabel(kind),
             ...(kind === "condition"
               ? { operator: "contains", field: "user", value: "" }
               : {}),
             ...(["tool", "toolResource"].includes(kind)
               ? { tool: "get_sensor_data", arguments: { sensor: "all" } }
               : {}),
-            ...(kind === "knowledge" ? { collection_id: collection } : {}),
+            ...(["knowledge", "knowledgeStep"].includes(kind) ? { collection_id: collection, top_k:4 } : {}),
+            ...(kind === "knowledgeStep" ? {query:{$ref:"user"}} : {}),
+            ...(kind === "knowledge" ? {llm_parameters:["query"]} : kind === "toolResource" ? {llm_parameters:[]} : {}),
           },
         },
       ],
@@ -539,30 +590,47 @@ function Editor() {
     return () => { window.removeEventListener("message", requestClose); window.removeEventListener("keydown", escape); };
   }, [dirty, panel, libraryOpen]);
   const newWorkflow = () => {
-    if (!dirty || confirm("Taslak değişiklikleri bırakılsın mı?")) {
-      restore(blank(flow.settings)); setDirty(true); mutationVersion.current++;
-    }
+    if (!dirty || confirm("Taslak değişiklikleri bırakılsın mı?")) setCreateOpen(true);
   };
   if (recordingId) return <RecordingResult key={recordingId} id={recordingId} token={robot?.workflowToken} get={get} back={backToRecordings}/>;
   return (
     <main lang="tr">
+      {createOpen && <div className="workflow-create-overlay" role="dialog" aria-modal="true" aria-label="Yeni workflow oluştur">
+        <div><h3>Yeni workflow oluştur</h3><label>Workflow türü<select aria-label="Yeni workflow türü" value={createType} onChange={e => setCreateType(e.target.value as "llm" | "scripted")}>
+          <option value="llm">LLM Ajanı</option><option value="scripted">Robot Akışı · LLM’siz</option>
+        </select></label><p>{createType === "scripted" ? "Komutları embedding seçer, node metinlerini TTS okur." : "Node komutlarından LLM konuşma yanıtı üretir."}</p>
+        <button disabled={!owner || busy} onClick={() => {restore(blank(flow.settings, createType)); setDirty(true); mutationVersion.current++; setCreateOpen(false);}}>Oluştur</button>
+        <button onClick={() => setCreateOpen(false)}>İptal</button></div>
+      </div>}
+      {motionNode && <MotionEditor state={robot} initial={(() => {
+        const selected = flow.nodes.find(n => n.id === motionNode); const args: any = selected?.data.arguments;
+        if (args?.motion) return args.motion;
+        if (args?.names?.length === 6) return {id:"workflow_pose", name:"Node pozu", description:"", revision:0, interpolation:"step", duration_ms:Math.round((args.hold_sec || 2)*1000), keyframes:[{time_ms:0,joints:Object.fromEntries(args.names.map((name:string,i:number) => [name,args.angles_deg[i]]))}]};
+        return null;
+      })()} close={() => setMotionNode("")} apply={(motion, pose) => {
+        const values = motion.keyframes[0].joints;
+        const args = pose ? {names:Object.keys(values), angles_deg:Object.values(values), hold_sec:Math.min(10,Math.max(.1,motion.duration_ms/1000))} : {motion};
+        change({...flow, nodes:flow.nodes.map(n => n.id === motionNode ? {...n, data:{...n.data, tool:pose ? "set_joint_positions" : "play_motion", arguments:args}} : n)});
+        setArgsText(JSON.stringify(args,null,2)); setMotionNode("");
+      }}/>}
       <header className="editor-header">
         <button className="back-button" aria-label="Workflow listesine dön" disabled={busy} onClick={close}>←</button>
         <div className="editor-identity"><span className="editor-eyebrow">WORKFLOW STUDIO</span>
-          <input aria-label="Workflow adı" disabled={!owner} value={flow.name} onChange={e => change({...flow, name:e.target.value})}/>
+          <input aria-label="Workflow adı" aria-invalid={!!nameError} maxLength={120} disabled={!owner} value={flow.name} onChange={e => change({...flow, name:e.target.value})}/>
         </div>
         <span className={`save-state ${dirty ? "is-dirty" : ""}`} role="status">{saving ? "Kaydediliyor…" : dirty ? "Kaydedilmemiş değişiklikler" : "Kaydedildi"}<small>Revizyon {flow.revision}</small></span>
         <div className="header-actions">
           <button disabled={!owner || busy} onClick={() => run(() => command("validate", {workflow:flow}))}>Doğrula</button>
-          <button className="primary" disabled={!owner || busy} onClick={() => run(save)}>{saving ? "Kaydediliyor…" : "Kaydet"}</button>
-          <button disabled={!owner || busy} onClick={() => run(async () => { const saved = await save(); return command("activate", {id:saved.id}); })}>Etkinleştir</button>
+          <button className="primary" disabled={!owner || busy || !!nameError || !!outputError} onClick={() => run(save)}>{saving ? "Kaydediliyor…" : "Kaydet"}</button>
+          <button disabled={!owner || busy || !!nameError || !!outputError} onClick={() => run(async () => { const saved = await save(); return command("activate", {id:saved.id}); })}>Etkinleştir</button>
+          <button className="danger" aria-label="Workflow’u sil" disabled={!owner || busy || !list.some(w => w.id === flow.id)} onClick={deleteWorkflow}>Sil</button>
         </div>
       </header>
       <div className="editor-subbar">
         <div className="workflow-switcher"><select aria-label="Workflow değiştir" disabled={busy} value={flow.id} onChange={e => {
           if (dirty && !confirm("Taslak değişiklikleri bırakılsın mı?")) return;
           const next = list.find(w => w.id === e.target.value); if (next) { restore(next); mutationVersion.current++; }
-        }}><option value={flow.id}>{flow.name}</option>{list.filter(w => w.id !== flow.id).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
+        }}><option value={flow.id}>{flow.name} · {scripted ? "Robot Akışı" : llmEnabled ? "LLM Ajanı" : "Eski sabit akış"}</option>{list.filter(w => w.id !== flow.id).map(w => <option key={w.id} value={w.id}>{w.name} · {w.workflow_type === "scripted" ? "Robot Akışı" : w.settings.llm_enabled === false ? "Eski sabit akış" : "LLM Ajanı"}</option>)}</select>
         <button aria-label="Yeni workflow" disabled={!owner || busy} onClick={newWorkflow}>＋ Yeni</button></div>
         <nav aria-label="Editör panelleri">
           <button className={`library-toggle ${libraryOpen ? "chosen" : ""}`} aria-expanded={libraryOpen} onClick={() => {setLibraryOpen(!libraryOpen); setPanel("");}}>＋ Düğümler</button>
@@ -573,8 +641,12 @@ function Editor() {
         <aside className={`node-library ${libraryOpen ? "mobile-open" : ""}`} aria-label="Düğüm kütüphanesi">
           <div className="panel-heading"><div><small>OLUŞTUR</small><h3>Düğüm kütüphanesi</h3></div><button className="mobile-close" aria-label="Düğüm kütüphanesini kapat" onClick={() => setLibraryOpen(false)}>×</button></div>
           <input type="search" aria-label="Düğüm ara" placeholder="Düğüm ara…" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)}/>
-          <div className="palette-list">{Object.entries(labels).filter(([kind,label]) => `${label} ${descriptions[kind]}`.toLocaleLowerCase("tr").includes(nodeSearch.toLocaleLowerCase("tr"))).map(([kind,label]) => <button key={kind} className={`palette ${kind}`} aria-label={label} disabled={!owner} onClick={() => add(kind)}><Icon kind={kind}/><span>{label}<small>{descriptions[kind]}</small></span><span className="palette-plus">＋</span></button>)}</div>
-          {Object.keys(labels).every(kind => !`${labels[kind]} ${descriptions[kind]}`.toLocaleLowerCase("tr").includes(nodeSearch.toLocaleLowerCase("tr"))) && <p>Eşleşen düğüm bulunamadı.</p>}
+          <div className="library-tabs" role="tablist" aria-label="Node kütüphanesi sekmeleri">
+            <button role="tab" aria-selected={libraryTab === "nodes"} onClick={()=>{setLibraryTab("nodes");setNodeSearch("");}}>Düğümler</button>
+            <button role="tab" aria-selected={libraryTab === "resources"} onClick={()=>{setLibraryTab("resources");setNodeSearch("");}}>Araçlar</button>
+          </div>
+          <div className="palette-list">{Object.entries(labels).filter(([kind]) => ["toolResource","knowledge"].includes(kind) === (libraryTab === "resources")).filter(([kind]) => kind !== "decision" || scripted).filter(([kind]) => `${displayLabel(kind)} ${descriptions[kind]}`.toLocaleLowerCase("tr").includes(nodeSearch.toLocaleLowerCase("tr"))).map(([kind]) => <button key={kind} className={`palette ${kind}`} aria-label={displayLabel(kind)} disabled={!owner} onClick={() => add(kind)}><Icon kind={kind}/><span>{displayLabel(kind)}<small>{descriptions[kind]}</small></span><span className="palette-plus">＋</span></button>)}</div>
+          {!Object.keys(labels).some(kind => ["toolResource","knowledge"].includes(kind) === (libraryTab === "resources") && (kind !== "decision" || scripted) && `${displayLabel(kind)} ${descriptions[kind]}`.toLocaleLowerCase("tr").includes(nodeSearch.toLocaleLowerCase("tr"))) && <p>Eşleşen düğüm bulunamadı.</p>}
           <div className="library-tip"><strong>Bir bağlantıyla başlayın</strong><p>Düğüm ekleyin, ardından çıkış noktasını diğer düğümün girişine sürükleyin.</p></div>
         </aside>
         {(panel || libraryOpen) && <button className="panel-backdrop" aria-label="Paneli kapat" onClick={() => {setPanel("");setLibraryOpen(false);}}/>}
@@ -583,7 +655,7 @@ function Editor() {
           {panel === "edit" &&
             (node ? (
               <>
-                <h3>{labels[node.type!]}</h3>
+                <h3>{displayLabel(node.type!)}</h3>
                 <label>
                   Ad
                   <input
@@ -593,7 +665,7 @@ function Editor() {
                 </label>
                 {["agent", "start", "end"].includes(node.type!) && (
                   <label>
-                    {flow.settings.llm_enabled === false ? "Düğüm metni · doğrudan seslendirilir" : "Düğüm komutu · sistem mesajı olarak gönderilir"}
+                    {!llmEnabled ? "Seslendirilecek metin" : "Düğüm komutu · sistem mesajı olarak gönderilir"}
                     <textarea
                       rows={7}
                       value={String(node.data.prompt ?? node.data.message ?? "")}
@@ -601,7 +673,7 @@ function Editor() {
                     />
                   </label>
                 )}
-                {node.type === "agent" && (
+                {node.type === "agent" && llmEnabled && (
                   <label>
                     Belge yanıtı
                     <select
@@ -620,11 +692,12 @@ function Editor() {
                   <label>
                     Araç
                     <select
+                      aria-label="Araç"
                       value={String(node.data.tool || "")}
                       onChange={(e) => {
                         update({
                           tool: e.target.value,
-                          arguments: caps.tools[e.target.value],
+                          arguments: caps.tools[e.target.value], llm_parameters:[],
                         });
                         setArgsText(
                           JSON.stringify(caps.tools[e.target.value], null, 2),
@@ -632,11 +705,19 @@ function Editor() {
                       }}
                     >
                       {Object.keys(caps?.tools || {}).map((t) => (
-                        <option key={t}>{t}</option>
+                        <option key={t} value={t}>{toolLabels[t] || t}</option>
                       ))}
                     </select>
                   </label>
                 )}
+                {node.type === "decision" && <><p>İzinli çıkış bağlantılarından birini seçen uyumlu karar sağlayıcısı gerekir. Modeli Modeller bölümünden seçin.</p><label>Karar ayarları (JSON)<textarea rows={6} value={argsText} onChange={e => setArgsText(e.target.value)} onBlur={() => {try {const config = JSON.parse(argsText); if (!config || Array.isArray(config) || typeof config !== "object") throw new Error("Karar ayarları nesne olmalı"); update({config});} catch (error:any) {setMessage(error.message);}}}/></label></>}
+                {["tool", "toolResource"].includes(node.type!) && <button disabled={!owner || busy} onClick={() => setMotionNode(node.id)}>Hareketi belirle</button>}
+                {["tool", "toolResource"].includes(node.type!) && <small>Eklem pozları, hareket dizileri ve motor sürüşü her iki workflow türünde kullanılabilir. Araç kaynağını ajanın kaynak girişine, araç adımını akışa bağlayın.</small>}
+                {node.data.tool === "move_base" && <>
+                  <label>Yön<select aria-label="Sürüş yönü" value={(node.data.arguments as any)?.direction || "forward"} onChange={e => {const args = {...(node.data.arguments as any), direction:e.target.value}; update({arguments:args}); setArgsText(JSON.stringify(args,null,2));}}><option value="forward">İleri</option><option value="backward">Geri</option></select></label>
+                  {[["speed_mps","Hız (m/s)"],["duration_sec","Süre (s)"]].map(([key,label]) => <label key={key}>{label}<input aria-label={label} type="number" min="0.01" max={key === "duration_sec" ? 5 : caps?.drive_limits?.max_speed_mps || .5} step="0.01" value={(node.data.arguments as any)?.[key] ?? 1} onChange={e => {const args = {...(node.data.arguments as any),[key]:Number(e.target.value)}; update({arguments:args}); setArgsText(JSON.stringify(args,null,2));}}/></label>)}
+                </>}
+                {scripted && ["start","agent","end"].includes(node.type!) && <small>Ölçülen değer için örnek: {"{{last_result.range_m.value}}"}. Bu alanın öncesinde bir araç adımı çalıştırın.</small>}
                 {["tool", "toolResource"].includes(node.type!) && (
                   <>
                     <label>
@@ -682,19 +763,21 @@ function Editor() {
                     )}
                   </>
                 )}
+                {["toolResource", "knowledge"].includes(node.type!) && <label>Kaynak açıklaması<textarea aria-label="Kaynak açıklaması" disabled={!owner || busy} value={String(node.data.description || "")} onChange={e=>update({description:e.target.value})}/></label>}
                 {["toolResource", "knowledge"].includes(node.type!) && (
                   <label>
                     Tetikleme ifadeleri
                     <textarea rows={4} placeholder="Her satıra örnek bir kullanıcı ifadesi yazın"
                       value={Array.isArray(node.data.trigger_phrases) ? node.data.trigger_phrases.join("\n") : String(node.data.trigger_phrases || "")}
                       onChange={e => update({trigger_phrases:e.target.value})}/>
-                    <small>Kullanıcı bu ifadelere anlamsal olarak yakın konuştuğunda çalışır. Boşsa otomatik seçilmez.</small>
+                    <small>{llmEnabled ? "LLM için kullanım örnekleri. Kaynağın amacını açıklamak seçimi kolaylaştırır." : "Kullanıcı bu ifadelere anlamsal olarak yakın konuştuğunda çalışır. Boşsa otomatik seçilmez."}</small>
                   </label>
                 )}
-                {node.type === "knowledge" && (
+                {["knowledge", "knowledgeStep"].includes(node.type!) && (
                   <label>
                     Koleksiyon
                     <select
+                      aria-label="Koleksiyon"
                       value={String(node.data.collection_id || "")}
                       onChange={(e) =>
                         update({ collection_id: e.target.value })
@@ -709,15 +792,22 @@ function Editor() {
                     </select>
                   </label>
                 )}
+                {["knowledge","knowledgeStep"].includes(node.type!) && <label>Sonuç sayısı<input aria-label="Bilgi sonuç sayısı" type="number" min={1} max={8} disabled={!owner || busy} value={Number(node.data.top_k ?? 4)} onChange={e=>update({top_k:Number(e.target.value)})}/></label>}
+                {node.type === "knowledgeStep" && <ValueInput label="Arama girdisi" value={node.data.query ?? {$ref:"user"}} change={query=>update({query})}
+                  nodes={flow.nodes.filter(n=>n.id !== node.id && !["knowledge","toolResource"].includes(n.type!))} fields={referenceFields} disabled={!owner || busy}/>}
+                {["knowledge","toolResource"].includes(node.type!) && <section><h4>LLM doldurabilir</h4>
+                  {Object.keys(caps?.tool_parameters?.[node.type === "knowledge" ? "search_documents" : String(node.data.tool)] || {}).map(key=><label className="parameter-permission" key={key}>
+                    <input type="checkbox" aria-label={`LLM doldurabilir: ${key}`} disabled={!owner || busy || !llmEnabled}
+                      checked={(node.data.llm_parameters as string[] || (node.type === "knowledge" ? ["query"] : [])).includes(key)} onChange={e=>{
+                        const fields = node.data.llm_parameters as string[] || (node.type === "knowledge" ? ["query"] : []);
+                        update({llm_parameters:e.target.checked ? [...fields,key] : fields.filter(f=>f!==key)});
+                      }}/>{key}</label>)}
+                  <small>{llmEnabled ? "LLM yalnız işaretlenen alanları doldurabilir; diğer değerler sabittir." : "LLM’siz akışta kaynakları embedding seçer; tanımlı parametreler kullanılır."}</small>
+                </section>}
                 {node.type === "condition" && (
                   <>
-                    <label>
-                      Alan
-                      <input
-                        value={String(node.data.field || "user")}
-                        onChange={(e) => update({ field: e.target.value })}
-                      />
-                    </label>
+                    <ValueInput label="Koşul girdisi" value={{$ref:String(node.data.field || "user")}} change={value=>update({field:value.$ref})}
+                      nodes={flow.nodes.filter(n=>n.id !== node.id && !["knowledge","toolResource"].includes(n.type!))} fields={referenceFields} allowConstant={false} disabled={!owner || busy}/>
                     <label>
                       İşlem
                       <select
@@ -746,8 +836,10 @@ function Editor() {
                     </label>
                   </>
                 )}
+                <OutputEditor key={node.id} reportError={setOutputError} value={node.data.output || {mode:"raw"}} change={output=>update({output})}
+                  nodes={flow.nodes.filter(n=>n.id !== node.id)} fields={referenceFields} disabled={!owner || busy}/>
                 <h4>Çıkışlar</h4>
-                {["start", "agent"].includes(node.type!) && <p>{flow.settings.llm_enabled === false ? "LLM kapalıyken node metni doğrudan seslendirilir. Başlangıç çıkışı boşsa ilk metinden sonra otomatik ilerler." : <>Geçişler, bu düğümün ilk LLM yanıtından sonraki kullanıcı mesajlarında değerlendirilir.{node.type === "start" && " Başlangıç çıkışı boşsa ilk yanıttan sonra otomatik ilerler; koşul yazılırsa eşleşme bekler."}</>}</p>}
+                {["start", "agent"].includes(node.type!) && <p>{!llmEnabled ? "LLM kapalıyken node metni doğrudan seslendirilir. Başlangıç çıkışı boşsa ilk metinden sonra otomatik ilerler." : <>Geçişler, bu düğümün ilk LLM yanıtından sonraki kullanıcı mesajlarında değerlendirilir.{node.type === "start" && " Başlangıç çıkışı boşsa ilk yanıttan sonra otomatik ilerler; koşul yazılırsa eşleşme bekler."}</>}</p>}
                 {flow.edges
                   .filter((e) => e.source === node.id)
                   .map((edge) => (
@@ -825,6 +917,10 @@ function Editor() {
           {panel === "models" && (
             <>
               <h3>Yerel modeller</h3>
+              <label>Workflow türü<select aria-label="Workflow türü" value={flow.workflow_type || "legacy"} onChange={e => change({...flow, workflow_type:e.target.value as "llm" | "scripted", settings:{...flow.settings,llm_enabled:e.target.value === "llm"}})}>
+                {!flow.workflow_type && <option value="legacy">{llmEnabled ? "Mevcut LLM Ajanı" : "Eski sabit akış"}</option>}
+                <option value="llm">LLM Ajanı</option><option value="scripted">Robot Akışı · LLM’siz</option>
+              </select></label>
               <label>
                 Dil
                 <select
@@ -840,15 +936,15 @@ function Editor() {
                   <option value="en">English</option>
                 </select>
               </label>
-              <label>
-                <input type="checkbox" aria-label="LLM kullan" checked={flow.settings.llm_enabled !== false}
+              {!flow.workflow_type && <label>
+                <input type="checkbox" aria-label="LLM kullan" checked={llmEnabled}
                   onChange={e => change({...flow, settings:{...flow.settings, llm_enabled:e.target.checked}})}/>
                 LLM kullan
                 <small>Kapalıyken başlangıç, ajan ve bitiş node’larındaki metin doğrudan TTS’ye gönderilir; LLM ve embedding modeli yüklenmez.</small>
-              </label>
-              {["stt", ...(flow.settings.llm_enabled === false ? ["tts"] : ["llm", "tts", "embedding"])].map((kind) => (
+              </label>}
+              {["stt", ...(scripted ? ["tts", "embedding"] : !llmEnabled ? ["tts"] : ["llm", "tts", "embedding"]), ...(scripted ? ["decision"] : [])].map((kind) => (
                 <label key={kind}>
-                  {kind.toUpperCase()}
+                  {kind === "decision" ? "Karar sağlayıcısı (isteğe bağlı)" : kind.toUpperCase()}
                   <select
                     value={flow.settings[kind] || ""}
                     onChange={(e) =>
@@ -869,14 +965,15 @@ function Editor() {
                   </select>
                 </label>
               ))}
-              {flow.settings.llm_enabled !== false && <label>
+              {(llmEnabled || scripted) && <label>
                 Anlamsal eşleşme eşiği
                 <input type="number" min="0.01" max="1" step="0.01" aria-label="Anlamsal eşleşme eşiği"
                   value={flow.settings.semantic_threshold ?? 0.70}
                   onChange={e => change({...flow, settings:{...flow.settings, semantic_threshold:Number(e.target.value)}})}/>
                 <small>Varsayılan 0,70. Geçişler ve bağlı araçlar aynı eşiği kullanır. Bu değer bir olasılık yüzdesi değildir.</small>
               </label>}
-              <p>{flow.settings.llm_enabled === false ? "Bu özel akışta node metni değiştirilmeden konuşulur. Araç ve koşul node’ları sabit bağlantılarıyla çalışmaya devam eder." : "Düğüm komutu, etkin olduğu her turda sistem mesajı olarak gönderilir. Kullanıcının mesajı ayrı bir kullanıcı mesajı olarak eklenir. Geçiş için çıkışlara, araç seçimi için kaynak düğümlerine tetikleme ifadeleri yazın."}</p>
+              {scripted && <label>Eşleşmeme metni<textarea aria-label="Eşleşmeme metni" value={flow.settings.no_match_text ?? "Komutu anlayamadım, tekrar söyler misin?"} onChange={e => change({...flow,settings:{...flow.settings,no_match_text:e.target.value}})}/></label>}
+              <p>{scripted ? "Komutlar yalnız etkin node’un bağlı çıkış ve araçlarından embedding ile seçilir. Node konuşması doğrudan TTS’e gider." : !llmEnabled ? "Bu özel akışta node metni değiştirilmeden konuşulur. Araç ve koşul node’ları sabit bağlantılarıyla çalışmaya devam eder." : "Düğüm komutu, etkin olduğu her turda sistem mesajı olarak gönderilir. Kullanıcının mesajı ayrı bir kullanıcı mesajı olarak eklenir. Geçiş için çıkışlara, araç seçimi için kaynak düğümlerine tetikleme ifadeleri yazın."}</p>
             </>
           )}
           {panel === "knowledge" && (
@@ -1119,8 +1216,8 @@ function Editor() {
                   {!timeline.length && <div className="conversation-empty"><strong>{testTab === "live" ? "Konuşmayı buradan takip edin" : "İlk test mesajınızı gönderin"}</strong><p>Yanıtlar, düğüm geçişleri, eşleşme puanları ve belge kaynakları burada görünecek.</p></div>}
                   {timeline.map((item: any) => item.role === "activity" ? <div key={item.id} className="chat-activity">
                     <strong>{item.title}</strong><small>{new Date(item.timestamp_ms).toLocaleTimeString()}</small>
-                    {["tool_start", "tool_result"].includes(item.trace.type) && <details><summary>Parametreler ve sonuç</summary><pre>{JSON.stringify(item.trace.arguments ?? item.trace.result, null, 2)}</pre></details>}
-                    {item.trace.type === "semantic_match" && <small>{item.trace.trigger}</small>}
+                    {["tool_start", "tool_result", "node_output"].includes(item.trace.type) && <details><summary>{item.trace.type === "node_output" ? "Çıkış verisi" : "Parametreler ve sonuç"}</summary><pre>{JSON.stringify(item.trace.output ?? item.trace.arguments ?? item.trace.result, null, 2)}</pre></details>}
+                    <CameraResult result={item.trace.result}/>{item.trace.type === "semantic_match" && <small>{item.trace.trigger}</small>}
                   </div> : <div key={item.id} className={`chat-message ${item.role}`}>
                     <strong>{item.role === "user" ? "Sen" : "Kufi"}</strong><p>{item.text}</p>
                     {item.final === false && <small>{item.role === "user" ? "Dinleniyor…" : "Yanıt hazırlanıyor…"}</small>}
@@ -1177,7 +1274,7 @@ function Editor() {
           <ReactFlow
             nodes={flow.nodes.map((n) => ({
               ...n,
-              data: { ...n.data, active: n.id === active },
+              data: { ...n.data, scripted, active: n.id === active },
             }))}
             edges={flow.edges}
             nodeTypes={nodeTypes}
@@ -1219,6 +1316,13 @@ function Editor() {
                   edges: applyEdgeChanges(changes, previous.edges).filter(e => previous.nodes.some(n => n.id === e.source) && previous.nodes.some(n => n.id === e.target)),
                 }));
             }}
+            isValidConnection={c => {
+              const source=flow.nodes.find(n=>n.id === c.source), target=flow.nodes.find(n=>n.id === c.target);
+              if (!source || !target) return false;
+              const resource=["toolResource","knowledge"].includes(source.type!);
+              if (resource) return target.type === "agent" && c.targetHandle === "resource";
+              return source.type !== "end" && !["start","toolResource","knowledge"].includes(target.type!) && c.targetHandle !== "resource";
+            }}
             onConnect={(c: Connection) =>
               change(previous => ({
                 ...previous,
@@ -1226,6 +1330,7 @@ function Editor() {
                   {
                     ...c,
                     type: "smoothstep",
+                    style:["toolResource","knowledge"].includes(previous.nodes.find(n=>n.id === c.source)?.type || "") ? {stroke:"#a78bfa",strokeDasharray:"5 4"} : undefined,
                     animated: ["toolResource", "knowledge"].includes(
                       previous.nodes.find((n) => n.id === c.source)?.type || "",
                     ),
@@ -1247,7 +1352,7 @@ function Editor() {
       </div>
       <footer role="status">
         {!owner ? "İzleyici · düzenlemek için kumandayı devralın. " : ""}
-        {message ||
+        {nameError || outputError || message ||
           "Düğümleri ekleyin, çıkış noktalarından sürükleyerek bağlayın."}
       </footer>
     </main>

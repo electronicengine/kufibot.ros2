@@ -1,8 +1,10 @@
 """ROS 2 bridge for an Expo Android LAN controller."""
 import asyncio
+import base64
 import json
 import math
 import time
+import uuid
 from pathlib import Path
 from collections import OrderedDict
 
@@ -17,7 +19,7 @@ from std_msgs.msg import Bool, Float32, String
 from geometry_msgs.msg import Twist
 
 from kufibot_interaction.local_voice_runtime import attach_phase_lease
-from kufibot_interfaces.msg import VoiceState, Transcript
+from kufibot_interfaces.msg import VoiceState, Transcript, DetectionArray
 from .control import Control
 from .calibration_status import valid_coverage
 from .server import Discovery, Server
@@ -63,6 +65,8 @@ class RemoteController(Node):
         self.tool_images = OrderedDict()
         self.current = {}
         self.sensors = {}
+        from kufibot_interaction.workflow_robot_tools import TimedCache
+        self.workflow_perception = TimedCache()
         self.video_frame = None
         self.video_frame_time = 0.0
         self.video_max_width = max(0, int(self.get_parameter('video_max_width').value))
@@ -80,6 +84,9 @@ class RemoteController(Node):
         self.local_compute_active = False
         self.distance_map = None
         self.ai_settings_pub = self.create_publisher(String, 'voice_session/set_ai_settings', 10)
+        self.workflow_unlink_pub = self.create_publisher(String, 'voice_session/unlink_workflow', 10)
+        self.workflow_unlink_results = {}
+        self.create_subscription(String, 'voice_session/workflow_unlinked', self._workflow_unlinked, 10)
         self.create_subscription(String, 'voice_session/ai_settings', self._ai_settings, 10)
         self.create_subscription(VoiceState, 'voice_session/state', self._voice_state, 10)
         self.create_subscription(Transcript, 'voice_session/transcript', self._transcript, 50)
@@ -93,6 +100,8 @@ class RemoteController(Node):
         self.voice_control_ids = set()
         self.create_subscription(String, 'voice_session/control_request', self._voice_control_request, 10)
         self.drive_pub = self.create_publisher(Twist, 'drive/manual_cmd', 1)
+        self.drive_limits, self.drive_limits_at = None, 0.
+        self.create_subscription(String, 'drive/limits', self._drive_limits, 1)
         self.navigation = None
         self.navigation_at = 0.0
         self.create_subscription(String, 'navigation/distance_map', self._receive_distance_map, 1)
@@ -104,6 +113,10 @@ class RemoteController(Node):
         self.create_subscription(JointState, 'servo/joint_states', self._joints, 10)
         self.create_subscription(Image, 'camera/stream', self._video_image,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
+        for kind in ('faces', 'hands'):
+            self.create_subscription(DetectionArray, 'perception/'+kind,
+                lambda msg, kind=kind: self._workflow_detections(kind, msg), 10)
+        self.create_subscription(String, 'perception/navigation_obstacles', self._workflow_objects, 1)
         self.create_subscription(BatteryState, 'battery_state', self._battery,
                                  qos_profile_sensor_data)
         self.create_subscription(Range, 'lidar/range',
@@ -127,6 +140,66 @@ class RemoteController(Node):
         while len(self.tool_images) > 12:
             self.tool_images.popitem(last=False)
         return {'status': 'success'}
+
+    def _drive_limits(self, msg):
+        try:
+            limits = json.loads(msg.data)
+            low, high = limits['min_speed_mps'], limits['max_speed_mps']
+            if type(low) in (int, float) and type(high) in (int, float) and math.isfinite(low) and math.isfinite(high) and 0 < low <= high:
+                self.drive_limits, self.drive_limits_at = limits, time.monotonic()
+                self.control.DRIVE_MAX_LINEAR_MPS = high
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    def _workflow_detections(self, kind, msg):
+        stamp = msg.header.stamp.sec+msg.header.stamp.nanosec/1e9
+        age = self.get_clock().now().nanoseconds/1e9-stamp
+        if 0 <= age <= 1:
+            self.workflow_perception.set(kind, [{'id': d.id, 'kind': d.kind, 'confidence': d.confidence} for d in msg.detections], age_sec=age)
+
+    def _workflow_objects(self, msg):
+        try:
+            value = json.loads(msg.data)
+            age = self.get_clock().now().nanoseconds/1e9-value['image_stamp_sec']
+            if 0 <= age <= 1 and isinstance(value.get('objects'), list):
+                self.workflow_perception.set('objects', value['objects'], age_sec=age)
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    async def workflow_camera(self):
+        from kufibot_interaction.workflow_robot_tools import perception_snapshot
+        if self.video_frame is None or time.monotonic()-self.video_frame_time > 1:
+            return {'status': 'error', 'error': 'Kamera görüntüsü yok veya eski'}
+        frame = self.video_frame.copy()
+        if frame.shape[1] > 640:
+            frame = cv2.resize(frame, (640, round(frame.shape[0]*640/frame.shape[1])))
+        ok, jpeg = await asyncio.to_thread(cv2.imencode, '.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ok:
+            return {'status': 'error', 'error': 'Kamera görüntüsü kodlanamadı'}
+        return {'status': 'ok', 'image': {'mime_type': 'image/jpeg', 'base64': base64.b64encode(jpeg).decode()},
+                'perception': perception_snapshot(self.workflow_perception, 1)}
+
+    def _workflow_unlinked(self, msg):
+        result = json.loads(msg.data)
+        if result.get('request_id') in self.workflow_unlink_results:
+            self.workflow_unlink_results[result['request_id']] = result
+
+    async def workflow_unlink(self, key):
+        request_id = uuid.uuid4().hex
+        self.workflow_unlink_results[request_id] = None
+        try:
+            self.workflow_unlink_pub.publish(String(data=json.dumps({'id':key, 'request_id':request_id})))
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline:
+                result = self.workflow_unlink_results[request_id]
+                if result is not None:
+                    if result.get('error'):
+                        raise ValueError(result['error'])
+                    return
+                await asyncio.sleep(.05)
+            raise ValueError('Ses ajanı workflow bağlantısını kaldıramadı; yeniden deneyin')
+        finally:
+            self.workflow_unlink_results.pop(request_id, None)
 
     async def run_tool(self, name, arguments):
         if self.control.mode != 'tools' or self.control.owner is None:
@@ -194,6 +267,7 @@ class RemoteController(Node):
         try:
             self.ai_config = json.loads(msg.data)
             provider = self.ai_config.get('settings', {}).get('provider')
+            self.control.local_workflow_enabled = bool(provider == 'local' and self.ai_config.get('settings', {}).get('workflow_id'))
             if provider != self.control.navigation_provider:
                 self.control.disable_navigation('provider_changed')
             self.control.navigation_provider = provider
@@ -312,6 +386,7 @@ class RemoteController(Node):
         applied = self.applied_mode if now - self.mode_time < 1 else None
         navigation = getattr(self, 'navigation', None) if now - getattr(self, 'navigation_at', 0) < .5 else None
         return {'navigation': navigation, 'navigationRequested': self.control.navigation_enabled,
+                'driveLimits': getattr(self, 'drive_limits', None) if now-getattr(self, 'drive_limits_at', 0) < 2 else None,
                 'version': 1, 'mode': self.control.mode, 'appliedMode': applied,
                 'camera': now - self.video_frame_time < 2,
                 'driveAvailable': bool(navigation and navigation.get('motor_available')),
@@ -379,7 +454,10 @@ class RemoteController(Node):
                 'enabled': self.control.navigation_enabled or (self.control.mode == 'tools' and self.tool_active
                     and getattr(self, 'tool_epoch', None) == self.control.navigation_epoch),
                 'provider': self.control.navigation_provider, 'epoch': self.control.navigation_epoch,
-                'reason': self.control.navigation_reason})))
+                'reason': self.control.navigation_reason,
+                'workflow_enabled': bool(self.control.local_workflow_enabled and self.control.mode == 'ai'
+                    and voice.get('active') and (getattr(self, 'ai_config', None) or {}).get('settings', {}).get('provider') == 'local'),
+                'workflow_session_id': (getattr(self, 'ai_config', None) or {}).get('workflow_session_id', '')})))
         # Publish stop also on AI transition and on disconnect.
         drive = Twist()
         drive.linear.x, drive.angular.z = linear, angular
@@ -392,7 +470,8 @@ async def serve(node):
                         lambda: node.video_frame if time.monotonic() - node.video_frame_time < 2 else None,
                         node.get_parameter('video_fps').value), node.run_tool,
                     lambda image_id: node.tool_images.get(image_id),
-                    publish_toolset=node.toolset_publisher.publish)
+                    publish_toolset=node.toolset_publisher.publish, workflow_camera=node.workflow_camera,
+                    workflow_unlink=node.workflow_unlink)
     runner = web.AppRunner(server.app)
     await runner.setup()
     transport = None

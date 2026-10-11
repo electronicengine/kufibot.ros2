@@ -2,10 +2,11 @@
 import math
 import time
 import uuid
+from collections import deque
 
 from kufibot_interaction.ai_settings import validate
 from kufibot_interaction.joint_limits import JOINT_LIMITS, MAPPING_SENSOR_ANGLES
-from kufibot_interaction.mimics import evaluate
+from kufibot_interaction.mimics import evaluate, validate as validate_motion
 
 
 class Control:
@@ -30,6 +31,8 @@ class Control:
         self.mimic_store = None
         self.active_mimic = None
         self.mimic_status = {"state": "idle", "id": None, "elapsed_ms": 0, "error": None}
+        self.motion_events = deque(maxlen=128)
+        self.motion_event_sequence = 0
         self.calibration_requested = False
         self.ai_trigger_uuid = None
         self.ai_workflow_requested = False
@@ -62,12 +65,30 @@ class Control:
 
     def cancel_mimic(self, reason='stopped'):
         if self.active_mimic is not None:
+            self._motion_event('motion_complete' if reason == 'completed' else 'motion_cancelled')
             self.active_mimic = None
             self.mimic_status['state'] = reason
+
+    def _motion_event(self, kind):
+        self.motion_events.append({'type': kind, 'sequence': self.motion_event_sequence,
+                                   'name': self.active_mimic.get('name', self.active_mimic.get('id', '')),
+                                   'timestamp_ms': time.time()*1000})
+        self.motion_event_sequence += 1
 
     def stop(self):
         self.cancel_mimic()
         self.axes = dict.fromkeys(self.axes, 0.0)
+
+    def play_motion(self, owner, motion):
+        if self.owner is not owner or self.mode != 'remote':
+            raise ValueError('Kumanda sahipliği ve kumanda modu gerekli')
+        motion = validate_motion(motion)
+        self.stop()
+        self.active_mimic = motion
+        self.mimic_started = self.clock()
+        self.mimic_status = {'state': 'playing', 'id': motion['id'], 'revision': motion['revision'],
+                             'elapsed_ms': 0, 'duration_ms': motion['duration_ms'], 'error': None}
+        self._motion_event('motion_start')
 
     def release(self, owner, reason='owner_released'):
         if self.owner is owner:
@@ -152,6 +173,7 @@ class Control:
             self.mimic_status = {'state': 'playing', 'id': motion['id'],
                                  'revision': motion['revision'], 'elapsed_ms': 0,
                                  'duration_ms': motion['duration_ms'], 'error': None}
+            self._motion_event('motion_start')
         elif kind == 'stopMimic':
             self.cancel_mimic()
         elif kind == 'joint':
