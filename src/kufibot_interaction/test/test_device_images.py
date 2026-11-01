@@ -42,7 +42,7 @@ def test_explicit_rate_limit_is_retried_with_backoff():
             {'status': 'success'}]))
         assert await clock.sender().send(session) == {'status': 'success'}
         assert session.send_image.await_count == 2
-        assert clock.now == 104.
+        assert clock.now == 102.
     asyncio.run(run())
 
 
@@ -70,4 +70,22 @@ def test_disconnect_during_backoff_prevents_resending():
         with pytest.raises(ValueError, match='inactive'):
             await Clock().sender().send(session, check=check)
         session.send_image.assert_awaited_once()
+    asyncio.run(run())
+
+
+def test_live_image_is_prepared_after_pacing_and_again_after_rejection():
+    async def run():
+        clock = Clock()
+        sender = clock.sender()
+        sender.last_attempt = clock.now
+        session = SimpleNamespace(send_image=AsyncMock(side_effect=[
+            RuntimeError('Rate limited'), {'status': 'success'}]))
+
+        async def prepare():
+            return {'image_bytes': str(clock.now).encode()}
+
+        await sender.send(session, prepare=prepare, mime_type='image/jpeg')
+        calls = session.send_image.await_args_list
+        assert [call.kwargs['image_bytes'] for call in calls] == [b'102.0', b'104.0']
+        assert all(call.kwargs['mime_type'] == 'image/jpeg' for call in calls)
     asyncio.run(run())

@@ -173,3 +173,61 @@ speech without creating a conversation session. STT audio seconds and TTS input
 characters are billed using existing tariffs. Only the selected component runs.
 See [the audio guide](https://docs.verasist.ai/developer/sdks/audio) for file and
 live-stream examples, formats, cancellation, and request IDs.
+
+### Continuous visual observations in a live session
+
+Enable video in workflow settings, select a package LLM or a provider/custom model
+with image input support, and configure its platform credential.
+`video_session.package_id` selects a package; leave it null to use the explicit
+`provider` and `model` fields. Create a distinct video session with
+`LiveSession(client, mode="video_session")`, then connect as above. The default
+`LiveSession(client)` remains voice-only. After the video workflow is ready:
+
+```python
+capabilities = await session.video_capabilities()
+if capabilities["enabled"] and capabilities["allow_camera"]:
+    await session.configure_video("camera")
+    # Your application captures JPEG/PNG/WebP bytes, at most 2048 px per side.
+    await session.send_video_frame(jpeg_bytes, "image/jpeg")
+    # Repeat no faster than capabilities["interval_seconds"].
+    await session.configure_video(None)  # Stop visual input; voice continues.
+```
+
+`on_voice_event` receives `video-status` events (`watching`, `analyzing`, `ready`,
+`unavailable`, `stopped`). The server reduces frames to 1280 pixels, keeps only
+the newest pending frame, and bills the separate visual model on the same run.
+Frames are not added to conversation history or recorded. Existing `send_image`
+and turn-bound camera methods retain their previous behavior. Image capture is
+owned by your application, and camera/screen permissions are enforced by the
+workflow even when the device requests a different source.
+
+Video sessions do not open a Python camera automatically. The application must
+capture JPEG frames and call `configure_video("camera")` followed by
+`send_video_frame(...)` as shown above. A REST session or WebRTC connection
+alone does not send images. `video-status` events retain `error_code`, including
+`provider_authentication` for rejected provider credentials; audio stays active.
+
+### Choose voice, video or text
+
+`LiveSession(client)` or `LiveSession(client, mode="voice_session")` starts
+voice. `LiveSession(client, mode="video_session")` starts voice with continuous
+visual observations; your application supplies the images as described above.
+Both connect using a trigger UUID or a workflow UUID. REST creation uses
+`client.start_run` or `client.start_run_by_workflow` with
+`TriggerCallRequest(run_type="video")`; set run_type="voice" for voice.
+
+Text requires no WebRTC or optional voice dependencies:
+
+```python
+state = client.text_sessions.create(workflow_uuid, request_id=request_id)
+state = client.text_sessions.execute(state["run_id"])
+# If execution is queued, wait with client.scheduling.wait(run_id), then get state.
+state = client.text_sessions.get(state["run_id"])
+state = client.text_sessions.send(state["run_id"], "Hello", state["revision"])
+client.text_sessions.close(state["run_id"])
+```
+
+Video scheduling uses kind `video`; voice uses `webrtc` and text uses `chat`.
+
+
+Start voice, video and text through the existing run endpoint with `run_type: "voice" | "video" | "text"`. Omitting the field preserves telephone/channel execution. Text creation requires a UUID `request_id`; message and close operations use `/api/v1/public/agent/runs/{run_id}`. Legacy session addresses remain compatibility aliases.

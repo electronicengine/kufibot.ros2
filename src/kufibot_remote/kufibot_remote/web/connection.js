@@ -8,6 +8,8 @@ export class RobotConnection extends EventTarget {
     this.axes = zero();
     this.control = null;
     this.peer = null;
+    this.videoRetry = null;
+    this.videoBase = null;
     this.retry = null;
     this.pulse = null;
     this.pendingInput = false;
@@ -93,14 +95,62 @@ export class RobotConnection extends EventTarget {
   }
 
   clearFrame() {
-    if (this.frameVisible) this.emit('frame', null);
+    const visible = this.frameVisible;
     this.frameVisible = false;
+    if (visible) this.emit('frame', null);
   }
 
 
   frameReceived() {
     this.lastFrame = performance.now();
     this.frameVisible = true;
+    if (this.videoError) {
+      this.videoError = false;
+      this.emit('error', '');
+    }
+  }
+
+  closeVideo() {
+    clearTimeout(this.videoRetry);
+    this.videoRetry = null;
+    this.videoAbort?.abort();
+    const oldPeer = this.peer;
+    this.peer = null;
+    if (oldPeer) {
+      oldPeer.ontrack = oldPeer.onconnectionstatechange = null;
+      oldPeer.close();
+    }
+    this.clearFrame();
+    this.emit('stream', null);
+  }
+
+  checkVideo(now) {
+    const peer = this.peer;
+    if (!peer || this.videoRetry !== null) return;
+    if (!this.videoNegotiating && now - Math.max(this.lastFrame, this.videoStartedAt) > 5000) {
+      this.retryVideo(peer, this.videoBase);
+      return;
+    }
+    if (this.videoStatsPending || now - this.videoStatsAt < 1000) return;
+    this.videoStatsAt = now;
+    this.videoStatsPending = true;
+    // Media currentTime/timeupdate can advance while the last image is frozen.
+    // Count decoded RTP frames even when the video element is hidden.
+    peer.getStats().then(stats => {
+      if (peer !== this.peer || this.videoRetry !== null) return;
+      let frames = 0;
+      for (const report of stats.values()) {
+        if (report.type === 'inbound-rtp' && (report.kind || report.mediaType) === 'video') {
+          frames += report.framesDecoded ?? report.framesReceived ?? 0;
+        }
+      }
+      if (frames > this.videoFrames) this.frameReceived();
+      this.videoFrames = frames;
+    }).catch(() => {
+      // The deadline above also covers a failed stats request.
+    }).finally(() => {
+      if (peer === this.peer) this.videoStatsPending = false;
+    });
   }
 
   close() {
@@ -112,10 +162,7 @@ export class RobotConnection extends EventTarget {
       ws.close();
     }
     this.control = null;
-    this.videoAbort?.abort();
-    const oldPeer = this.peer; this.peer = null;
-    if (oldPeer) oldPeer.close();
-    this.emit('stream', null);
+    this.closeVideo();
     this.state = null;
     this.pendingInput = false;
     this.pendingMode = null;
@@ -201,6 +248,7 @@ export class RobotConnection extends EventTarget {
       const now = performance.now();
       if (now - this.lastState > 2500) { this.reconnect(); return; }
       if (now - this.lastFrame > 2000) this.clearFrame();
+      this.checkVideo(now);
       if (!this.state?.owner) return;
       if (now - this.lastHeartbeat >= 500) {
         this.send({ type: 'heartbeat' });
@@ -211,20 +259,31 @@ export class RobotConnection extends EventTarget {
   }
 
   async startWebRtc(base) {
+    if (this.disposed || !this.active || this.control?.readyState !== WebSocket.OPEN) return;
+    this.closeVideo();
+    this.videoBase = base;
+    this.videoNegotiating = true;
+    this.videoStartedAt = performance.now();
+    this.lastFrame = 0;
+    this.videoFrames = 0;
+    this.videoStatsAt = 0;
+    this.videoStatsPending = false;
     const peer = this.peer = new RTCPeerConnection({ iceServers: [] });
     const abort = this.videoAbort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 15000);
     try {
       peer.addTransceiver('video', { direction: 'recvonly' });
       peer.ontrack = event => {
-        this.frameReceived();
-        this.emit('stream', event.streams[0]);
+        if (peer !== this.peer || abort.signal.aborted) return;
+        event.track.onended = () => this.retryVideo(peer, base);
+        this.emit('stream', event.streams[0] || new MediaStream([event.track]));
       };
       peer.onconnectionstatechange = () => {
         if (peer !== this.peer) return;
         if (['failed', 'disconnected'].includes(peer.connectionState)) this.retryVideo(peer, base);
       };
       const offer = await peer.createOffer();
+      if (peer !== this.peer || abort.signal.aborted) return;
       await peer.setLocalDescription(offer);
       while (peer.iceGatheringState !== 'complete') {
         if (abort.signal.aborted || peer !== this.peer) throw new Error('Video bağlantısı iptal edildi');
@@ -239,22 +298,32 @@ export class RobotConnection extends EventTarget {
       if (peer === this.peer) await peer.setRemoteDescription(answer);
     } catch (error) {
       if (peer === this.peer) {
+        this.videoError = true;
         this.emit('error', `Kamera bağlantısı kurulamadı: ${error.message}`);
         this.retryVideo(peer, base);
       }
     } finally {
       clearTimeout(timeout);
+      if (peer === this.peer) {
+        this.videoNegotiating = false;
+        this.videoStartedAt = performance.now();
+      }
     }
   }
 
   retryVideo(peer, base) {
+    if (!peer || peer !== this.peer || this.videoRetry !== null) return;
     // Camera availability must not revoke workflow ownership or cancel uploads.
     this.clearFrame();
+    this.videoAbort?.abort();
+    peer.ontrack = peer.onconnectionstatechange = null;
     peer.close();
-    setTimeout(() => {
+    this.emit('stream', null);
+    this.videoRetry = setTimeout(() => {
+      this.videoRetry = null;
       if (this.peer === peer && this.active && !this.disposed &&
           this.control?.readyState === WebSocket.OPEN) this.startWebRtc(base);
-    }, 3000);
+    }, 1000);
   }
 
   dispose() {

@@ -20,6 +20,44 @@ def voice_node():
     return node
 
 
+@pytest.mark.parametrize('status, detail, token, fallback', [
+    (404, 'Agent trigger not found', None, True),
+    (401, 'Unauthorized', None, False),
+    (404, 'Workflow not published', None, False),
+    (404, 'Agent trigger not found', 'already-created', False),
+    (500, 'Server error', None, False),
+])
+def test_verasist_workflow_uuid_fallback_only_before_session_creation(status, detail, token, fallback):
+    from verasist_sdk.errors import ApiError
+    node = voice_node()
+    node.mic = Mock()
+    node.ice_timeout = 30
+    error = ApiError(status, detail)
+    node.session = Mock(session_token=token, connect=AsyncMock(side_effect=[error, None]))
+
+    if fallback:
+        asyncio.run(node._connect_verasist_session())
+        assert node.session.connect.await_count == 2
+        assert node.session.connect.await_args.kwargs == {
+            'workflow_uuid': node.trigger_uuid, 'tracks': [node.mic],
+            'ice_timeout_secs': 30, 'call_context_vars': {'device_barge_in': True}}
+    else:
+        with pytest.raises(ApiError) as raised:
+            asyncio.run(node._connect_verasist_session())
+        assert raised.value is error
+        assert node.session.connect.await_count == 1
+
+
+def test_verasist_trigger_uuid_connects_without_retry():
+    node = voice_node()
+    node.mic, node.ice_timeout = Mock(), 30
+    node.session = Mock(connect=AsyncMock())
+    asyncio.run(node._connect_verasist_session())
+    node.session.connect.assert_awaited_once_with(
+        trigger_uuid=node.trigger_uuid, tracks=[node.mic], ice_timeout_secs=30,
+        call_context_vars={'device_barge_in': True})
+
+
 def test_workflow_event_burst_does_not_block_stdout_reader():
     node = voice_node()
     node.ai_settings = {'workflow_id': 'flow'}

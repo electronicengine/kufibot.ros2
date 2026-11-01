@@ -34,6 +34,8 @@ class Server:
         self.tool_call, self.tool_image = tool_call, tool_image
         self.mimics = control.mimic_store or default_store()
         control.mimic_store = self.mimics
+        from .performance import PerformancePlayer
+        self.performance = PerformancePlayer(control)
         self.clients = set()
         self.peers = set()
         self.https_port = None
@@ -41,7 +43,10 @@ class Server:
         self.app = web.Application(client_max_size=21 * 1024 * 1024)
         from .workflow_api import WorkflowAPI
         self.workflow_api = WorkflowAPI(self)
+        from .device_settings import DeviceSettings
+        self.device_settings = DeviceSettings(self)
         self.app.add_routes([web.get('/', self.index),
+                             web.get('/setup', self.setup),
                              web.get('/pwa-setup', self.pwa_setup),
                              web.get('/api/pwa-setup', self.pwa_setup_info),
                              web.get('/kufibot-root-ca.crt', self.pwa_certificate),
@@ -50,11 +55,28 @@ class Server:
                              web.get('/assets/{name}', self.asset),
                              web.get('/mimics', self.editor),
                              web.get('/api/mimics', self.list_mimics),
+                             web.get('/api/servo-motion', self.servo_motion),
+                             web.get('/api/performance', self.performance_options),
                              web.get('/api/mimics/{name}', self.get_mimic),
                              web.put('/api/mimics/{name}', self.save_mimic),
                              web.get('/model/{name}', self.model_asset),
                              web.get('/control', self.controller),
                              web.post('/offer', self.offer), web.get('/tool-image/{image_id}', self.image)])
+        self.app.router.add_get('/{portal_path:.*}', self.captive_probe)
+
+    @staticmethod
+    async def setup(request):
+        return web.FileResponse(Path(__file__).with_name('web') / 'index.html',
+                                headers={'Cache-Control':'no-store'})
+
+    @staticmethod
+    async def captive_probe(request):
+        from .network_helper import setup_info
+        info = setup_info()
+        if info.get('active'):
+            raise web.HTTPFound(location='http://' + info['address'] + '/setup#connection',
+                                headers={'Cache-Control':'no-store'})
+        raise web.HTTPNotFound()
 
     async def pwa_setup_info(self, request):
         return web.json_response({'https_port': self.https_port,
@@ -80,6 +102,17 @@ class Server:
         except (ValueError, OSError) as error:
             raise web.HTTPServiceUnavailable(text=str(error))
 
+    async def servo_motion(self, request):
+        from kufibot_actuators.servo_motion import motion_profile
+        profile = self.status().get('servoMotion') or {**motion_profile(), 'source':'defaults'}
+        return web.json_response(profile, headers={'Cache-Control':'no-store'})
+
+    async def performance_options(self, request):
+        try:
+            return web.json_response(await self.performance.options(), headers={'Cache-Control': 'no-store'})
+        except (ValueError, OSError) as error:
+            raise web.HTTPServiceUnavailable(text=str(error))
+
     async def get_mimic(self, request):
         try:
             return web.json_response(self.mimics.get(request.match_info['name']))
@@ -100,7 +133,8 @@ class Server:
 
     @staticmethod
     async def editor(request):
-        return web.FileResponse(Path(__file__).with_name('web') / 'mimics.html')
+        return web.FileResponse(Path(__file__).with_name('web') / 'mimics.html',
+                                headers={'Cache-Control': 'no-store'})
 
     @staticmethod
     async def model_asset(request):
@@ -108,7 +142,8 @@ class Server:
         name = request.match_info['name']
         if name not in {'robot.glb', 'rig.json'}:
             raise web.HTTPNotFound()
-        return web.FileResponse(Path(robot_model.__file__).with_name('model') / name)
+        return web.FileResponse(Path(robot_model.__file__).with_name('model') / name,
+                                headers={'Cache-Control':'no-cache'})
 
     async def image(self, request):
         image = self.tool_image(request.match_info['image_id']) if self.tool_image else None
@@ -118,6 +153,9 @@ class Server:
 
     @staticmethod
     async def index(request):
+        from .network_helper import setup_info
+        if setup_info().get('active'):
+            raise web.HTTPFound(location='/setup#connection', headers={'Cache-Control':'no-store'})
         return web.FileResponse(Path(__file__).with_name('web') / 'index.html',
                                 headers={'Cache-Control': 'no-cache'})
 
@@ -135,7 +173,7 @@ class Server:
     @staticmethod
     async def asset(request):
         name = request.match_info['name']
-        if name not in {'app.js', 'connection.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'pwa.js'}:
+        if name not in {'app.js', 'connection.js', 'device-settings.js', 'network-handoff.js', 'mobile-control.js', 'mobile-control.css', 'performance.js', 'style.css', 'mimics.js', 'mimic-math.js', 'mimics.css', 'three.module.js', 'three.core.js', 'GLTFLoader.js', 'OrbitControls.js', 'BufferGeometryUtils.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'pwa.js'}:
             raise web.HTTPNotFound()
         return web.FileResponse(Path(__file__).with_name('web') / name,
                                 headers={'Cache-Control': 'no-cache',
@@ -170,6 +208,7 @@ class Server:
                     'owner': self.control.owner is ws,
                     'workflowToken': self.workflow_api.token(ws),
                     'mimic': self.control.mimic_status,
+                    'performance': self.performance.status,
                 }), timeout=1)
                 await asyncio.sleep(0.2)
 
@@ -203,7 +242,16 @@ class Server:
                                 await ws.send_json({'type': 'workflowResult', 'request_id': data.get('request_id'), 'result': result})
                             except (ValueError, KeyError, TypeError, OSError) as exc:
                                 await ws.send_json({'type': 'workflowResult', 'request_id': data.get('request_id'), 'error': str(exc)})
+                        elif command == 'perform':
+                            if tool_job is not None and not tool_job.done():
+                                raise ValueError('Bir araç çağrısı çalışıyor; önce durdurun')
+                            self.performance.start(ws, data)
+                        elif command == 'stopPerformance':
+                            self.performance.check(ws)
+                            await self.performance.stop()
                         elif command == 'tool':
+                            if self.performance.busy:
+                                raise ValueError('Robot oynatıyor; önce durdurun')
                             if not self.tool_call:
                                 raise ValueError('Araç çağrıları kullanılamıyor')
                             # A reconnect can race the initial claim/state
@@ -222,6 +270,8 @@ class Server:
                             tool_job = asyncio.create_task(execute_tool(data))
                         else:
                             self.control.command(ws, data)
+                            if command in ('stop', 'mode', 'stopVoice'):
+                                await self.performance.stop()
                             if command == 'stop':
                                 await self.workflow_api.stop_test(ws)
                         await ws.send_json({'type': 'ack', 'command': command})
@@ -230,6 +280,8 @@ class Server:
                             self.control.mimic_status['error'] = str(error)
                         await ws.send_json({'type': 'error', 'command': command, 'message': str(error)})
         finally:
+            if self.control.owner is ws:
+                await self.performance.stop()
             self.control.release(ws)
             await self.workflow_api.disconnect(ws)
             if tool_job is not None:
@@ -274,6 +326,8 @@ class Server:
             raise
 
     async def close(self):
+        await self.device_settings.close()
+        await self.performance.stop()
         self.workflow_api.knowledge.cancel.set()
         await asyncio.gather(*(ws.close() for ws in list(self.clients)))
         await asyncio.gather(*(peer.close() for peer in list(self.peers)))

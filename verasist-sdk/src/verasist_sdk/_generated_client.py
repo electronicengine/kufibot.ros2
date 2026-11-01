@@ -25,10 +25,12 @@ from verasist_sdk._generated_models import (
     NodeSpec,
     NodeTypesResponse,
     RecordingListResponseSchema,
+    RunStartResponse,
     SdkToolset,
     StartLiveSessionRequest,
     StartLiveSessionResponse,
     ToolResponse,
+    TriggerCallRequest,
     TurnCredentialsResponse,
     UpdateCalendarEntryRequest,
     UpdateWorkflowRequest,
@@ -78,7 +80,7 @@ class _GeneratedClient:
 
     def get_live_session_turn_credentials(self, session_token: str) -> TurnCredentialsResponse:
         """Fetch time-limited TURN credentials for an active device live session, identified by the session_token returned from start_live_session."""
-        data = self._request("GET", f"/public/agent/live-session/{session_token}/turn-credentials")
+        data = self._request("GET", f"/public/agent/runs/{session_token}/turn-credentials")
         return TurnCredentialsResponse.model_validate(data)
 
     def get_node_type(self, name: str, *, lang: str | None = None) -> NodeSpec:
@@ -183,14 +185,24 @@ class _GeneratedClient:
         return SdkToolset.model_validate(data)
 
     def start_live_session(self, uuid: str, *, body: StartLiveSessionRequest) -> StartLiveSessionResponse:
-        """Start a live voice session (WebRTC) against the published agent identified by trigger UUID. Returns a session_token used to open the device signaling WebSocket."""
+        """Start a live voice or video session (WebRTC) against the published agent identified by trigger UUID. Returns a session_token used to open the device signaling WebSocket."""
         data = self._request("POST", f"/public/agent/live-session/{uuid}", json=body.model_dump(mode="json", exclude_none=True))
         return StartLiveSessionResponse.model_validate(data)
 
     def start_live_session_by_workflow(self, workflow_uuid: str, *, body: StartLiveSessionRequest) -> StartLiveSessionResponse:
-        """Start a live voice session (WebRTC) against the published workflow identified by UUID. Returns a session_token used to open the device signaling WebSocket."""
+        """Start a live voice or video session (WebRTC) against the published workflow identified by UUID. Returns a session_token used to open the device signaling WebSocket."""
         data = self._request("POST", f"/public/agent/live-session/workflow/{workflow_uuid}", json=body.model_dump(mode="json", exclude_none=True))
         return StartLiveSessionResponse.model_validate(data)
+
+    def start_run(self, uuid: str, *, body: TriggerCallRequest) -> RunStartResponse:
+        """Start a published run. Choose run_type voice, video or text; omit for configured channel execution."""
+        data = self._request("POST", f"/public/agent/{uuid}", json=body.model_dump(mode="json", exclude_none=True))
+        return RunStartResponse.model_validate(data)
+
+    def start_run_by_workflow(self, workflow_uuid: str, *, body: TriggerCallRequest) -> RunStartResponse:
+        """Start a published run by workflow UUID with optional voice, video or text run_type."""
+        data = self._request("POST", f"/public/agent/workflow/{workflow_uuid}", json=body.model_dump(mode="json", exclude_none=True))
+        return RunStartResponse.model_validate(data)
 
     def test_phone_call(self, *, body: InitiateCallRequest) -> Any:
         """Place a test call from a workflow to a phone number."""

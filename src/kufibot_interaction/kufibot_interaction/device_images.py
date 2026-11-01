@@ -14,18 +14,22 @@ class DeviceImageSender:
         self.last_attempt = -float('inf')
         self.lock = asyncio.Lock()
 
-    async def send(self, session, *, check=None, **kwargs):
+    async def send(self, session, *, check=None, prepare=None, **kwargs):
         async with self.lock:
             for attempt in range(4):
-                delay = self.interval * (2 ** attempt)
+                # A first rejection needs one rate-limit window, not two.
+                delay = self.interval * (2 ** max(0, attempt - 1))
                 remaining = self.last_attempt + delay - self.clock()
                 if remaining > 0:
                     await self.sleep(remaining)
                 if check is not None:
                     check()
+                # Capture after pacing/backoff so a live-camera request never
+                # uploads the frame that was current before a long wait.
+                payload = {**kwargs, **(await prepare() if prepare else {})}
                 self.last_attempt = self.clock()
                 try:
-                    return await session.send_image(**kwargs)
+                    return await session.send_image(**payload)
                 except Exception as error:
                     # Retry only an explicit rejection. Timeouts may represent
                     # an accepted image and must not be blindly replayed.

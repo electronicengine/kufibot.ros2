@@ -12,6 +12,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32
 
 from .pca9685 import PCA9685
+from .servo_motion import DEFAULT_STEP_DEG, DEFAULT_ARM_STEP_DEG, DEFAULT_STEP_DELAY_MS
 
 
 # Channels follow ServoMotorJoint in the original C++ controller.
@@ -38,9 +39,9 @@ class ServoNode(Node):
         self.declare_parameter('pwm_freq_hz', 50.0)
         self.declare_parameter('min_pulse_us', 500.0)
         self.declare_parameter('max_pulse_us', 2500.0)
-        self.declare_parameter('step_deg', 1.0)
-        self.declare_parameter('arm_step_deg', 0.3)
-        self.declare_parameter('step_delay_ms', 15.0)
+        self.declare_parameter('step_deg', DEFAULT_STEP_DEG)
+        self.declare_parameter('arm_step_deg', DEFAULT_ARM_STEP_DEG)
+        self.declare_parameter('step_delay_ms', DEFAULT_STEP_DELAY_MS)
         self.declare_parameter('startup_settle_sec', 1.5)
         self.declare_parameter('joint_config_file', '')
 

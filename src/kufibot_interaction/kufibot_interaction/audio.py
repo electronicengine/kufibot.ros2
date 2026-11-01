@@ -26,9 +26,13 @@ class AlsaMicTrack(MediaStreamTrack):
     def __init__(self, device, processing=None, mute_during_playback=False,
                  noise_gate_rms=450.0, noise_gate_hangover_sec=0.5,
                  noise_suppression_db=0.0, barge_in_rms=0.0,
-                 barge_in_start_sec=0.18, playback_echo_tail_sec=1.2):
+                 barge_in_start_sec=0.18, playback_echo_tail_sec=1.2,
+                 packet_frames=1):
         super().__init__()
         self.device = device
+        if packet_frames not in (1, 2):
+            raise ValueError('Audio packets must contain one or two 10 ms frames')
+        self.packet_frames = packet_frames
         self.processing = processing
         self.noise_suppression_db = float(noise_suppression_db)
         self.denoiser = None
@@ -46,11 +50,15 @@ class AlsaMicTrack(MediaStreamTrack):
         if barge_in_rms != 0.0:
             from .audio_processing import PlaybackBargeInGuard
             self.barge_in_guard = PlaybackBargeInGuard(barge_in_rms, barge_in_start_sec)
-        self.queue = asyncio.Queue(maxsize=20)
+        # A short ROS/encoder scheduling pause can batch more than 200 ms of
+        # capture. Preserve up to 500 ms so recv() can catch up without cutting
+        # syllables; the queue is still bounded during a sustained outage.
+        self.queue = asyncio.Queue(maxsize=50)
         self.started_at = None
         self.samples_sent = 0
         self.next_frame_at = None
         self.capture_stalled = False
+        self.last_capture_at = None
         self.task = None
         self.stderr_task = None
         self.process = None
@@ -98,6 +106,7 @@ class AlsaMicTrack(MediaStreamTrack):
         try:
             while True:
                 pcm = await self.process.stdout.readexactly(FRAME_SAMPLES * 2)
+                self.last_capture_at = time.monotonic()
                 self.capture_ready.set()
                 self.frame_count += 1
                 samples = np.frombuffer(pcm, dtype=np.int16)
@@ -123,6 +132,7 @@ class AlsaMicTrack(MediaStreamTrack):
                         f'[mic] frames={self.frame_count} rms={int(rms)} '
                         f'clipped={self.clipped_frames} queue={self.queue.qsize()} '
                         f'dropped={self.dropped_frames} silence={self.silence_frames} '
+                        f'sent={self.samples_sent // FRAME_SAMPLES} '
                         f'muted={playback_muted} gated={gate_closed} '
                         f'barge_suppressed={self.barge_in_guard.suppressed_frames if self.barge_in_guard else 0}',
                         file=sys.stderr)
@@ -139,6 +149,10 @@ class AlsaMicTrack(MediaStreamTrack):
                     self.queue.get_nowait()
                     self.dropped_frames += 1
                 self.queue.put_nowait(pcm)
+                if self.frame_count % self.packet_frames == 0:
+                    # readexactly() does not yield while stdout has buffered
+                    # PCM. Give the sender a turn before draining another batch.
+                    await asyncio.sleep(0)
         except asyncio.CancelledError:
             return
         except Exception as error:
@@ -149,6 +163,11 @@ class AlsaMicTrack(MediaStreamTrack):
                 self.queue.get_nowait()
             self.queue.put_nowait(None)
 
+    def discard_pending_audio(self):
+        """Discard pre-connection capture without altering the RTP clock."""
+        while not self.queue.empty():
+            self.queue.get_nowait()
+
     async def recv(self):
         if self.started_at is None:
             self.started_at = time.monotonic()
@@ -158,21 +177,29 @@ class AlsaMicTrack(MediaStreamTrack):
         # silence until capture is available again, preserving track and PTS.
         # Pulse/ALSA deliver batches, not individual 10 ms frames. A frame-sized
         # timeout inserts silence between healthy batches and corrupts speech.
-        unavailable = self.capture_error or self.suspended or self.capture_stalled
-        try:
-            pcm = await asyncio.wait_for(
-                self.queue.get(), FRAME_SAMPLES / SAMPLE_RATE if unavailable else 0.5)
-        except asyncio.TimeoutError:
-            pcm = None
-            self.capture_stalled = True
-        else:
-            if pcm is not None:
-                self.capture_stalled = False
-        if self.readyState == 'ended':
-            raise MediaStreamError
-        if pcm is None or self.suspended:
-            pcm = bytes(FRAME_SAMPLES * 2)
-            self.silence_frames += 1
+        chunks = []
+        for _ in range(self.packet_frames):
+            try:
+                try:
+                    pcm = self.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    unavailable = self.capture_error or self.suspended or self.capture_stalled
+                    pcm = await asyncio.wait_for(
+                        self.queue.get(), FRAME_SAMPLES / SAMPLE_RATE if unavailable else 0.5)
+            except asyncio.TimeoutError:
+                pcm = None
+                self.capture_stalled = True
+            else:
+                if pcm is not None:
+                    self.capture_stalled = False
+            if self.readyState == 'ended':
+                raise MediaStreamError
+            if pcm is None or self.suspended:
+                pcm = bytes(FRAME_SAMPLES * 2)
+                self.silence_frames += 1
+            chunks.append(pcm)
+        pcm = b''.join(chunks)
+        packet_samples = FRAME_SAMPLES * self.packet_frames
         # Keep the sample clock across short scheduling delays. Rebasing on
         # every late frame slows RTP below capture speed and eventually drops
         # speech from the bounded queue. Only a stall longer than the entire
@@ -183,14 +210,14 @@ class AlsaMicTrack(MediaStreamTrack):
                 or now - self.next_frame_at > self.queue.maxsize * frame_sec):
             self.next_frame_at = now
         await asyncio.sleep(max(0.0, self.next_frame_at - now))
-        self.next_frame_at += frame_sec
-        frame = AudioFrame(format='s16', layout='mono', samples=FRAME_SAMPLES)
+        self.next_frame_at += packet_samples / SAMPLE_RATE
+        frame = AudioFrame(format='s16', layout='mono', samples=packet_samples)
         frame.planes[0].update(pcm)
         frame.sample_rate = SAMPLE_RATE
         # RTP timestamps must be continuous. Wall-clock timestamps introduce
         # gaps whenever the asyncio task is scheduled a little late.
         frame.pts = self.samples_sent
-        self.samples_sent += FRAME_SAMPLES
+        self.samples_sent += packet_samples
         frame.time_base = fractions.Fraction(1, SAMPLE_RATE)
         return frame
 
@@ -250,6 +277,13 @@ class AlsaSpeaker:
         self.process_lock = asyncio.Lock()
         self.error = None
         self.suspended = False
+        # Keep consuming RTP while Bluetooth is starting or recovering. aiortc's
+        # remote-track queue is unbounded; blocking recv() on a local write lets
+        # seconds of stale speech accumulate there.
+        self.queue = asyncio.Queue(maxsize=10)
+        self.receive_error = None
+        self.dropped_frames = 0
+        self.receive_task = asyncio.create_task(self._receive())
         self.timer = asyncio.create_task(self._silence_watch())
         self.task = asyncio.create_task(self._run())
 
@@ -297,6 +331,8 @@ class AlsaSpeaker:
         # The peer track must continue to be consumed for subsequent responses.
         self.generation += 1
         self.interrupted = True
+        while not self.queue.empty():
+            self.queue.get_nowait()
         self._set_speaking(False)
         return self._interrupt_player()
 
@@ -316,7 +352,7 @@ class AlsaSpeaker:
         self.timer = asyncio.create_task(self._silence_watch())
         self.task = asyncio.create_task(self._run())
 
-    async def _run(self):
+    async def _receive(self):
         resampler = AudioResampler(format='s16', layout='mono', rate=48000)
         try:
             while not self.closing:
@@ -327,33 +363,52 @@ class AlsaSpeaker:
                     continue
                 for converted in resampler.resample(frame):
                     pcm = converted.to_ndarray().tobytes()
-                    async with self.process_lock:
-                        if generation != self.generation or self.interrupted:
-                            break
-                        if self.process is None:
-                            self.process = await asyncio.create_subprocess_exec(
-                                *audio_command(False, self.device, 48000, 1),
-                                stdin=asyncio.subprocess.PIPE,
-                                stderr=None)
-                        voiced = self._update_speaking(pcm)
-                        player = self.process
-                        player.stdin.write(pcm)
-                    # Bluetooth activation may exceed 500 ms. Keep the wait
-                    # outside the lock so interruption can still kill the stream
-                    # immediately and discard queued PCM while drain is pending.
-                    try:
-                        self.pending_voice_write = voiced
-                        await asyncio.wait_for(player.stdin.drain(), 5.0)
-                        if voiced:
-                            self.last_voice_at = time.monotonic()
-                            self.mic.protect_playback_until(max(
-                                self.last_voice_at, self.playback_until))
-                    except (BrokenPipeError, ConnectionResetError, asyncio.TimeoutError):
-                        if generation != self.generation:
-                            break
-                        raise
-                    finally:
-                        self.pending_voice_write = False
+                    if self.queue.full():
+                        self.queue.get_nowait()
+                        self.dropped_frames += 1
+                    self.queue.put_nowait((generation, pcm))
+        except asyncio.CancelledError:
+            return
+        except Exception as error:
+            self.receive_error = error
+            if self.queue.full():
+                self.queue.get_nowait()
+            self.queue.put_nowait(None)
+
+    async def _run(self):
+        try:
+            while not self.closing:
+                packet = await self.queue.get()
+                if packet is None:
+                    raise self.receive_error
+                generation, pcm = packet
+                async with self.process_lock:
+                    if (generation != self.generation or self.interrupted
+                            or self.suspended):
+                        continue
+                    if self.process is None:
+                        self.process = await asyncio.create_subprocess_exec(
+                            *audio_command(False, self.device, 48000, 1),
+                            stdin=asyncio.subprocess.PIPE,
+                            stderr=None)
+                    voiced = self._update_speaking(pcm)
+                    player = self.process
+                    player.stdin.write(pcm)
+                # Keep the wait outside the lock so interruption can kill a
+                # stalled player immediately. The receiver remains independent.
+                try:
+                    self.pending_voice_write = voiced
+                    await asyncio.wait_for(player.stdin.drain(), 5.0)
+                    if voiced:
+                        self.last_voice_at = time.monotonic()
+                        self.mic.protect_playback_until(max(
+                            self.last_voice_at, self.playback_until))
+                except (BrokenPipeError, ConnectionResetError, asyncio.TimeoutError):
+                    if generation != self.generation:
+                        continue
+                    raise
+                finally:
+                    self.pending_voice_write = False
         except asyncio.CancelledError:
             pass
         except Exception as error:
@@ -375,6 +430,7 @@ class AlsaSpeaker:
         self.closing = True
         self.generation += 1
         self.interrupted = True
+        self.receive_task.cancel()
         await self._interrupt_player()
         self.task.cancel()
-        await asyncio.gather(self.task, return_exceptions=True)
+        await asyncio.gather(self.task, self.receive_task, return_exceptions=True)

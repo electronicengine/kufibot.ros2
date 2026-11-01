@@ -1,8 +1,36 @@
-import { evaluateMotion } from "./mimic-math.js";
+import { compileServoPreview, sampleServoPreview } from "./mimic-math.js?v=20261101-3";
 import * as THREE from "./three.module.js";
 import { GLTFLoader } from "./GLTFLoader.js";
 import { OrbitControls } from "./OrbitControls.js";
 const $ = (id) => document.getElementById(id);
+// An already cached editor document can be older than this module. Build the
+// additive UI before binding events so that upgrades keep the editor usable.
+let jointMarkerLayer = $("joint-markers");
+if (!jointMarkerLayer) {
+  jointMarkerLayer = document.createElement("div");
+  jointMarkerLayer.id = "joint-markers";
+  jointMarkerLayer.setAttribute("role", "group");
+  jointMarkerLayer.setAttribute("aria-label", "Eklem noktaları");
+  $("viewport").append(jointMarkerLayer);
+}
+let applyWorkflowButton = $("apply-workflow");
+if (!applyWorkflowButton) {
+  applyWorkflowButton = document.createElement("button");
+  applyWorkflowButton.id = "apply-workflow";
+  applyWorkflowButton.type = "button";
+  applyWorkflowButton.className = "primary";
+  applyWorkflowButton.textContent = "Node’a uygula";
+  applyWorkflowButton.hidden = true;
+  $("save").after(applyWorkflowButton);
+}
+let previewInfo = $("preview-info");
+if (!previewInfo) {
+  previewInfo = document.createElement('p');
+  previewInfo.id = 'preview-info';
+  previewInfo.className = 'preview-help';
+  previewInfo.setAttribute('role', 'status');
+  $('scrub').after(previewInfo);
+}
 const controls = [
   ...document.querySelectorAll(
     "main button,main input,main select,main textarea",
@@ -31,6 +59,7 @@ let rig,
   state = null;
 let needsRender = true,
   lastRender = 0;
+let motionProfile = null, previewTrace = null, previewView = false, profileSignature = '';
 let joint = "headLeftRight",
   pose = {},
   records = [],
@@ -75,7 +104,59 @@ ring.renderOrder = 100;
 scene.add(ring);
 const ray = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+const jointMarkers = new Map();
+const markerPosition = new THREE.Vector3();
 let drag = null;
+
+function createJointMarkers() {
+  for (const [name, label] of Object.entries(labels)) {
+    const node = model.getObjectByName(name);
+    if (!node || !rig.joints[name]) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "joint-marker";
+    button.dataset.joint = name;
+    button.setAttribute("aria-label", `${label} eklemini seç`);
+    button.hidden = true;
+    const caption = document.createElement("span");
+    caption.className = "joint-marker-label";
+    caption.textContent = label;
+    button.append(caption);
+    jointMarkerLayer.append(button);
+    jointMarkers.set(name, {node, button});
+  }
+}
+
+jointMarkerLayer.addEventListener("click", (event) => {
+  const button = event.target.closest(".joint-marker");
+  if (!button) return;
+  let name = button.dataset.joint;
+  if (event.detail !== 0) {
+    // Nearby joints can share touch targets when viewed from the side.
+    // Pick the closest visible dot, independent of DOM stacking order.
+    let nearest = Infinity;
+    for (const [candidate, marker] of jointMarkers) {
+      if (marker.button.hidden) continue;
+      const bounds = marker.button.getBoundingClientRect();
+      const distance = Math.hypot(event.clientX - bounds.x - bounds.width / 2,
+        event.clientY - bounds.y - bounds.height / 2);
+      if (distance < nearest) { nearest = distance; name = candidate; }
+    }
+  }
+  chooseJoint(name);
+});
+
+function updateJointMarkers() {
+  const {clientWidth: width, clientHeight: height} = $("viewport");
+  for (const [name, {node, button}] of jointMarkers) {
+    node.getWorldPosition(markerPosition).project(camera);
+    button.hidden = markerPosition.z < -1 || markerPosition.z > 1 ||
+      Math.abs(markerPosition.x) > 1 || Math.abs(markerPosition.y) > 1;
+    button.style.left = `${(markerPosition.x + 1) * width / 2}px`;
+    button.style.top = `${(1 - markerPosition.y) * height / 2}px`;
+    button.setAttribute("aria-pressed", String(name === joint));
+  }
+}
 function notice(text) {
   $("notice").textContent = text;
 }
@@ -99,10 +180,11 @@ function send(command) {
 }
 function updateState(value) {
   state = value;
+  receiveMotionProfile(value?.servoMotion);
   const ready =
     state?.owner && state.mode === "remote" && state.appliedMode === "remote";
   $("run").disabled = workflowMode || !ready || dirty || !motion;
-  $("apply-workflow").disabled = !state?.owner || !motion;
+  applyWorkflowButton.disabled = !state?.owner || !motion;
   $("claim").disabled = !!state?.owner;
   const m = state?.mimic;
   const phase = {
@@ -166,6 +248,8 @@ document.addEventListener("visibilitychange", () => {
 function changed() {
   dirty = true;
   playing = false;
+  previewTrace = null; previewView = false;
+  updatePreviewInfo();
   $("saved").textContent = "Kaydedilmedi";
   updateState(state);
 }
@@ -216,11 +300,42 @@ function setAngle(value) {
   selectFrame(selected);
 }
 
+function updatePreviewInfo() {
+  if (!motionProfile) { previewInfo.textContent = 'Robotun servo hız ayarları alınıyor…'; return; }
+  const format = value => value.toLocaleString('tr-TR', {maximumFractionDigits:1});
+  const arm = motionProfile.arm_step_deg * 1000 / motionProfile.step_delay_ms;
+  const other = motionProfile.step_deg * 1000 / motionProfile.step_delay_ms;
+  let text = `${motionProfile.source === 'servo_node' ? 'Robotun' : 'Varsayılan'} sürücü hızları: kollar ${format(arm)}°/sn, diğer eklemler ${format(other)}°/sn.`;
+  if (previewTrace) text += ` Hedef dizisi ${format(motion.duration_ms/1000)} sn; tahmini tamamlanma ${format(previewTrace.duration_ms/1000)} sn.`;
+  if (previewInfo.textContent !== text) previewInfo.textContent = text;
+}
+function receiveMotionProfile(value) {
+  if (!value || !['step_deg','arm_step_deg','step_delay_ms','command_period_ms'].every(key => Number.isFinite(value[key]) && value[key] > 0)) return;
+  const signature = JSON.stringify(['step_deg','arm_step_deg','step_delay_ms','command_period_ms'].map(key => value[key]));
+  if (signature === profileSignature && value.source === motionProfile?.source) return;
+  if (profileSignature && signature !== profileSignature) { playing = false; previewTrace = null; previewView = false; }
+  motionProfile = value; profileSignature = signature;
+  updatePreviewInfo();
+}
+function ensurePreview() {
+  if (!previewTrace) {
+    if (!motionProfile) throw new Error('Servo hız ayarları henüz alınamadı.');
+    const start = Object.fromEntries(Object.entries(rig.joints).map(([name, spec]) => {
+      const value = state?.joints?.[name];
+      return [name, Number.isFinite(value) ? Math.max(spec.limits_deg[0], Math.min(spec.limits_deg[1], value)) : pose[name]];
+    }));
+    previewTrace = compileServoPreview(motion, motionProfile, start);
+    updatePreviewInfo();
+  }
+  previewView = true;
+  $('scrub').max = previewTrace.duration_ms;
+}
 function scrub(time) {
-  currentTime = time;
-  $("scrub").value = time;
-  $("time-label").textContent = (time / 1000).toFixed(3) + " s";
-  showPose(evaluateMotion(motion, time));
+  ensurePreview();
+  currentTime = Math.max(0, Math.min(previewTrace.duration_ms, time));
+  $("scrub").value = currentTime;
+  $("time-label").textContent = (currentTime / 1000).toFixed(3) + " s";
+  showPose(sampleServoPreview(previewTrace, currentTime));
 }
 function frames() {
   const list = $("frames");
@@ -236,13 +351,18 @@ function frames() {
     list.append(button);
   });
   $("duration").value = motion.duration_ms / 1000;
-  $("scrub").max = motion.duration_ms;
+  $("scrub").max = previewTrace?.duration_ms ?? motion.duration_ms;
 }
 function selectFrame(i) {
+  previewTrace = null; previewView = false; playing = false;
   selected = i;
   frames();
   $("frame-time").value = motion.keyframes[i].time_ms / 1000;
-  scrub(motion.keyframes[i].time_ms);
+  currentTime = motion.keyframes[i].time_ms;
+  $('scrub').value = currentTime;
+  $('time-label').textContent = (currentTime / 1000).toFixed(3) + ' s';
+  showPose(motion.keyframes[i].joints);
+  updatePreviewInfo();
 }
 function openMotion(value) {
   motion = copy(value);
@@ -389,12 +509,18 @@ $("duration").onchange = () => {
 };
 $("scrub").oninput = () => {
   playing = false;
-  scrub(Number($("scrub").value));
+  try { scrub(Number($("scrub").value)); } catch (error) { notice(error.message); }
 };
 $("preview").onclick = () => {
-  if (currentTime >= motion.duration_ms) currentTime = 0;
-  playStarted = performance.now() - currentTime;
-  playing = true;
+  try {
+    if (!previewView || !previewTrace || currentTime >= previewTrace.duration_ms) {
+      previewTrace = null; currentTime = 0;
+    }
+    ensurePreview();
+    scrub(currentTime);
+    playStarted = performance.now() - currentTime;
+    playing = true;
+  } catch (error) { notice(error.message); }
 };
 $("pause").onclick = () => {
   playing = false;
@@ -418,7 +544,7 @@ $("close").onclick = () => {
     parent.postMessage({ type: "mimicClose" }, location.origin);
   else location.href = "/";
 };
-$("apply-workflow").onclick = () => {
+applyWorkflowButton.onclick = () => {
   if (!workflowMode || !state?.owner || !motion) return;
   parent.postMessage({type:'mimicApply', motion:copy(motion), pose:copy(motion.keyframes[selected].joints)}, location.origin);
 };
@@ -477,19 +603,21 @@ resize.observe($("viewport"));
 renderer.setAnimationLoop(() => {
   const now = performance.now();
   if (playing && motion && now - lastRender >= 33) {
-    const time = Math.min(motion.duration_ms, performance.now() - playStarted);
+    const time = Math.min(previewTrace.duration_ms, performance.now() - playStarted);
     scrub(time);
-    if (time >= motion.duration_ms) playing = false;
+    if (time >= previewTrace.duration_ms) playing = false;
   }
   if (needsRender) {
     renderer.render(scene, camera);
+    updateJointMarkers();
     needsRender = false;
     lastRender = now;
   }
 });
 try {
-  rig = await api("/model/rig.json");
-  const gltf = await new GLTFLoader().loadAsync("/model/robot.glb");
+  rig = await api("/model/rig.json?v=20261101-3");
+  receiveMotionProfile(await api('/api/servo-motion'));
+  const gltf = await new GLTFLoader().loadAsync("/model/robot.glb?v=20261101-3");
   model = gltf.scene;
   scene.add(model);
   for (const [name, label] of Object.entries(labels)) {
@@ -504,9 +632,10 @@ try {
   });
   if (records.length) openMotion(records[0]);
   else $("new").click();
+  createJointMarkers();
   chooseJoint(joint);
   if (workflowMode) {
-    $('apply-workflow').hidden = false;
+    applyWorkflowButton.hidden = false;
     for (const id of ['save', 'claim', 'remote', 'run', 'stop']) $(id).hidden = true;
     parent.postMessage({type:'mimicReady'}, location.origin);
   }

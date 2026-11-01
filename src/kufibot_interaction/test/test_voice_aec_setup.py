@@ -1,11 +1,11 @@
 from pathlib import Path
-import runpy
 import sys
 
 import pytest
+from kufibot_interaction import voice_aec
 
 
-SETUP = runpy.run_path(str(Path(__file__).resolve().parents[3] / 'tools/setup_voice_aec.py'))
+SETUP = vars(voice_aec)
 
 
 def test_managed_config_upgrade_and_customization_detection():
@@ -84,3 +84,30 @@ def test_latency_support_still_rejects_other_customizations():
     assert SETUP['is_managed'](content)
     assert not SETUP['is_managed'](content.replace('audio.rate = 48000', 'audio.rate = 16000'))
     assert not SETUP['is_managed'](content.replace('1920/48000', '0/48000'))
+
+
+def test_session_aec_setup_works_from_installed_package(tmp_path, monkeypatch):
+    """A copied ROS install has no workspace tools/ directory beside the node."""
+    import asyncio
+    import shutil
+    from types import SimpleNamespace
+    from kufibot_interaction import voice_aec
+    from kufibot_interaction.voice_agent_node import AEC_MODULE_DEFAULTS, VoiceAgentNode
+
+    installed = tmp_path / 'install/lib/python3/site-packages'
+    package = installed / 'kufibot_interaction'
+    package.mkdir(parents=True)
+    (package / '__init__.py').write_text('')
+    shutil.copyfile(voice_aec.__file__, package / 'voice_aec.py')
+    config = tmp_path / '.config/pipewire/pipewire.conf.d/60-kufibot-aec.conf'
+    config.parent.mkdir(parents=True)
+    config.write_text(voice_aec.CONFIG)
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('PYTHONPATH', str(installed))
+    monkeypatch.chdir(tmp_path)
+    node = SimpleNamespace()
+
+    asyncio.run(VoiceAgentNode._ensure_aec_module(node, {}))
+
+    assert node._applied_aec_module_settings == AEC_MODULE_DEFAULTS
+    assert config.read_text() == voice_aec.CONFIG

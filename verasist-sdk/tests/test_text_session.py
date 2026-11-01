@@ -76,12 +76,12 @@ def test_json_session_methods_keep_revisions_and_paths():
         client.text_sessions.send(1, "hello", 2)
         assert client.text_sessions.get(1)["revision"] == 2
         client.text_sessions.close(1)
-    assert calls == [("GET", "/api/v1/apps/workflows/workflow/check"),
-                     ("POST", "/api/v1/apps/workflows/workflow/sessions"),
-                     ("POST", "/api/v1/apps/sessions/1/execute"),
-                     ("POST", "/api/v1/apps/sessions/1/messages"),
-                     ("GET", "/api/v1/apps/sessions/1"),
-                     ("POST", "/api/v1/apps/sessions/1/close")]
+    assert calls == [("GET", "/api/v1/public/agent/workflow/workflow/check"),
+                     ("POST", "/api/v1/public/agent/workflow/workflow"),
+                     ("POST", "/api/v1/public/agent/runs/1/execute"),
+                     ("POST", "/api/v1/public/agent/runs/1/messages"),
+                     ("GET", "/api/v1/public/agent/runs/1"),
+                     ("POST", "/api/v1/public/agent/runs/1/close")]
 
 
 def test_tool_lifecycle_events():
@@ -112,3 +112,21 @@ def test_queued_receipt_is_terminal_without_interrupted_stream_error(wire_format
         assert list(stream) == []
     assert len(requests) == 1
     assert requests[0].method == "POST"
+
+
+@pytest.mark.parametrize("run_type", ["voice", "video", "text"])
+@pytest.mark.parametrize("by_workflow", [False, True])
+def test_generated_run_start_uses_shared_endpoint(run_type, by_workflow):
+    from verasist_sdk._generated_models import TriggerCallRequest
+    import uuid
+    received = []
+    def handler(request):
+        received.append(request)
+        return httpx.Response(200, json={"run_id": 1, "revision": 0} if run_type == "text" else {"workflow_run_id": 1, "session_token": "device-token", "expires_at": "2026-10-11T00:00:00Z"})
+    with client_with(handler) as client:
+        body = TriggerCallRequest(run_type=run_type, request_id=uuid.uuid4() if run_type == "text" else None)
+        method = client.start_run_by_workflow if by_workflow else client.start_run
+        result = method("workflow" if by_workflow else "trigger", body=body)
+        assert (result.run_id if run_type == "text" else result.workflow_run_id) == 1
+    assert received[0].url.path == ("/api/v1/public/agent/workflow/workflow" if by_workflow else "/api/v1/public/agent/trigger")
+    assert json.loads(received[0].content)["run_type"] == run_type

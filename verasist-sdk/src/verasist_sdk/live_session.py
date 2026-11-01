@@ -66,12 +66,12 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 
 from ._generated_models import (
     DeviceToolSchema,
-    StartLiveSessionRequest,
-    StartLiveSessionResponse,
+    TriggerCallRequest,
+    RunStartResponse,
     SdkToolset,
 )
 from .errors import VerasistSdkError
@@ -106,7 +106,7 @@ class _RegisteredTool:
 
 
 class LiveSession:
-    """A live WebRTC voice session against a Verasist workflow assistant.
+    """A live WebRTC voice or video session against a Verasist workflow assistant.
 
     Register device-side tools with `@session.tool(...)` *before* calling
     `connect()` — the tool schemas are sent to the backend when the
@@ -119,7 +119,11 @@ class LiveSession:
         client: "VerasistClient",
         *,
         initial_context: dict[str, Any] | None = None,
+        mode: Literal["voice_session", "video_session"] = "voice_session",
     ):
+        if mode not in {"voice_session", "video_session"}:
+            raise ValueError("mode must be voice_session or video_session")
+        self._mode = mode
         self._client = client
         self._initial_context = initial_context
         self._tools: dict[str, _RegisteredTool] = {}
@@ -142,6 +146,8 @@ class LiveSession:
         self._connection_state_callbacks: list[Callable[[str], None]] = []
         self._ice_timeout_task: asyncio.Task | None = None
         self._pending_image_requests: dict[str, asyncio.Future] = {}
+        self._video_source: str | None = None
+        self._video_generation: int | None = None
 
     # ── tool registration ──────────────────────────────────────────────
 
@@ -219,6 +225,59 @@ class LiveSession:
         finally:
             self._pending_image_requests.pop(request_id, None)
 
+    async def video_capabilities(self):
+        """Return the workflow's server-enforced visual capabilities."""
+        return await self._video_request("video-capabilities", {})
+
+    async def configure_video(self, source: str | None = "camera"):
+        """Enable camera/screen observations, or stop with source=None."""
+        if source not in (None, "camera", "screen"):
+            raise ValueError("source must be camera, screen or None")
+        result = await self._video_request("video-configure", {"source": source})
+        self._video_source = source
+        self._video_generation = result["generation"]
+        return result
+
+    async def send_video_frame(self, image_bytes: bytes, mime_type: str = "image/jpeg"):
+        """Submit an encoded frame to the separate visual model without starting a spoken reply.
+
+        Configure video first. Respect video_capabilities()['interval_seconds'];
+        image capture remains owned by the device application.
+        """
+        if not getattr(self, "_video_source", None):
+            raise VerasistSdkError("Configure video before sending frames")
+        return await self._video_request("video-frame", {
+            "source": self._video_source, "generation": self._video_generation,
+            "mime_type": mime_type, "data": base64.b64encode(image_bytes).decode("ascii"),
+        })
+
+    async def send_video_recording_chunk(self, data: bytes, sequence: int, mime_type: str = "video/webm"):
+        """Send consecutive chunks from an application-owned video encoder.
+
+        Start at sequence zero for each configured source. Recording must be
+        permitted by video_capabilities()["record_video"]. Audio is recorded separately.
+        """
+        if not getattr(self, "_video_source", None):
+            raise VerasistSdkError("Configure video before sending recording chunks")
+        return await self._video_request("video-recording-chunk", {
+            "source": self._video_source, "generation": self._video_generation,
+            "sequence": sequence, "mime_type": mime_type,
+            "data": base64.b64encode(data).decode("ascii"),
+        })
+
+    async def _video_request(self, kind, payload):
+        request_id = uuid.uuid4().hex
+        future = asyncio.get_running_loop().create_future()
+        self._pending_image_requests[request_id] = future
+        try:
+            await self._send({"type": kind, "payload": {**payload, "request_id": request_id}})
+            result = await asyncio.wait_for(future, 5)
+            if result.get("status") != "success":
+                raise VerasistSdkError(result.get("error", "Video request failed"))
+            return result
+        finally:
+            self._pending_image_requests.pop(request_id, None)
+
     def on_transcript(
         self, callback: Callable[[dict[str, Any]], None]
     ) -> Callable[[dict[str, Any]], None]:
@@ -244,7 +303,7 @@ class LiveSession:
         *,
         trigger_uuid: str | None = None,
         workflow_uuid: str | None = None,
-    ) -> StartLiveSessionResponse:
+    ) -> RunStartResponse:
         """Create the live session on the backend over HTTP. Pass exactly
         one of `trigger_uuid` or `workflow_uuid`."""
         if bool(trigger_uuid) == bool(workflow_uuid):
@@ -256,17 +315,18 @@ class LiveSession:
             )
             for t in self._tools.values()
         ] or None
-        body = StartLiveSessionRequest(
-            initial_context=self._initial_context, device_tools=device_tools
+        body = TriggerCallRequest(
+            initial_context=self._initial_context, device_tools=device_tools,
+            run_type="video" if self._mode == "video_session" else "voice"
         )
 
         if trigger_uuid:
             resp = await asyncio.to_thread(
-                self._client.start_live_session, trigger_uuid, body=body
+                self._client.start_run, trigger_uuid, body=body
             )
         else:
             resp = await asyncio.to_thread(
-                self._client.start_live_session_by_workflow,
+                self._client.start_run_by_workflow,
                 workflow_uuid,
                 body=body,
             )
@@ -388,6 +448,8 @@ class LiveSession:
 
     async def close(self) -> None:
         """Tear down the WebSocket and peer connection."""
+        self._video_source = None
+        self._video_generation = None
         self._cancel_ice_timeout()
         if self._listener_task:
             self._listener_task.cancel()
@@ -559,7 +621,7 @@ class LiveSession:
             )
         elif msg_type == "tool-call":
             asyncio.create_task(self._handle_tool_call(payload))
-        elif msg_type in ("device-image-result", "device-camera-turn-result"):
+        elif msg_type in ("device-image-result", "device-camera-turn-result", "video-capabilities-result", "video-configure-result", "video-frame-result", "video-recording-chunk-result"):
             request_id = payload.get("request_id")
             future = self._pending_image_requests.get(request_id)
             if future and not future.done():
@@ -573,7 +635,7 @@ class LiveSession:
         elif msg_type in {
             'rtf-bot-started-speaking', 'rtf-bot-stopped-speaking', 'rtf-bot-interrupted',
             'rtf-user-mute-started', 'rtf-user-mute-stopped',
-            'rtf-user-turn-started', 'rtf-user-turn-final', 'rtf-camera-attachment',
+            'rtf-user-turn-started', 'rtf-user-turn-final', 'rtf-camera-attachment', 'video-status',
         }:
             for callback in self._voice_event_callbacks:
                 try:

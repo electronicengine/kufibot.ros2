@@ -13,18 +13,20 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter_client import AsyncParameterClient
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
 from geometry_msgs.msg import Twist
 
 from kufibot_interaction.local_voice_runtime import attach_phase_lease
-from kufibot_interfaces.msg import VoiceState, Transcript, DetectionArray
+from kufibot_interfaces.msg import VoiceState, Transcript, DetectionArray, JointCommand
 from .control import Control
 from .calibration_status import valid_coverage
 from .server import Discovery, Server
 from .video import LatestCameraTrack
 from kufibot_interaction.navigation_tools import NavigationTools
+from kufibot_actuators.servo_motion import motion_profile
 
 
 class ToolSession:
@@ -64,6 +66,10 @@ class RemoteController(Node):
         self.navigation_camera_lock = asyncio.Lock()
         self.tool_images = OrderedDict()
         self.current = {}
+        self.servo_motion = {**motion_profile(), 'source':'defaults'}
+        self.servo_parameters_pending = None
+        self.servo_parameter_client = AsyncParameterClient(self, 'servo_node')
+        self.create_timer(3.0, self._read_servo_motion)
         self.sensors = {}
         from kufibot_interaction.workflow_robot_tools import TimedCache
         self.workflow_perception = TimedCache()
@@ -93,6 +99,8 @@ class RemoteController(Node):
         self.local_phase_lease = attach_phase_lease(
             self, lambda active: self._local_compute(Bool(data=active)))
         self.remote_pub = self.create_publisher(String, 'remote/command', 10)
+        self.performance_pub = self.create_publisher(JointCommand, 'servo/agent_targets', 10)
+        self.performance_motion_active = False
         self.voice_control_ack = self.create_publisher(String, 'voice_session/control_ack', 10)
         self.voice_control_state = self.create_publisher(String, 'voice_session/control_state', 10)
         self.voice_finish_pub = self.create_publisher(String, 'voice_session/finish', 10)
@@ -140,6 +148,25 @@ class RemoteController(Node):
         while len(self.tool_images) > 12:
             self.tool_images.popitem(last=False)
         return {'status': 'success'}
+
+    def _read_servo_motion(self):
+        pending = self.servo_parameters_pending
+        if (pending is not None and not pending.done()) or not self.servo_parameter_client.services_are_ready():
+            return
+        self.servo_parameters_pending = self.servo_parameter_client.get_parameters(
+            ['step_deg', 'arm_step_deg', 'step_delay_ms'])
+        self.servo_parameters_pending.add_done_callback(self._servo_motion_received)
+
+    def _servo_motion_received(self, future):
+        try:
+            values = future.result().values
+            if len(values) != 3 or any(value.type not in (2,3) for value in values):
+                return
+            step, arm, delay = [value.double_value if value.type == 3 else value.integer_value for value in values]
+            self.servo_motion = {**motion_profile(step, arm, delay,
+                getattr(self, '_control_period_sec', .05)*1000), 'source':'servo_node'}
+        except (ValueError, TypeError, AttributeError, RuntimeError):
+            pass
 
     def _drive_limits(self, msg):
         try:
@@ -241,6 +268,7 @@ class RemoteController(Node):
     def start_tick_timer(self, period_sec=.05):
         """Run control output from an executor that is owned by another host."""
         if not hasattr(self, '_control_timer'):
+            self._control_period_sec = period_sec
             self._control_timer = self.create_timer(period_sec, lambda: self.tick(period_sec))
 
     def _receive_distance_map(self, msg):
@@ -391,6 +419,7 @@ class RemoteController(Node):
                 'camera': now - self.video_frame_time < 2,
                 'driveAvailable': bool(navigation and navigation.get('motor_available')),
                 'joints': self.current,
+                'servoMotion': getattr(self, 'servo_motion', {**motion_profile(), 'source':'defaults'}),
                 'calibration': self.calibration,
                 'aiTriggerUuid': self.ai_trigger_uuid,
                 'aiConfig': getattr(self, 'ai_config', None),
@@ -448,6 +477,14 @@ class RemoteController(Node):
         msg.data = json.dumps({'mode': self.control.mode,
                                'targets': self.control.targets})
         self.remote_pub.publish(msg)
+        performing = self.control.mode == 'tools' and self.control.active_mimic is not None
+        if performing or (getattr(self, 'performance_motion_active', False)
+                          and self.control.mimic_status['state'] == 'completed'):
+            self.performance_pub.publish(JointCommand(
+                names=list(self.control.targets), angles_deg=list(self.control.targets.values()), hold_sec=.15))
+        elif getattr(self, 'performance_motion_active', False):
+            self.performance_pub.publish(JointCommand(hold_sec=.01, cancel_agent=True))
+        self.performance_motion_active = performing
         if hasattr(self, 'navigation_pub'):
             self.navigation_pub.publish(String(data=json.dumps({
                 'mode': self.control.mode, 'owner': self.control.owner is not None,

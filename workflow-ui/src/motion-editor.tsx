@@ -33,7 +33,7 @@ export function MotionEditor({initial, state, apply, close}: {
     <label>Hareket biçimi <select aria-label="Hareket biçimi" value={pose ? "pose" : "sequence"} onChange={e => setPose(e.target.value === "pose")}>
       <option value="pose">Tek poz · seçili adımın açıları</option><option value="sequence">Hareket dizisi · tüm zaman adımları</option>
     </select></label>
-    <iframe ref={frame} src="/mimics?workflow=1" title="Workflow 3D hareket editörü"/>
+    <iframe ref={frame} src="/mimics?workflow=1&v=20261101-3" title="Workflow 3D hareket editörü"/>
   </div>;
 }
 

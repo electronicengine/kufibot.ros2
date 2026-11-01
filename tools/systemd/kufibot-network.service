@@ -1,0 +1,26 @@
+[Unit]
+Description=Kufibot Wi-Fi rescue and setup portal
+Wants=NetworkManager.service avahi-daemon.service
+After=NetworkManager.service avahi-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /usr/local/lib/kufibot-network/network_service.py
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=kufibot-network
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/run/kufibot-network
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

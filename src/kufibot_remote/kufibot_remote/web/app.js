@@ -1,14 +1,23 @@
 import { RobotConnection } from './connection.js';
+import { initPerformance } from './performance.js';
+import { initDeviceSettings } from './device-settings.js';
+import { initMobileControl } from './mobile-control.js';
 
 const $ = id => document.getElementById(id);
 const link = new RobotConnection();
+const performancePanel = initPerformance(link);
+const deviceSettings = initDeviceSettings(link);
+const mobileController = initMobileControl(link, {
+  onLayout: () => { link.stopManualInput(); render(); },
+  openTools: () => { performancePanel.open(); $('tool-modal').showModal(); },
+});
 const menu = $('menu');
 const aiTriggerModal = $('ai-trigger-modal');
 const AI_TRIGGER_UUID_KEY = 'kufibot.aiTriggerUuid';
 const AI_TRIGGER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let windowActive = true;
 const pageTitles = {connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', 'verasist-audio': 'Verasist Ses', workflows: 'Workflowlar', recordings: 'Kayıtlar', calibration: 'Kalibrasyon'};
-let activePage = location.hash.slice(1) || 'control';
+let activePage = location.hash.slice(1) || (location.pathname === '/setup' ? 'connection' : 'control');
 if (!['control', 'connection', 'voice', 'verasist-audio', 'workflows', 'recordings', 'calibration'].includes(activePage)) activePage = 'control';
 let imageLoaded = false;
 const keys = new Set();
@@ -18,10 +27,12 @@ const canControl = () => link.ready && !menu.classList.contains('open') && activ
 function openDrawer() { link.stopManualInput(); menu.classList.add('open'); menu.setAttribute('aria-hidden', 'false'); $('drawer-backdrop').hidden = false; render(); }
 function closeDrawer() { menu.classList.remove('open'); menu.setAttribute('aria-hidden', 'true'); $('drawer-backdrop').hidden = true; render(); }
 function selectPage(page, replace = false) {
+  mobileController.close();
   link.stopManualInput(); closeDrawer();
   if (page === 'mimics') { openMimics(); return; }
   if (page === 'recordings' && workflowDialog.open) workflowDialog.close();
   activePage = page;
+  deviceSettings.setActive(page === 'connection');
   if (page === 'workflows') refreshWorkflowOptions();
   $('settings-page').hidden = page === 'control';
   $('settings-page').classList.toggle('workflows-page', page === 'workflows');
@@ -735,6 +746,8 @@ refreshWorkflowOptions();
 function render() {
   const state = link.state;
   const enabled = canControl();
+  const manualEnabled = enabled && !mobileController.panelOpen;
+  mobileController.render(state);
   for (const [name, unit] of [['voltage', 'V'], ['current', 'A'], ['heading', '°'], ['distance', 'm']]) {
     const value = state?.sensors[name];
     $(name).textContent = Number.isFinite(value) ? `${value.toFixed(1)} ${unit}` : `— ${unit}`;
@@ -766,11 +779,12 @@ function render() {
     ? 'Gezinme yalnızca Verasist ile kullanılabilir'
     : !nav ? 'Gezinme düğümü bekleniyor'
     : `${navLabels[nav.state] || nav.state}${!nav.calibrated ? ' · Hareket kalibrasyonu gerekli' : ''}`;
-  drive.enable(enabled && !!state?.driveAvailable);
+  drive.enable(manualEnabled && !!state?.driveAvailable);
   $('drive-speed').disabled = !enabled || !state?.driveAvailable;
-  head.enable(enabled);
+  head.enable(manualEnabled);
   $('prepare-mapping').disabled = !enabled;
-  $('drive-label').textContent = state?.driveAvailable
+  $('drive-label').textContent = mobileController.compact
+    ? (state?.driveAvailable ? 'Hareket' : 'Motor bağlı değil') : state?.driveAvailable
     ? `HAREKET · %${Math.round(driveSpeed * 100)} HIZ` : 'HAREKET · MOTOR YOK';
   for (const name of ['leftArm', 'rightArm']) {
     const input = $(name);
@@ -796,7 +810,8 @@ function render() {
 
 link.addEventListener('state', render);
 link.addEventListener('connection', ({ detail }) => {
-  $('connection').textContent = detail.text;
+  $('connection').textContent = mobileController.compact && detail.connected
+    ? (link.state?.owner ? 'Kontrol sende' : 'Bağlı') : detail.text;
   $('connection-dot').classList.toggle('active', detail.connected);
 });
 link.addEventListener('error', ({ detail }) => {
@@ -807,13 +822,21 @@ link.addEventListener('frame', () => { imageLoaded = false; camera(); });
 link.addEventListener('stream', ({ detail }) => {
   $('camera').srcObject = detail;
   imageLoaded = false;
+  if (detail) {
+    const peer = link.peer;
+    $('camera').play().catch(() => link.retryVideo(peer, link.videoBase));
+  }
   camera();
 });
 $('camera').addEventListener('loadeddata', () => { imageLoaded = true; link.frameReceived(); camera(); });
 $('camera').addEventListener('timeupdate', () => {
-  if ($('camera').readyState >= 2) { imageLoaded = true; link.frameReceived(); camera(); }
+  if ($('camera').readyState >= 2 && link.frameVisible) { imageLoaded = true; camera(); }
 });
-$('camera').addEventListener('error', () => { imageLoaded = false; camera(); });
+$('camera').addEventListener('error', () => {
+  imageLoaded = false;
+  camera();
+  link.retryVideo(link.peer, link.videoBase);
+});
 
 function openAiTriggerModal() {
   const input = $('ai-trigger-modal-input');
@@ -852,7 +875,10 @@ for (const mode of ['remote', 'ai', 'tools']) $(`mode-${mode}`).addEventListener
     return;
   }
   link.setMode(mode);
-  if (mode === 'tools') $('tool-modal').showModal();
+  if (mode === 'tools') {
+    performancePanel.open();
+    $('tool-modal').showModal();
+  }
 });
 function configureTool(reset = false) {
   const name = $('tool-name').value;
@@ -908,6 +934,7 @@ $('tool-call').addEventListener('click', () => {
   $('tool-modal').close();
 });
 link.addEventListener('toolResult', ({detail}) => {
+  performancePanel.selectTab('navigation');
   $('tool-call').disabled = false;
   $('tool-result').textContent = JSON.stringify(detail.result, null, 2);
   const image = $('tool-image');
@@ -1008,6 +1035,7 @@ window.addEventListener('blur', () => { windowActive = false; link.stopManualInp
 window.addEventListener('focus', () => { windowActive = true; render(); });
 window.addEventListener('resize', () => link.stopManualInput());
 render();
+mobileController.mount();
 link.connect();
 selectPage(activePage, true);
 window.addEventListener('popstate', () => selectPage(location.hash.slice(1) || 'control', true));
@@ -1019,7 +1047,7 @@ const mimicModal = $('mimics-modal');
 const mimicFrame = $('mimics-frame');
 function openMimics() {
   link.stop(); closeDrawer(); mimicModal.showModal();
-  mimicFrame.src = '/mimics?embedded=1';
+  mimicFrame.src = '/mimics?embedded=1&v=20261101-3';
 }
 const closeMimics = () => {
   if (link.state?.owner) link.send({type:'stopMimic'});

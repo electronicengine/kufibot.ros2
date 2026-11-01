@@ -17,34 +17,34 @@ class TextSessions:
         self._client = client
 
     def check(self, workflow_uuid: str) -> dict:
-        return self._client._request("GET", f"/apps/workflows/{quote(workflow_uuid, safe='')}/check")
+        return self._client._request("GET", f"/public/agent/workflow/{quote(workflow_uuid, safe='')}/check")
 
     def create(self, workflow_uuid: str, *, request_id: str, initial_context: dict | None = None,
                tool_transport: dict | None = None, instructions: str = "") -> dict:
-        return self._client._request("POST", f"/apps/workflows/{quote(workflow_uuid, safe='')}/sessions", json={
-            "request_id": request_id, "initial_context": initial_context or {},
+        return self._client._request("POST", f"/public/agent/workflow/{quote(workflow_uuid, safe='')}", json={
+            "run_type": "text", "request_id": request_id, "initial_context": initial_context or {},
             "tool_transport": tool_transport, "instructions": instructions,
         })
 
     def get(self, run_id: int) -> dict:
-        return self._client._request("GET", f"/apps/sessions/{run_id}")
+        return self._client._request("GET", f"/public/agent/runs/{run_id}")
 
     def execute(self, run_id: int) -> dict:
-        return self._client._request("POST", f"/apps/sessions/{run_id}/execute", json={})
+        return self._client._request("POST", f"/public/agent/runs/{run_id}/execute", json={})
 
     def send(self, run_id: int, text: str, expected_revision: int) -> dict:
-        return self._client._request("POST", f"/apps/sessions/{run_id}/messages", json={
+        return self._client._request("POST", f"/public/agent/runs/{run_id}/messages", json={
             "text": text, "expected_revision": expected_revision,
         })
 
     def close(self, run_id: int) -> dict:
-        return self._client._request("POST", f"/apps/sessions/{run_id}/close", json={})
+        return self._client._request("POST", f"/public/agent/runs/{run_id}/close", json={})
 
     def execute_stream(self, run_id: int) -> Iterator[TextStreamEvent]:
-        return self._stream(f"/apps/sessions/{run_id}/execute", {})
+        return self._stream(f"/public/agent/runs/{run_id}/execute", {})
 
     def send_stream(self, run_id: int, text: str, expected_revision: int) -> Iterator[TextStreamEvent]:
-        return self._stream(f"/apps/sessions/{run_id}/messages", {
+        return self._stream(f"/public/agent/runs/{run_id}/messages", {
             "text": text, "expected_revision": expected_revision,
         })
 

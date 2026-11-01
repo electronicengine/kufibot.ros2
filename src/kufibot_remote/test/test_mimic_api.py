@@ -27,4 +27,8 @@ def test_api_defaults_update_conflict_and_assets(tmp_path,monkeypatch):
             assert (await response.read())[:4]==b'glTF'
             assert (await client.get('/model/secrets')).status==404
             assert (await client.get('/assets/mimics.js')).status==200
+            for path in ('/mimics', '/mimics?embedded=1&v=20261101-2', '/mimics?workflow=1'):
+                response = await client.get(path)
+                assert response.status == 200
+                assert response.headers['Cache-Control'] == 'no-store'
     asyncio.run(scenario())

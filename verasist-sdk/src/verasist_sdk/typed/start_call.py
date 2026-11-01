@@ -78,6 +78,27 @@ class StartCall(TypedNode):
     Pre-recorded audio file played at the start of the call.
     """
 
+    live_instructions: str = ''
+    """
+    Guides the Live voice model throughout the conversation: language, tone,
+    pronunciation and when to delegate to the backend assistant. Use the
+    node prompt for business steps and tool use. Leave empty for no extra
+    voice guidance.
+    """
+
+    live_transition_instructions: str = ''
+    """
+    Silent guidance sent to the Live voice model whenever the workflow
+    changes nodes. Leave empty to disable this additional guidance.
+    """
+
+    live_superseded_instructions: str = ''
+    """
+    Guidance for the Live voice model when the caller changes their request
+    while the backend is working. Leave empty to send only the standard
+    superseded status.
+    """
+
     allow_interrupt: bool = False
     """
     When true, the user can interrupt the agent mid-utterance.

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "pocket-tts-turkish",
+      "backend": "pocket_tts_turkish",
+      "repo": "wite-tech/pocket-tts-turkish",
+      "revision": "fcbd37c74dc127be846face0ff36062e9a939f7b",
+      "license": "CC-BY-4.0",
+      "files": {
+        "README.md": "3ec799fcbad480038799e822337cb89263b914c525f08c60cb9fece76dd0a21f",
+        "config.yaml": "fa60a7799ac09778360ce1aa5c2216fa2ce6f1be06aabb2e0dd4f6ea63a6d3d7",
+        "model.safetensors": "c43b72ed336b64c66adceba8fbbb059e869f753b60de086e3f32bf1b118d5a77",
+        "tokenizer.model": "a6c3a7ca48ecf3c9254bf72dff58e3f09f2798f49effcbd7debcf6f7a87f3568",
+        "voices/male_1.wav": "e6538a1f0ce60d08994c3a733946589d327cf9256b35b77e4155c0baefadc81a",
+        "voices/male_2.wav": "d5585323c634900b054ea20d1c8c9e39d35516b89dba693eaabf8587143dd6d8",
+        "voices/male_3.wav": "b5bbbca120837cca1b93c3b8d740e70bcc3f32f53c557af04b207fc69a31545e",
+        "voices/female_1.wav": "82be41762735f5004cec992badc67813a02206fe53888ba7342a589197850225",
+        "voices/female_2.wav": "98cd697c9dd6f77f253bd1233675496b6d4882cd9c0ef72434b6a12e06564aa7",
+        "voices/female_3.wav": "555eab5c0640649c1323e6e51c2fae10a334ac3988e6ba0052822147fd9bc40c"
+      },
+      "voice": "male_1"
+    },
+    {
+      "id": "ema-lightning",
+      "backend": "ema_lightning",
+      "repo": "canberkkkkkk/ema-lightning",
+      "revision": "e7c96f2fc0ba843cd0f86e02786655bb56f50df8",
+      "license": "Apache-2.0",
+      "files": {
+        "README.md": "4ebc1f6e762eb070760c08b960940776a53cc0aec2aac32021bf203eaa2f61fa",
+        "config.json": "27546c470dd4e86d9ab8172fd1c85c45a4bffdf52d9ccb3f511c4b0c3ae38241",
+        "ema.pt": "95aec03dafbe0e1d69bca774ab597c779464729a14bc99bfcb52480090c7dfe6",
+        "decoder.pt": "9595819b173f411340f63d11332695121a97f8bf1f6d8b6fef0b21cf99c7ad67"
+      }
+    }
+  ]
+}

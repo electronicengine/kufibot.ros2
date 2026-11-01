@@ -3,6 +3,7 @@ build/
 install/
 log/
 .venv/
+.venv-tts/
 __pycache__/
 *.py[cod]
 .pytest_cache/

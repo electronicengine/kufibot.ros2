@@ -431,3 +431,61 @@ async def test_assignment_wait_rejects_disconnect_without_offer():
     with pytest.raises(VerasistSdkError, match="closed while waiting"):
         await asyncio.wait_for(pending, 1)
     session._client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_protocol_preserves_generation_and_stops():
+    session = _make_session()
+    captured = []
+    async def send(message):
+        captured.append(message)
+        result = {'request_id': message['payload']['request_id'], 'status': 'success', 'generation': 7}
+        await session._handle_message({'type': message['type'] + '-result', 'payload': result})
+    session._send = send
+    await session.configure_video('camera')
+    await session.send_video_frame(b'jpeg')
+    assert captured[-1]['payload']['generation'] == 7
+    assert captured[-1]['payload']['source'] == 'camera'
+    assert base64.b64decode(captured[-1]['payload']['data']) == b'jpeg'
+    await session.configure_video(None)
+    with pytest.raises(VerasistSdkError):
+        await session.send_video_frame(b'jpeg')
+    assert not session._pending_image_requests
+    session._client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['voice_session', 'video_session'])
+async def test_live_session_creates_explicit_session_type(mode):
+    client = VerasistClient(base_url='http://localhost:8000', api_key='test-key')
+    client.start_run = MagicMock(return_value=MagicMock(
+        session_token='test-session', workflow_run_id=42))
+    session = LiveSession(client, mode=mode)
+    await session.start(trigger_uuid='trigger')
+    body = client.start_run.call_args.kwargs['body']
+    assert body.model_dump(mode='json')['run_type'] == ('video' if mode == 'video_session' else 'voice')
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_auth_failure_is_reported_without_closing_voice():
+    session = _make_session()
+    events = []
+    session.on_voice_event(events.append)
+    payload = {"state": "unavailable", "source": "camera", "error_code": "provider_authentication"}
+    await session._handle_message({"type": "video-status", "payload": payload})
+    assert events == [{"type": "video-status", "payload": payload}]
+    assert not session._closed_event.is_set()
+    session._client.close()
+
+@pytest.mark.asyncio
+async def test_video_recording_chunk_uses_current_source_and_generation():
+    from unittest.mock import AsyncMock
+    session = object.__new__(LiveSession)
+    session._video_source = 'camera'
+    session._video_generation = 3
+    session._video_request = AsyncMock(return_value={'status':'success'})
+    await session.send_video_recording_chunk(b'webm', 0)
+    kind, payload = session._video_request.await_args.args
+    assert kind == 'video-recording-chunk'
+    assert payload == {'source':'camera','generation':3,'sequence':0,'mime_type':'video/webm','data':'d2VibQ=='}

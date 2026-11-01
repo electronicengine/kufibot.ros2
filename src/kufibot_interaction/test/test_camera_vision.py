@@ -110,6 +110,51 @@ def test_stale_camera_frame_is_rejected_without_upload():
     session.send_image.assert_not_awaited()
 
 
+def test_sampled_jpeg_is_ready_before_the_tool_request():
+    from concurrent.futures import ThreadPoolExecutor
+    from unittest.mock import Mock
+    node = camera_node()
+    node.last_camera_sample_at = 0.0
+    node.camera_sample_interval = .2
+    node.camera_send_cooldown = 0.0
+    node.last_camera_send_at = 0.0
+    node.ice_timeout = 3.0
+    node.camera_encode_future = None
+    node.session.send_image.return_value = {'status': 'success'}
+    frame = snapshot(320, 240)
+    message = Image(width=320, height=240, step=frame['step'],
+                    encoding=frame['encoding'], data=frame['data'])
+    with ThreadPoolExecutor(max_workers=1) as encoder:
+        node.camera_encoder = encoder
+        node._camera_image(message)
+        jpeg = node.camera_encode_future.result(timeout=2)
+        node._encode_camera_jpeg = Mock(side_effect=AssertionError('must reuse prepared JPEG'))
+        result = asyncio.run(node._send_camera_image(node.session, 'look'))
+    assert result['status'] == 'success'
+    assert node.session.send_image.await_args.kwargs['image_bytes'] == jpeg
+    node._encode_camera_jpeg.assert_not_called()
+
+
+def test_tool_uses_latest_frame_after_waiting_for_the_upload_slot():
+    async def run():
+        node = camera_node()
+        node.camera_send_cooldown = 0.0
+        node.last_camera_send_at = 0.0
+        node.ice_timeout = 3.0
+        node.session.send_image.return_value = {'status': 'success'}
+
+        async def paced_send(session, *, prepare, **kwargs):
+            node.latest_camera_image = snapshot(160, 120)
+            return await session.send_image(**kwargs, **await prepare())
+
+        node._send_device_image = paced_send
+        result = await node._send_camera_image(node.session, 'look')
+        assert result['status'] == 'success'
+        jpeg = node.session.send_image.await_args.kwargs['image_bytes']
+        assert cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR).shape == (120, 160, 3)
+    asyncio.run(run())
+
+
 def camera_node():
     from unittest.mock import Mock
     node = VoiceAgentNode.__new__(VoiceAgentNode)
@@ -196,4 +241,26 @@ def test_new_turn_cancels_previous_pending_upload():
         node._voice_event(node.session, {'type': 'rtf-user-turn-started', 'payload': {'turn_id': 'two'}})
         await asyncio.gather(old, node.camera_turn_task)
         node.session.complete_camera_turn.assert_awaited_once_with('two')
+    asyncio.run(run())
+
+
+def test_cancelled_turn_does_not_cancel_shared_jpeg_preparation():
+    from concurrent.futures import Future
+
+    async def run():
+        node = camera_node()
+        frame = node.latest_camera_image
+        jpeg = VoiceAgentNode._encode_camera_jpeg(frame, 640, 80)
+        future = frame['jpeg_future'] = Future()
+        old = asyncio.create_task(node._send_turn_camera(node.session, 'old', frame))
+        await asyncio.sleep(0)
+        old.cancel()
+        await old
+        assert not future.cancelled()
+        new = asyncio.create_task(node._send_turn_camera(node.session, 'new', frame))
+        future.set_result(jpeg)
+        await new
+        node.session.send_image.assert_awaited_once()
+        assert node.session.send_image.await_args.kwargs['turn_id'] == 'new'
+        node.session.complete_camera_turn.assert_awaited_once_with('new')
     asyncio.run(run())

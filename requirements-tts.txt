@@ -1,0 +1,9 @@
+# Install only in .venv-tts, never in the ROS / camera environment (NumPy 1.x).
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.9.0+cpu
+pocket-tts==3.3.0
+pocket-tts-turkish==0.1.0
+ema-lightning==1.1.2
+normalizer-tr==0.8.1
+numpy>=2,<3

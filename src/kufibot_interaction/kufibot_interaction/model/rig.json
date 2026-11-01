@@ -180,5 +180,12 @@
         -0.0822004
       ]
     }
+  },
+  "articulation_revision": 2,
+  "articulation_repairs": {
+    "leftArm": {
+      "components": 3,
+      "triangles": 258
+    }
   }
 }

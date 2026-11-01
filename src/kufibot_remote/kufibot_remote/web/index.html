@@ -16,11 +16,17 @@
   <link rel="icon" href="/assets/icon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/assets/style.css">
+  <link rel="stylesheet" href="/assets/mobile-control.css">
   <script type="module" src="/assets/app.js"></script>
 </head>
 <body>
   <main class="controller" aria-label="Kufibot robot kumandası">
+    <header class="mobile-header mobile-only"><div id="mobile-brand-slot"></div><div id="mobile-connection-slot"></div></header>
+    <nav id="mobile-mode-slot" class="mobile-only" aria-label="Robot modu"></nav>
+    <div id="mobile-state-slot" class="mobile-only" aria-live="polite"></div>
     <div class="camera-stage">
+      <div id="mobile-live-slot" class="mobile-only"></div>
+      <div class="mobile-clearance mobile-only"><span>Ön mesafe</span><strong id="mobile-clearance">— m</strong></div>
       <video id="camera" aria-label="Robot kamerasından canlı görüntü" autoplay playsinline muted hidden></video>
       <div id="camera-placeholder" class="camera-placeholder">
         <div class="reticle" aria-hidden="true"><span></span></div>
@@ -31,16 +37,16 @@
 
     <header class="top-bar">
       <section class="sensor-group" aria-label="Güç sensörleri">
-        <button id="menu-open" class="brand" aria-label="Bağlantı ve yardım menüsü">☰ <span>KUFIBOT</span><small>CONTROL</small></button>
+        <button id="menu-open" class="brand" aria-label="Bağlantı ve yardım menüsü"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Kufi</span><small>CONTROL</small></button>
         <div class="sensor"><span>AKIM</span><strong id="current">— A</strong></div>
         <div class="sensor"><span>GERİLİM</span><strong id="voltage">— V</strong></div>
         <div class="wake-heard" aria-live="polite"><span>Son algılanan metin</span><strong id="control-heard">Henüz konuşma algılanmadı.</strong><small id="control-heard-match"></small></div>
       </section>
       <section class="top-center" aria-label="Kontrol modu ve bağlantı">
         <div class="mode-switch">
-          <button id="mode-remote" aria-pressed="false" disabled>KUMANDA</button>
-          <button id="mode-ai" aria-pressed="false" disabled>YZ MODU</button>
-          <button id="mode-tools" aria-pressed="false" disabled>ARAÇ ÇAĞIR</button>
+          <button id="mode-remote" aria-pressed="false" disabled>Kumanda</button>
+          <button id="mode-ai" aria-pressed="false" disabled>Sesli ajan</button>
+          <button id="mode-tools" aria-pressed="false" disabled>Araçlar</button>
         </div>
         <button id="navigation-toggle" class="claim" aria-pressed="false" hidden disabled>Serbest gezinme</button>
         <div id="navigation-status" class="notice" role="status" hidden></div>
@@ -56,7 +62,7 @@
         <button id="claim" class="claim" hidden>Kumandayı devral</button>
       </section>
       <section class="sensor-group" aria-label="Çevre sensörleri">
-        <div class="live-heading"><i id="live-dot"></i> CANLI GÖRÜNTÜ</div>
+        <div class="live-heading"><i id="live-dot"></i> Canlı görüntü</div>
         <div class="sensor"><span>PUSULA</span><strong id="heading">— °</strong></div>
         <div class="sensor"><span>MESAFE</span><strong id="distance">— m</strong></div>
       </section>
@@ -65,8 +71,8 @@
     <div id="error" class="error" role="alert" hidden></div>
 
     <section class="bottom-bar" aria-label="Hareket ve eklem kontrolleri">
-      <div class="control-column">
-        <label class="eye-control"><span>SOL GÖZ</span><input id="eyeLeft" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
+      <div class="control-column drive-column">
+        <label class="eye-control"><span>Sol göz</span><input id="eyeLeft" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
         <div class="drive-controls">
           <label class="speed-control" for="drive-speed"><span>HIZ</span><output id="drive-speed-value">100%</output>
             <input id="drive-speed" type="range" min="25" max="100" step="5" value="100" aria-label="İleri geri sürüş hızı">
@@ -80,7 +86,7 @@
             </div>
           </div>
         </div>
-        <label class="arm-control" for="leftArm"><span>SOL KOL</span><output id="leftArm-value">— °</output></label>
+        <label class="arm-control" for="leftArm"><span>Sol kol</span><output id="leftArm-value">— °</output></label>
         <input id="leftArm" type="range" min="109" max="180" step="1" value="170" disabled>
       </div>
 
@@ -90,31 +96,80 @@
         </button>
       </div>
 
-      <div class="control-column">
-        <label class="eye-control"><span>SAĞ GÖZ</span><input id="eyeRight" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
-        <div class="joystick-label">KAFA</div>
+      <div class="control-column head-column">
+        <label class="eye-control"><span>Sağ göz</span><input id="eyeRight" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
+        <div class="joystick-label">Kafa</div>
         <div id="head-stick" class="joystick" role="group" tabindex="0" aria-label="Kafa joysticki, fare ve dokunmatik" aria-disabled="true">
           <span class="axis axis-x"></span><span class="axis axis-y"></span>
           <span class="direction up">↑</span><span class="direction down">↓</span><span class="direction left">←</span><span class="direction right">→</span>
           <span class="knob"></span>
         </div>
-        <label class="arm-control" for="rightArm"><span>SAĞ KOL</span><output id="rightArm-value">— °</output></label>
+        <label class="arm-control" for="rightArm"><span>Sağ kol</span><output id="rightArm-value">— °</output></label>
         <input id="rightArm" type="range" min="10" max="72" step="1" value="15" disabled>
       </div>
+      <div id="mobile-speed-slot" class="mobile-only"></div>
     </section>
+    <section class="mobile-ai-panel mobile-only" aria-label="Sesli görüşme">
+      <div class="mobile-voice-heading"><div><span>Sesli ajan</span><strong id="mobile-voice-state" role="status">Robot bekleniyor</strong></div><button id="mobile-end-voice" disabled>Görüşmeyi bitir</button></div>
+      <div id="mobile-heard-slot"></div>
+    </section>
+    <section class="mobile-tools-panel mobile-only" aria-label="Robot araçları"><div><strong>Mimik ve konuşma</strong><span>Kufi’ye hareket ve ses ver.</span></div><button id="mobile-open-tools">Araçları aç</button></section>
+    <div class="mobile-actionbar mobile-only"><button id="mobile-details" aria-haspopup="dialog" aria-controls="mobile-robot-panel"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3"/><circle cx="11" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>Detaylar</button><button id="mobile-stop" disabled><span aria-hidden="true">■</span> Durdur</button></div>
     <footer><span id="endpoint"></span><span>YEREL AĞ KUMANDASI</span></footer>
   </main>
+  <dialog id="mobile-robot-panel" class="mobile-robot-panel" aria-labelledby="mobile-panel-title">
+    <header class="mobile-panel-header"><h2 id="mobile-panel-title">Robot detayları</h2><button id="mobile-panel-stop" disabled>Durdur</button><button id="mobile-details-close" aria-label="Robot detaylarını kapat">✕</button></header>
+    <div class="mobile-panel-content">
+      <section><h3>Gözler</h3><div id="mobile-eyes-slot" class="mobile-eyes"></div></section>
+      <section><h3>Kollar</h3><div class="mobile-arms"><div id="mobile-left-arm-slot"></div><div id="mobile-right-arm-slot"></div></div></section>
+      <section><h3>Sensörler</h3><div id="mobile-sensors-slot" class="mobile-sensors"></div></section>
+      <section id="mobile-navigation-section" hidden><h3>Serbest gezinme</h3><div id="mobile-navigation-slot"></div></section>
+      <section><h3>Harita ve yön</h3><div id="mobile-orientation-slot" class="mobile-orientation"></div><div id="mobile-map-slot"></div></section>
+    </div>
+  </dialog>
   <dialog id="map-dialog" class="map-dialog" aria-label="Büyütülmüş mesafe haritası">
     <button id="map-close" aria-label="Haritayı kapat">✕</button><canvas id="distance-map-full" width="900" height="700"></canvas>
   </dialog>
-  <dialog id="tool-modal" aria-labelledby="tool-title">
-    <div class="dialog-header"><h2 id="tool-title">Araç çağrısı</h2><button id="tool-close">✕</button></div>
+  <dialog id="tool-modal" class="tools-console" aria-labelledby="tool-title">
+    <div class="studio-header"><div><h2 id="tool-title">Kufi’ye hayat ver.</h2><p>Bir mimik seç. Aklındaki cümleyi söylettir.</p></div><button id="tool-close" class="studio-close" aria-label="Araç çağır penceresini kapat">✕</button></div>
+    <div class="studio-tabs" role="tablist" aria-label="Araç türü">
+      <button id="performance-tab" role="tab" aria-selected="true" aria-controls="performance-panel">Mimik ve konuşma</button>
+      <button id="navigation-tab" role="tab" aria-selected="false" aria-controls="navigation-panel" tabindex="-1">Hareket araçları</button>
+      <span id="performance-connection" class="studio-connection">Robot bekleniyor</span>
+    </div>
+    <section id="performance-panel" role="tabpanel" aria-labelledby="performance-tab">
+      <div class="studio-body">
+        <section class="expression-library" aria-labelledby="expression-heading">
+          <div class="studio-section-heading"><h3 id="expression-heading">Nasıl hissetsin?</h3><button id="performance-refresh" class="studio-text-button" aria-label="Mimik kitaplığını yenile">Yenile ↻</button></div>
+          <div class="expression-filters"><div role="group" aria-label="Mimik kategorisi"><button data-expression-filter="all" aria-pressed="true">Tümü</button><button data-expression-filter="emotion" aria-pressed="false">Duygular</button><button data-expression-filter="gesture" aria-pressed="false">Hareketler</button></div><input id="expression-search" type="search" placeholder="Mimik ara…" aria-label="Mimik ara"></div>
+          <div id="expression-list" class="expression-grid" role="group" aria-label="Mimik seçimi" aria-busy="true"></div>
+          <p id="expression-empty" class="studio-empty">Mimikler yükleniyor…</p>
+          <button id="expression-clear" class="studio-text-button">Mimik olmadan konuş</button>
+        </section>
+        <section class="speech-composer" aria-labelledby="speech-heading">
+          <div class="expression-preview"><div id="expression-preview-face" aria-hidden="true"></div><div><span>Seçili mimik</span><strong id="expression-selected">Mimik seçilmedi</strong><small id="expression-duration">Yalnızca konuşma da gönderebilirsin.</small></div><span class="preview-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>
+          <div class="studio-section-heading"><label id="speech-heading" for="performance-text">Ne söylesin?</label><span id="performance-count">0 / 1000</span></div>
+          <textarea id="performance-text" maxlength="1000" rows="6" placeholder="Merhaba! Ben Kufi. Seni gördüğüme çok sevindim." aria-describedby="performance-text-help"></textarea>
+          <p id="performance-text-help" class="studio-help">Yazdığın cümle robotun hoparlöründen, olduğu gibi okunur.</p>
+          <div class="speech-suggestions" aria-label="Hazır cümleler"><button data-speech-preset="greeting">Bir merhaba</button><button data-speech-preset="thanks">Teşekkür et</button><button data-speech-preset="introduce">Kendini tanıt</button></div>
+          <div class="speech-voice"><label for="performance-voice">Robotun sesi</label><select id="performance-voice"><option value="">Otomatik ses</option></select></div>
+          <p id="performance-voice-help" class="studio-help"></p>
+        </section>
+      </div>
+      <footer class="studio-footer">
+        <div class="performance-feedback" role="status" aria-live="polite"><span id="performance-state-dot" class="performance-state-dot"></span><div><strong id="performance-status">Sahne senin.</strong><small id="performance-detail">Mimik ve konuşma birlikte başlayacak.</small></div></div>
+        <div class="performance-actions"><button id="performance-stop" class="performance-stop" disabled>■ Durdur</button><button id="performance-mimic" class="performance-mimic" disabled>Yalnızca mimik</button><button id="performance-play" class="performance-play" disabled><span aria-hidden="true">▶</span><span id="performance-play-label">Söyle ve oynat</span></button></div>
+      </footer>
+    </section>
+    <section id="navigation-panel" class="navigation-panel" role="tabpanel" aria-labelledby="navigation-tab" hidden>
+    <h3>Robotun hareketini kontrol et</h3><p class="studio-help">Bir noktaya bak, çevreyi tara veya ölçülen haritada bir rota izle.</p>
     <label>Araç <select id="tool-name" class="trigger-input"><option value="goto">goto</option><option value="follow_route">follow_route</option><option value="look_at">look_at</option><option value="read_sensor_values">read_sensor_values</option></select></label>
     <label id="tool-route-label" hidden>Waypoint listesi (metre)<textarea id="tool-route" class="trigger-input" rows="4">[{"x_m":0,"y_m":1},{"x_m":1,"y_m":1}]</textarea></label>
     <label id="tool-distance-label">Mesafe (m)<input id="tool-distance" class="trigger-input" type="number" min="0" max="3.5" step="0.05" value="0.3"></label>
     <label>Açı (°)<input id="tool-angle" class="trigger-input" type="number" min="-180" max="180" step="1" value="0"></label>
     <label id="tool-sweep-label">Tarama (°)<input id="tool-sweep" class="trigger-input" type="number" min="0" max="180" step="10" value="180"></label>
     <button id="tool-call" class="secondary">Çağır</button><pre id="tool-result" class="help"></pre><img id="tool-image" hidden alt="Araç çağrısına teslim edilen gözlem">
+    </section>
   </dialog>
 
   <aside id="menu" class="app-drawer" aria-label="Kufibot gezinme" aria-hidden="true">
@@ -154,10 +209,30 @@
         <div id="workflow-empty" hidden><span class="workflow-empty-icon" aria-hidden="true">◇</span><h4></h4><p></p></div>
       </article>
       <article data-page-content="connection">
-        <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>
-        <div class="address" id="menu-address"></div>
-        <button id="reconnect" class="secondary">Bağlantıyı yenile</button>
-        <p class="help">Bağlantı adresini değiştirmek için mobil uygulamadaki keşif veya IP ile bağlanma ekranını kullanın.</p>
+        <div class="device-connection"><div><span class="device-caption">Robot adresi</span><div class="address" id="menu-address"></div></div><button id="reconnect" class="device-quiet">Bağlantıyı yenile</button></div>
+        <div id="device-owner-notice" class="device-owner" hidden><span>Ayarları değiştirmek için robotun kontrolünü alın.</span><button id="device-claim" class="device-quiet">Kontrolü devral</button></div>
+        <section class="device-section" aria-labelledby="device-audio-title">
+          <div class="device-heading"><div><h3 id="device-audio-title">Robotun sesi</h3><p>Robotun dinleyeceği ve konuşacağı aygıtları seçin.</p></div><button id="device-audio-refresh" class="device-quiet">Listeyi yenile</button></div>
+          <div class="device-audio-grid"><label for="device-microphone">Mikrofon<select id="device-microphone"><option value="">Yükleniyor…</option></select></label><label for="device-speaker">Hoparlör<select id="device-speaker"><option value="">Yükleniyor…</option></select></label></div>
+          <p class="device-help">Bu aygıtlar robot üzerindedir. Eşleştirilmiş Bluetooth hoparlör seçildiğinde bağlantısı denenir.</p>
+          <div class="device-actions"><span id="device-audio-status" role="status" aria-live="polite"></span><button id="device-audio-save" class="device-primary" disabled>Ses ayarlarını kaydet</button></div>
+        </section>
+        <section class="device-section" aria-labelledby="device-network-title">
+          <div class="device-heading"><div><h3 id="device-network-title">Wi-Fi ağı</h3><p>Robotun bağlanacağı ağı seçin.</p></div><button id="device-network-scan" class="device-quiet" disabled>Ağları tara</button></div>
+          <div id="device-network-current" class="device-network-current">Ağ bilgisi yükleniyor…</div>
+          <div id="device-hotspot-active" class="device-setup-notice" hidden><strong>Robotun kurulum ağına bağlısınız.</strong><p>Bu ağ internet sağlamaz. Aşağıdan robotun bağlanacağı Wi-Fi ağını seçin veya ağ adını elle girin.</p></div>
+          <div id="device-network-list" class="device-network-list" role="group" aria-label="Kullanılabilir Wi-Fi ağları"></div>
+          <details id="device-network-manual" class="device-manual"><summary>Ağ adını elle gir</summary><form id="device-network-manual-form"><label for="device-network-ssid">Ağ adı (SSID)</label><input id="device-network-ssid" maxlength="32" autocomplete="off" placeholder="Wi-Fi ağınızın adı" required><label for="device-network-security">Güvenlik</label><select id="device-network-security"><option value="wpa-psk">WPA / WPA2</option><option value="sae">WPA3</option><option value="open">Parolasız ağ</option></select><button class="device-quiet" id="device-network-manual-select" type="submit">Bu ağı seç</button></form></details>
+          <form id="device-network-form" class="device-network-form" hidden>
+            <div class="device-network-selection"><span>Seçilen ağ</span><strong id="device-network-name"></strong></div>
+            <div id="device-network-password-field"><label for="device-network-password">Wi-Fi parolası</label><div class="device-password"><input id="device-network-password" type="password" autocomplete="off" maxlength="128" spellcheck="false"><button id="device-network-reveal" type="button" aria-pressed="false">Göster</button></div><p id="device-network-password-help" class="device-help"></p></div>
+            <p class="device-help">Bağlan dedikten sonra telefonunuzu veya bilgisayarınızı da seçtiğiniz ağa bağlayın. Robot sabit yerel adresinden yeniden aranır. Bağlantı kurulamazsa önceki bağlantı geri yüklenir; erişilebilir bir ağ yoksa kurulum ağı açılır.</p>
+            <div class="device-actions"><a id="device-network-local" class="device-local-link"></a><button id="device-network-connect" class="device-primary" type="submit" disabled>Bu ağa bağlan</button></div>
+          </form>
+          <p id="device-network-status" class="device-status" role="status" aria-live="polite"></p>
+          <section id="device-network-handoff" class="device-setup-notice" hidden aria-labelledby="device-handoff-title"><strong id="device-handoff-title">Yeni ağa geçiliyor</strong><p id="device-handoff-message" role="status"></p><a id="device-handoff-open" class="device-local-link">Robotu yeni ağda aç</a><p class="device-help">Otomatik açılmazsa bu bağlantıya dokunun. Bağlantı kurulamazsa robotun kurulum ağına yeniden bağlanın.</p></section>
+          <details id="device-hotspot-info" class="device-manual" hidden><summary>Robotun kurulum ağı</summary><p class="device-help">Robot 45 saniye içinde bir Wi-Fi ağına bağlanamazsa kurulum ağını açar. Telefonunuz ağ giriş sayfasını açabilir; açılmazsa kurulum adresini kullanın.</p><dl class="device-hotspot-values"><dt>Ağ adı</dt><dd id="device-hotspot-ssid"></dd><dt>Güvenlik</dt><dd id="device-hotspot-security"></dd><dt>Kurulum adresi</dt><dd><a id="device-hotspot-url" class="device-local-link"></a></dd><dt>Sabit yerel adres</dt><dd><a id="device-hotspot-local" class="device-local-link"></a></dd></dl><button id="device-hotspot-password-show" class="device-quiet" type="button">Kurulum ağı parolasını göster</button><output id="device-hotspot-password" hidden></output></details>
+        </section>
       </article>
       <article data-page-content="voice">
     <p>Bu sayfanın açıldığı robotun kamerasına ve kontrollerine bağlanılır.</p>

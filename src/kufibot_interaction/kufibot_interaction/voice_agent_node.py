@@ -4,6 +4,7 @@
 import asyncio
 import base64
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import math
 import json
 import signal
@@ -153,6 +154,9 @@ class VoiceAgentNode(Node):
         self.cache = TimedCache()
         self.camera_lock = threading.Lock()
         self.latest_camera_image = None
+        self.camera_encoder = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix='camera-jpeg')
+        self.camera_encode_future = None
         self.last_camera_send_at = 0.0
         self.camera_send_tasks = set()
         self.ai_settings = read_settings()
@@ -477,8 +481,25 @@ class VoiceAgentNode(Node):
             'step': int(msg.step), 'encoding': msg.encoding,
             'data': bytes(msg.data),
         }
+        # Prepare sampled JPEGs before a tool asks for one. Never queue a
+        # backlog or encode on the ROS/audio event-loop threads.
+        encoder = getattr(self, 'camera_encoder', None)
+        if encoder is not None and (self.camera_encode_future is None
+                                    or self.camera_encode_future.done()):
+            self.camera_encode_future = encoder.submit(
+                self._encode_camera_jpeg, snapshot,
+                self.camera_jpeg_max_width, self.camera_jpeg_quality)
+            snapshot['jpeg_future'] = self.camera_encode_future
         with self.camera_lock:
             self.latest_camera_image = snapshot
+
+    async def _camera_jpeg(self, snapshot):
+        future = snapshot.get('jpeg_future')
+        if future is not None:
+            # Cancelling an old conversation turn must not cancel the cache.
+            return await asyncio.shield(asyncio.wrap_future(future))
+        return await asyncio.to_thread(self._encode_camera_jpeg, snapshot,
+                                       self.camera_jpeg_max_width, self.camera_jpeg_quality)
 
     def _publish_state(self, state, detail=''):
         transition = (state, detail)
@@ -838,8 +859,7 @@ class VoiceAgentNode(Node):
                     for key, default in AEC_MODULE_DEFAULTS.items()}
         if settings == getattr(self, '_applied_aec_module_settings', None):
             return
-        script = Path(__file__).resolve().parents[3] / 'tools' / 'setup_voice_aec.py'
-        command = [sys.executable, str(script), '--restart',
+        command = [sys.executable, '-m', 'kufibot_interaction.voice_aec', '--restart',
                    '--play-delay-ms', str(settings['aec_play_delay_ms'])]
         for key in ('high_pass_filter', 'noise_suppression', 'gain_control',
                     'extended_filter', 'delay_agnostic'):
@@ -870,6 +890,21 @@ class VoiceAgentNode(Node):
                     f'WebRTC connection entered {state!r} state'))
 
         return ready
+
+    async def _connect_verasist_session(self):
+        """Accept the trigger UUID or the workflow UUID copied from Verasist."""
+        from verasist_sdk.errors import ApiError
+        options = dict(tracks=[self.mic], ice_timeout_secs=self.ice_timeout,
+                       call_context_vars={'device_barge_in': True})
+        try:
+            await self.session.connect(trigger_uuid=self.trigger_uuid, **options)
+        except ApiError as error:
+            # Only a missing trigger before session creation is safe to retry.
+            # Auth, transport and media failures must keep their original error.
+            if (error.status_code != 404 or self.session.session_token is not None
+                    or 'Agent trigger not found' not in str(error)):
+                raise
+            await self.session.connect(workflow_uuid=self.trigger_uuid, **options)
 
     async def _start_session_unlocked(self):
         if self._is_local():
@@ -928,7 +963,7 @@ class VoiceAgentNode(Node):
         self.expression_worker.suspend(False)
         from verasist_sdk import LiveSession, VerasistClient
         from .audio import AlsaMicTrack, AlsaSpeaker
-        from .audio_devices import local_audio_devices
+        from .audio_devices import ensure_playback_volume, local_audio_devices
         audio = {**self.verasist_audio_defaults,
                  **self.ai_settings.get('verasist_audio', {})}
         # Half-duplex capture replaces microphone PCM with silence during
@@ -939,6 +974,8 @@ class VoiceAgentNode(Node):
             await self._ensure_aec_module(audio)
         mic_device, speaker_device = await local_audio_devices(
             effective_aec_mode, self.mic_device, self.speaker_device)
+        await ensure_playback_volume(speaker_device)
+        self.active_speaker_device = speaker_device
         self.get_logger().info(
             f'Voice audio devices: microphone={mic_device}, speaker={speaker_device}; '
             f'AEC={effective_aec_mode}')
@@ -960,7 +997,10 @@ class VoiceAgentNode(Node):
             noise_suppression_db=audio['noise_suppression_db'],
             barge_in_rms=audio['barge_in_rms'],
             barge_in_start_sec=audio['barge_in_start_sec'],
-            playback_echo_tail_sec=audio['playback_echo_tail_sec'])
+            playback_echo_tail_sec=audio['playback_echo_tail_sec'],
+            # Opus sends 20 ms packets. Keep DSP at 10 ms but avoid dispatching
+            # two executor jobs per packet while competing with the ROS thread.
+            packet_frames=2)
         await self.mic.start_capture()
 
         @self.session.on_track
@@ -993,13 +1033,14 @@ class VoiceAgentNode(Node):
         @self.session.on_connection_state
         def on_state(state):
             if self.session is current_session:
+                if state in ('connected', 'completed'):
+                    # ICE can take seconds. Start with live microphone audio,
+                    # rather than carrying the startup backlog into every turn.
+                    self.mic.discard_pending_audio()
                 self.navigation.connection_state(state)
                 self._publish_state(state)
 
-        await self.session.connect(
-            trigger_uuid=self.trigger_uuid, tracks=[self.mic],
-            ice_timeout_secs=self.ice_timeout,
-            call_context_vars={'device_barge_in': True})
+        await self._connect_verasist_session()
         try:
             await asyncio.wait_for(connection_ready, timeout=self.ice_timeout)
         except asyncio.TimeoutError as exc:
@@ -1144,7 +1185,7 @@ class VoiceAgentNode(Node):
                 frame = self.latest_camera_image
             if frame is None or time.monotonic()-frame['received_at'] > self.camera_max_age:
                 return {'status': 'error', 'error': 'Kamera görüntüsü yok veya eski'}
-            jpeg = await asyncio.to_thread(self._encode_camera_jpeg, frame, self.camera_jpeg_max_width, self.camera_jpeg_quality)
+            jpeg = await self._camera_jpeg(frame)
             return {'status': 'ok', 'image': {'mime_type': 'image/jpeg', 'base64': base64.b64encode(jpeg).decode()},
                     'perception': perception_snapshot(self.cache, self.max_age)}
         if name == 'play_motion':
@@ -1352,8 +1393,7 @@ class VoiceAgentNode(Node):
         try:
             if snapshot is None or time.monotonic() - snapshot['received_at'] > self.camera_max_age:
                 raise ValueError('Kamera görüntüsü yok veya güncel değil')
-            jpeg = await asyncio.to_thread(self._encode_camera_jpeg, snapshot,
-                                           self.camera_jpeg_max_width, self.camera_jpeg_quality)
+            jpeg = await self._camera_jpeg(snapshot)
             # A single bounded attempt: a late/retried upload must never enter
             # another turn. The server enforces the final-turn deadline too.
             await session.send_image(image_bytes=jpeg, mime_type='image/jpeg',
@@ -1372,7 +1412,9 @@ class VoiceAgentNode(Node):
     async def _watch_audio(self, session):
         """Keep the WebRTC session alive across local audio device disconnects."""
         from .audio import check_aec_devices
+        from .audio_devices import ensure_playback_volume
         unavailable = False
+        playback_unavailable = False
         try:
             while self.session is session:
                 await asyncio.sleep(1)
@@ -1380,32 +1422,46 @@ class VoiceAgentNode(Node):
                     return
                 try:
                     await check_aec_devices(self.mic_device, self.speaker_device)
-                    if self.mic and self.mic.capture_error:
+                    capture_stuck = (self.mic and self.mic.capture_stalled is True
+                                     and self.mic.last_capture_at is not None
+                                     and time.monotonic() - self.mic.last_capture_at >= 3.0)
+                    if capture_stuck:
+                        self.get_logger().warning(
+                            'Microphone sent no PCM for 3 seconds; restarting capture in the same session')
+                    if self.mic and (self.mic.capture_error or capture_stuck):
                         await self.mic.restart_capture()
-                    for speaker in self.speakers:
-                        if speaker.error:
-                            await speaker.restart_playback()
                 except Exception as error:
                     if not unavailable:
                         self.get_logger().warning(
-                            f'Audio device unavailable; keeping current session: {error}')
+                            f'Audio input unavailable; continuing playback: {error}')
                         self._publish_state(
                             'connected', f'Ses aygıtı bekleniyor; oturum korunuyor: {error}')
                     unavailable = True
                     if self.mic:
                         self.mic.suspended = True
-                    for speaker in self.speakers:
-                        speaker.suspended = True
-                    continue
-                if unavailable:
+                else:
                     if self.mic:
                         self.mic.suspended = False
+                    if unavailable:
+                        self.get_logger().info(
+                            'Audio input returned; continuing the same conversation')
+                        self._publish_state('connected', 'Ses aygıtı geri geldi; aynı oturum devam ediyor')
+                    unavailable = False
+                # Capture and playback are independent. A USB microphone reset
+                # must never discard incoming assistant speech on a healthy sink.
+                try:
+                    device = getattr(self, 'active_speaker_device', None)
+                    if device:
+                        await ensure_playback_volume(device)
                     for speaker in self.speakers:
                         speaker.suspended = False
-                    self.get_logger().info(
-                        'Audio devices returned; continuing the same conversation')
-                    self._publish_state('connected', 'Ses aygıtı geri geldi; aynı oturum devam ediyor')
-                    unavailable = False
+                        if speaker.error:
+                            await speaker.restart_playback()
+                    playback_unavailable = False
+                except Exception as error:
+                    if not playback_unavailable:
+                        self.get_logger().warning(f'Audio playback recovery pending: {error}')
+                    playback_unavailable = True
         except asyncio.CancelledError:
             return
 
@@ -1441,16 +1497,27 @@ class VoiceAgentNode(Node):
         if age > self.camera_max_age:
             return {'status': 'error', 'error': 'camera frame is stale',
                     'age_sec': round(age, 2)}
-        jpeg = self._encode_camera_jpeg(
-            snapshot, self.camera_jpeg_max_width, self.camera_jpeg_quality)
-        self.last_camera_send_at = now
+        jpeg = None
+
+        async def prepare():
+            nonlocal jpeg
+            with self.camera_lock:
+                frame = self.latest_camera_image
+            if frame is None or time.monotonic() - frame['received_at'] > self.camera_max_age:
+                raise ValueError('camera frame unavailable or stale')
+            jpeg = await self._camera_jpeg(frame)
+            if time.monotonic() - frame['received_at'] > self.camera_max_age:
+                raise ValueError('camera frame is stale')
+            self.last_camera_send_at = time.monotonic()
+            return {'image_bytes': jpeg}
+
         result = await self._send_device_image(
-            session, image_bytes=jpeg, mime_type='image/jpeg', prompt=str(prompt),
+            session, prepare=prepare, mime_type='image/jpeg', prompt=str(prompt),
             trigger_response=trigger_response,
             timeout=self.ice_timeout)
         self.get_logger().info(
             f'Camera image accepted by Verasist ({len(jpeg)} bytes, '
-            f'trigger_response={trigger_response})')
+            f'trigger_response={trigger_response}, elapsed_ms={(time.monotonic() - now) * 1000:.0f})')
         return {'status': 'success', 'bytes': len(jpeg),
                 'backend': result}
 
@@ -1768,12 +1835,17 @@ class VoiceAgentNode(Node):
         except Exception:
             pass
         self.expression_worker.close()
+        self.camera_encoder.shutdown(wait=False, cancel_futures=True)
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.loop_thread.join(timeout=2.0)
         super().destroy_node()
 
 
 def main(args=None):
+    # The ROS executor and RTP loop share the GIL. A default 5 ms handoff can
+    # starve the 10 ms capture/20 ms Opus jobs under ROS or model load, even
+    # when another CPU core is free. Bound the handoff to 1 ms for this node.
+    sys.setswitchinterval(min(sys.getswitchinterval(), 0.001))
     rclpy.init(args=args)
     node = VoiceAgentNode()
     try:

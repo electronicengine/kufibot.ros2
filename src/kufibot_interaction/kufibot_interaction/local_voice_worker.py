@@ -260,6 +260,9 @@ def fit_messages(llm, formatter, system, history, text, max_tokens):
 
 
 def load_voice(config):
+    if Path(config['tts']).suffix == '.json':
+        from .tts_backends import IsolatedVoice
+        return IsolatedVoice(config['tts'], config.get('tts_threads', 1))
     import onnxruntime as ort
     from piper import PiperVoice, PiperConfig
     options = ort.SessionOptions()

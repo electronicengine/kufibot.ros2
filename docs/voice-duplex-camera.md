@@ -261,3 +261,57 @@ kuyruktaki PCM süresini, Bluetooth yazması uzarken korumayı, söz kesmenin il
 hecesinin korunmasını, tek tıkırtının reddedilmesini ve RTP sürekliliğini kapsar.
 Bu koşunun ilk gerçek cihaz kontrolünde Bluetooth hoparlör bağlantısı kapalıydı;
 yeni eşik için fiziksel çift konuşma kabul testi tamamlanmış sayılmaz.
+
+## 28 Ekim 2026: kısa kesilmeler ve açılış zaman aşımı
+
+ROS yürütücüsü ile ses döngüsü aynı Python sürecinde GIL paylaşır. Sürekli
+Python yükü ve gerçek kamera mikrofonuyla yapılan yerel WebRTC karşılaştırmasında
+5 ms geçiş aralığında 8 saniyede 500 mikrofon çerçevesi düştü. 1 ms aralıkla
+800 adet 10 ms çerçevenin tamamı gönderildi; kayıp sıfırdı. Ses düğümü geçiş
+aralığını en fazla 1 ms yapar. DSP 10 ms, Opus'a teslim edilen paketler 20 ms
+olarak kalır. Mikrofon tamponu kısa gecikmeler için en fazla 500 ms tutar;
+bağlantı kurulurken eski başlangıç sesi temizlenir. Hazır PCM alınırken ek
+asyncio görevleri oluşturulmaz ve toplu okuma göndericiye çalışma sırası verir.
+Takılan yerel yakalama üç saniyeden sonra aynı oturumda yeniden açılır.
+
+Sunucuda ayrı bir açılış yarışı doğrulandı: 5503 numaralı çalışmada WebSocket
+ve ICE hazırlığı sürerken 30 saniyelik işleyici ataması doldu. WebRTC bağlansa
+da ses işleyicisi `invalid_worker_assignment` ile başlayamadı.
+`/root/verasist/api/db/scheduling_client.py` içindeki WebRTC/video açılış süresi
+60 saniyeye, WebRTC bağlantı sınırıyla aynı değere getirildi. Atamanın 45 saniyede
+korunduğu ve 61 saniyede hâlâ iptal edildiği PostgreSQL testleri dahil 56 sunucu
+testi geçti. Sunucu kaynak dosyası, çalışan denetim işleyicileri ve sonraki
+konteyner açılışlarında kullanılan yerel API imajı güncellendi.
+
+74 ilgili robot testi geçti. 5506 numaralı gerçek robot oturumu yaklaşık 8
+saniyede bağlandı ve ses çaldı. Yakalama sayacı 1000'den 6000'e çıkarken kayıp
+sayacı 674'te sabit kaldı: bu 50 saniyede yeni kayıp yoktu. İlk 674 kayıp bağlantı
+öncesi hazırlığa aittir; toplam sayaç doğrudan görüşme içi kayıp oranı değildir.
+Seçili `317ceaa7-954b-4cbb-b627-589438cb600a` iş akışı açılış yapılandırmasına
+kaydedildi. AEC kapalı ve oynatma sırasında mikrofonu susturma tercihi korundu.
+
+Kullanıcı düşük voltaj nedeniyle yeniden başlamalar bildirdi; günlüklerde ayrı
+önyüklemeler de görüldü. Yazılım düzeltmeleri güç kesilmesini önlemez. Güç
+beslemesi kararlı hâle gelene kadar kesintisiz uzun oturum doğrulaması sınırlıdır.
+
+### 5508 ve 5509: görüntü isteğinin ses oturumunu kapatması
+
+Bu iki oturum `AWSBedrockLLMService` içindeki `ConverseStream` çağrısının
+`This model doesn't support the image content block` hatasıyla kapandı.
+`gpt-oss-120b` görüntü girdisini desteklemiyor; doğrudan kamera JPEG'i eklemek
+sonraki konuşma bağlamını da geçersiz hâle getiriyordu.
+[Resmî model özellikleri](https://developers.openai.com/api/docs/models/gpt-oss-120b).
+
+Sunucunun `model_capabilities.py` kontrolü gpt-oss-120b/20b için görüntü
+bağlamaya izin vermez. `handle_device_image` konuşma bağlamını değiştirmeden
+anlaşılır hata döndürür; otomatik kamera ekleme de bu kontrolü kullanır.
+Model seçimi değiştirilmedi. Kamera analizi ayrıca görüntü destekleyen bir
+model veya görsel araç gerektirir. 44 ilgili sunucu testi geçti. 5510 numaralı
+canlı testte görüntü reddedildikten sonra bağlantı açık kaldı ve 153 ek ses
+çerçevesi alındı. Düzeltme sunucu kaynağına, çalışan WebRTC işleyicisine ve
+sonraki başlatmalarda kullanılan yerel API imajına uygulandı.
+
+`ws://192.168.1.12:8080/control` ayrı, robot üzerindeki kontrol bağlantısıdır.
+Bu incelemede hem `127.0.0.1` hem `192.168.1.12` üzerinden WebSocket açılıp
+`state` mesajı alındı. Önceki `ERR_CONNECTION_REFUSED` anının nedeni bu
+kontrolle kesinleşmez; sunucu tarafındaki görüntü hatasıyla aynı hata değildir.

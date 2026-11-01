@@ -79,8 +79,8 @@ class Control:
         self.cancel_mimic()
         self.axes = dict.fromkeys(self.axes, 0.0)
 
-    def play_motion(self, owner, motion):
-        if self.owner is not owner or self.mode != 'remote':
+    def play_motion(self, owner, motion, *, mode='remote'):
+        if mode not in ('remote', 'tools') or self.owner is not owner or self.mode != mode:
             raise ValueError('Kumanda sahipliği ve kumanda modu gerekli')
         motion = validate_motion(motion)
         self.stop()
@@ -239,14 +239,14 @@ class Control:
             self.release(self.owner, 'owner_heartbeat_timeout')
         if now - self.last_input > self.timeout:
             self.axes = dict.fromkeys(self.axes, 0.0)
-        if self.mode != 'remote':
-            return 0.0, 0.0
         if self.active_mimic is not None:
             elapsed = max(0, int((now-self.mimic_started)*1000))
             self.targets.update(evaluate(self.active_mimic, elapsed))
             self.mimic_status['elapsed_ms'] = min(elapsed, self.active_mimic['duration_ms'])
             if elapsed >= self.active_mimic['duration_ms']:
                 self.cancel_mimic('completed')
+        if self.mode != 'remote':
+            return 0.0, 0.0
         # Seed only from actual servo feedback; never jump to guessed angles.
         for name, axis, sign in [('headLeftRight', 'head_x', -1),
                                  ('neck', 'head_y', -1)]:

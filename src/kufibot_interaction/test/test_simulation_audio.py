@@ -201,6 +201,47 @@ def test_short_encoder_delays_do_not_accumulate_sample_clock_drift(monkeypatch):
     asyncio.run(run())
 
 
+def test_opus_packets_combine_dsp_frames_without_gaps_or_timestamp_jumps():
+    async def run():
+        mic = AlsaMicTrack('pulse:test', packet_frames=2)
+        try:
+            for value in (1, 2, 3, 4):
+                mic.queue.put_nowait(value.to_bytes(2, 'little') * 160)
+            first, second = await mic.recv(), await mic.recv()
+            assert (first.samples, second.samples) == (320, 320)
+            assert (first.pts, second.pts) == (0, 320)
+            assert bytes(first.planes[0]) == b'\x01\x00' * 160 + b'\x02\x00' * 160
+            assert bytes(second.planes[0]) == b'\x03\x00' * 160 + b'\x04\x00' * 160
+            mic.capture_error = 'USB temporarily unavailable'
+            silence = await mic.recv()
+            assert silence.pts == 640
+            assert bytes(silence.planes[0]) == bytes(640)
+        finally:
+            await mic.close_capture()
+    asyncio.run(run())
+
+
+def test_microphone_preserves_speech_across_a_short_capture_burst(monkeypatch):
+    """A scheduling pause can deliver several hundred ms of PCM at once."""
+    async def run():
+        process = Mock(returncode=None, wait=AsyncMock())
+        process.stdout, process.stderr = asyncio.StreamReader(), asyncio.StreamReader()
+        process.stderr.feed_eof()
+        monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
+        mic = AlsaMicTrack('pulse:test', packet_frames=2, noise_gate_rms=0)
+        original = b''.join(value.to_bytes(2, 'little') * 160 for value in range(1, 37))
+        process.stdout.feed_data(original)
+        try:
+            await mic.start_capture()
+            frames = [await mic.recv() for _ in range(18)]
+            assert b''.join(bytes(f.planes[0]) for f in frames) == original
+            assert [f.pts for f in frames] == list(range(0, 5760, 320))
+            assert mic.dropped_frames == mic.silence_frames == 0
+        finally:
+            await mic.close_capture()
+    asyncio.run(run())
+
+
 def test_half_duplex_mutes_echo_tail_then_restores_quiet_speech(monkeypatch):
     async def run():
         process = Mock(returncode=None, wait=AsyncMock())
@@ -301,4 +342,60 @@ def test_interrupt_does_not_wait_for_blocked_bluetooth_writer(monkeypatch):
             assert speaker.error is None
         finally:
             await speaker.close()
+    asyncio.run(run())
+
+
+def test_blocked_playback_keeps_receiving_and_drops_old_audio(monkeypatch):
+    from kufibot_interaction.audio import AlsaSpeaker
+    from av import AudioFrame
+
+    async def run():
+        incoming = asyncio.Queue()
+        writing, release = asyncio.Event(), asyncio.Event()
+        played = []
+        count = 0
+
+        async def recv():
+            nonlocal count
+            frame = await incoming.get()
+            count += 1
+            return frame
+
+        async def drain():
+            writing.set()
+            await release.wait()
+
+        process = Mock(returncode=None, wait=AsyncMock())
+        process.stdin.write.side_effect = played.append
+        process.stdin.drain = drain
+        monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
+        speaker = AlsaSpeaker(Mock(recv=recv), 'pulse:test', Mock())
+
+        def frame(index):
+            result = AudioFrame(format='s16', layout='mono', samples=960)
+            result.planes[0].update(index.to_bytes(2, 'little') * 960)
+            result.sample_rate = 48000
+            return result
+
+        try:
+            incoming.put_nowait(frame(1))
+            await asyncio.wait_for(writing.wait(), 1)
+            for index in range(2, 102):
+                incoming.put_nowait(frame(index))
+            # The network receiver must keep draining while the device is stuck.
+            for _ in range(20):
+                await asyncio.sleep(0)
+            assert count == 101
+            release.set()
+            for _ in range(100):
+                await asyncio.sleep(0)
+                if len(played) >= 11:
+                    break
+            assert len(played) == 11  # initial write plus at most 200 ms
+            assert played[-1] == (101).to_bytes(2, 'little') * 960
+        finally:
+            release.set()
+            await speaker.close()
+        assert speaker.receive_task.done()
+
     asyncio.run(run())

@@ -22,9 +22,8 @@ def cached_cues(config):
         text = config[name + '_text'].strip()
         if not text:
             continue
-        model = Path(config['tts'])
-        key = json.dumps([text, config['language'], str(model), model.stat().st_mtime_ns,
-                          Path(str(model) + '.json').stat().st_mtime_ns])
+        from .tts_backends import cache_identity
+        key = json.dumps([text, config['language'], cache_identity(config['tts'])])
         path = root / (hashlib.sha256(key.encode()).hexdigest() + '.wav')
         if not path.exists():
             voice = voice or load_voice(config)

@@ -100,6 +100,41 @@ ofsetleri rig tanımından her iki görüntüleyiciye uygulanır. Kaynağın koo
 sistemi glTF Y-up/metreye çevrilirken üçgen yönleri de düzeltilir.
 Three.js 0.180.0 yerel olarak paketlenmiştir; MIT lisansı web/THREE-LICENSE.txt'dedir.
 
+Sol elin üst pençesi kaynak Z=158.4 değerine kadar uzandığı için eski Z<151
+kol filtresinin dışında kalıyordu. Üretici artık yalnızca öndeki dış el bölgesini
+ayrıca sınıflandırır; omuz ve gövde panellerini kola taşımaz. Mevcut GLB’de üç
+bağlı parça (258 üçgen) `body` yerine `leftArm` altına taşındı. Toplam 132061
+üçgen, boyalı yüzeyler ve montaj koordinatları korunur. Kaynak STL bulunmayan
+bir dağıtımda aynı düzeltme kayıpsız olarak şu komutla uygulanabilir:
+
+```bash
+.venv/bin/python tools/repair_robot_model.py src/kufibot_interaction/kufibot_interaction/model
+```
+
+## Servo hızına göre önizleme
+
+Zaman adımları servo **hedefleridir**. `step` hedefi o anda değiştirir, `linear`
+hedefi zaman içinde ilerletir; iki türde de gerçek sürücü her servo zamanlayıcı
+adımında sınırlı açı ilerler. Önizleme `ServoNode._motion_tick` ile aynı adım
+sınırlarını uygular. Web köprüsü çalışan `servo_node` üzerindeki `step_deg`,
+`arm_step_deg`, `step_delay_ms` değerlerini salt okunur ROS parametre
+istekleriyle alır ve `servoMotion` telemetrisiyle `/api/servo-motion` üzerinden
+sunar. Varsayılanlar sürücüyle ortak `kufibot_actuators.servo_motion` modülündedir:
+15 ms’de kollar 0.3° (20°/sn), diğer eklemler 1° (yaklaşık 66.7°/sn).
+Robot ayarları henüz alınamadıysa önizleme varsayılan kullandığını belirtir.
+
+Önizleme güncel servo konum tahmininden başlar; her eklem kendi hızında ilerler.
+Duraklatma aynı çizgiden sürdürür ve zaman sürgüsü aynı hesaplanan konumları
+gösterir. Son hedefin zamanı dolduğunda sürücünün o hedefe varması gerekiyorsa
+önizleme bu ek süreyi de gösterir. “Toplam süre” alanı ve kayıtlı zaman adımları
+değişmez; tahmini tamamlanma ayrıca yazılır. Adım düğmesine basmak düzenleme için
+hedef pozu doğrudan gösterir. Önizleme gerçek robota eklem komutu göndermez.
+
+Bu bir sürücü hareket tahminidir: PWM servolarda enkoder yoktur; yük, gerçek
+motor tepkisi, ROS zamanlayıcı fazları ve kalibre edilmemiş model bağlantı oranı
+birebir ölçülmez. Donanımın hareket hızı veya gerçek mimik oynatma davranışı bu
+görsel düzeltme için değiştirilmez.
+
 ## Doğrulama
 
 Otomatik testler kayıt doğrulaması, sürüm çakışması, doğrusal/basamaklı zamanlama,

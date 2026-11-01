@@ -24,6 +24,8 @@ def test_watch_audio_preserves_session_during_disconnect(monkeypatch):
         nonlocal count
         count += 1
         assert node.session is session
+        # A missing capture device must not suppress even one playback frame.
+        assert not node.speakers[0].suspended
         if count <= 12:
             raise RuntimeError('AEC camera source is unavailable')
         if count == 13:
@@ -56,6 +58,52 @@ def test_watch_audio_repairs_only_local_streams(monkeypatch):
     asyncio.run(node._watch_audio(session))
     node.mic.restart_capture.assert_awaited_once()
     speaker.restart_playback.assert_awaited_once()
+    assert node.session is session
+
+
+def test_capture_outage_does_not_block_playback_recovery_or_volume(monkeypatch):
+    node = VoiceAgentNode.__new__(VoiceAgentNode)
+    session = node.session = object()
+    node.stopping = False
+    node.mic_device = 'pulse:kufibot_aec_source'
+    node.speaker_device = node.active_speaker_device = 'pulse:kufibot_aec_sink'
+    node.mic = Mock(capture_error=None, suspended=False)
+    speaker = Mock(error='Broken pipe', suspended=False, restart_playback=AsyncMock())
+    node.speakers = [speaker]
+    node._publish_state, node.get_logger = Mock(), Mock()
+    check = AsyncMock(side_effect=[RuntimeError('AEC camera source is unavailable'),
+                                  asyncio.CancelledError()])
+    volume = AsyncMock()
+    monkeypatch.setattr('kufibot_interaction.audio.check_aec_devices', check)
+    monkeypatch.setattr('kufibot_interaction.audio_devices.ensure_playback_volume', volume)
+    monkeypatch.setattr('kufibot_interaction.voice_agent_node.asyncio.sleep', AsyncMock())
+
+    asyncio.run(node._watch_audio(session))
+
+    assert node.mic.suspended
+    assert not speaker.suspended
+    speaker.restart_playback.assert_awaited_once()
+    volume.assert_awaited_once_with(node.active_speaker_device)
+
+
+def test_watch_audio_restarts_recorder_that_is_alive_but_stopped_sending(monkeypatch):
+    node = VoiceAgentNode.__new__(VoiceAgentNode)
+    session = node.session = object()
+    node.stopping = False
+    node.mic_device = node.speaker_device = 'pulse:test'
+    node.mic = AlsaMicTrack('pulse:test')
+    node.mic.capture_stalled = True
+    node.mic.last_capture_at = 0.0
+    node.mic.restart_capture = AsyncMock()
+    node.speakers = []
+    node.get_logger = Mock()
+    check = AsyncMock(side_effect=[None, asyncio.CancelledError()])
+    monkeypatch.setattr('kufibot_interaction.audio.check_aec_devices', check)
+    monkeypatch.setattr('kufibot_interaction.voice_agent_node.asyncio.sleep', AsyncMock())
+
+    asyncio.run(node._watch_audio(session))
+
+    node.mic.restart_capture.assert_awaited_once()
     assert node.session is session
 
 

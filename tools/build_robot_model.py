@@ -12,6 +12,22 @@ import numpy as np
 import trimesh
 
 
+def distal_arm_attachment(bounds):
+    """Whole gripper components, including the left claw above the wrist band.
+
+    The left upper claw reaches source Z=158.4, beyond the shoulder/forearm's
+    Z<151 rule. Restrict the extension to the forward, outboard gripper region
+    so body panels and shoulder hardware remain fixed.
+    """
+    lo, hi = bounds
+    if lo[2] > 88 and hi[2] < 165 and hi[1] < 110:
+        if hi[0] < -180:
+            return 'leftArm'
+        if lo[0] > -26:
+            return 'rightArm'
+    return None
+
+
 def build(source, destination):
     mesh = trimesh.load(source)
     components = mesh.split(only_watertight=False)
@@ -56,6 +72,7 @@ def build(source, destination):
             name='rightArm'
         else:
             name='body'
+        name = distal_arm_attachment(part.bounds) or name
         # Eye shells extend below their lenses; assign their complete shells.
         if lo[2] > 220 and hi[2] > 280:
             name='eyeLeft' if x < center_x else 'eyeRight'

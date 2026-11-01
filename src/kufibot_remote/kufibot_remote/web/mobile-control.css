@@ -1,0 +1,123 @@
+/* Phone controller: the camera above a quiet, two-thumb control deck.
+   Ink #101722, deck #182235, blue #8bb1ff, text #eef4ff, line #30445e. */
+.mobile-only { display: none; }
+.mobile-robot-panel:not([open]) { display: none; }
+.brand > span { text-transform: uppercase; }
+
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 550px) {
+  .controller {
+    --stick: clamp(116px, min(38vw, 20svh), 164px);
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 44px 44px auto minmax(96px, 1fr) auto 48px;
+    grid-template-areas: "header" "modes" "state" "camera" "controls" "actions";
+    gap: 8px; height: 100svh; height: 100dvh; min-height: 0; overflow: hidden;
+    padding: max(8px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+    background: #101722; color: #eef4ff;
+  }
+  .controller .top-bar, .controller footer { display: none; }
+  .mobile-header { grid-area: header; display: flex; align-items: center; justify-content: space-between; min-width: 0; }
+  #mobile-brand-slot .brand { font-size: 21px; letter-spacing: -.5px; gap: 12px; font-weight: 650; height: 44px; padding-right: 12px; }
+  #mobile-brand-slot .brand small { display: none; }
+  #mobile-brand-slot .brand > span { text-transform: none; }
+  #mobile-brand-slot .brand svg { width: 21px; height: 21px; color: #b1c1d7; }
+  #mobile-connection-slot .connection { font-size: 11px; color: #a9bbd4; max-width: 180px; line-height: 1.3; text-align: right; }
+  #mobile-connection-slot i.active { background: #96d1c0; box-shadow: none; }
+  #mobile-mode-slot { grid-area: modes; display: block; }
+  #mobile-mode-slot .mode-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; height: 44px; padding: 3px; border: 0; border-radius: 11px; background: #1d293c; }
+  #mobile-mode-slot .mode-switch button { min-height: 38px; padding: 5px 8px; border-radius: 8px; font-size: 13px; letter-spacing: 0; color: #a8b9d0; font-weight: 500; }
+  #mobile-mode-slot .mode-switch button[aria-pressed="true"] { background: #344d75; color: #fff; box-shadow: none; }
+  #mobile-mode-slot .mode-switch button:disabled { opacity: .6; }
+  #mobile-state-slot { grid-area: state; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+  #mobile-state-slot .claim { min-height: 44px; width: 100%; }
+  .controller .camera-stage { grid-area: camera; position: relative; inset: auto; min-width: 0; min-height: 0; overflow: hidden; border-radius: 14px; background: #080e17; border: 1px solid #2b3b52; }
+  .controller .camera-stage::after { display: none; }
+  .controller #camera { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+  #mobile-live-slot { display: block; position: absolute; z-index: 2; top: 10px; left: 10px; pointer-events: none; }
+  #mobile-live-slot .live-heading { height: auto; font-size: 10px; letter-spacing: 0; padding: 6px 9px; border-radius: 20px; background: #101722d9; color: #d2e0f1; }
+  #mobile-live-slot i { width: 5px; height: 5px; }
+  #mobile-live-slot i.active { background: #96d1c0; box-shadow: none; }
+  .mobile-clearance { display: flex; position: absolute; z-index: 2; right: 10px; top: 10px; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 20px; background: #101722d9; font-size: 10px; color: #b5c4d8; pointer-events: none; }
+  .mobile-clearance strong { color: #edf4ff; font-weight: 550; font-variant-numeric: tabular-nums; }
+  .controller .camera-placeholder { padding: 30px 12px 0; }
+  .controller .reticle { width: 32px; height: 32px; border-color: #45618a; opacity: .8; }
+  .controller .reticle::before { width: 44px; background: #45618a; }.controller .reticle::after { height: 44px; background: #45618a; }
+  .controller .reticle span { width: 5px; height: 5px; background: #8bb1ff; }
+  .controller .camera-placeholder h1 { display: none; }
+  .controller .camera-placeholder p { margin: 14px 0; max-width: 220px; text-align: center; font-size: 12px; color: #a9bbd4; }
+  .controller .error { grid-area: camera; z-index: 3; align-self: end; justify-self: stretch; margin: 8px; padding: 9px 12px; max-width: none; font-size: 12px; overflow-wrap: anywhere; }
+  .controller .bottom-bar { grid-area: controls; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 8px 24px; padding: 10px 8px 0; margin: 0; }
+  .controller .control-column { width: 100%; min-width: 0; }
+  .controller .head-column { grid-column: 2; grid-row: 1; }
+  .controller .drive-controls { display: block; }
+  .controller .joystick-label { font-size: 12px; font-weight: 500; color: #bbcade; letter-spacing: 0; text-align: center; height: 18px; margin: 0 0 8px; }
+  .controller .joystick { background: #182235; border: 1px solid #3a4e6a; box-shadow: inset 0 0 0 7px #101722; }
+  .controller .joystick .axis { background: #30445e; }
+  .controller .joystick .direction { color: #7d94b5; font-size: 13px; }
+  .controller .joystick .knob { width: 35%; height: 35%; border: 1px solid #b7cefa; background: #618ac8; box-shadow: 0 4px 12px #0004; }
+  .controller .joystick.dragging { border-color: #b7cefa; }.controller .joystick[aria-disabled="true"] { opacity: .35; }
+  .controller .bottom-center { display: none; }
+  #mobile-speed-slot { display: block; grid-column: 1 / -1; min-width: 0; }
+  #mobile-speed-slot .speed-control { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; position: static; width: 100%; min-height: 44px; padding: 0; letter-spacing: 0; font-size: 11px; color: #9bb0cd; }
+  #mobile-speed-slot .speed-control > span { font-size: 0; }#mobile-speed-slot .speed-control > span::after { content: 'Hız'; font-size: 12px; }
+  #mobile-speed-slot output { order: 3; min-width: 38px; font-size: 12px; text-align: right; color: #c8d7ee; }
+  #mobile-speed-slot input { position: static; transform: none; height: 44px; width: auto; min-width: 0; margin: 0; flex: 1; accent-color: #8bb1ff; }
+  .mobile-actionbar { grid-area: actions; display: grid; grid-template-columns: 1fr 1.7fr; gap: 12px; }
+  .mobile-actionbar button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; border-radius: 10px; font-size: 14px; font-weight: 550; letter-spacing: 0; }
+  #mobile-details { background: #213047; color: #cfddf1; border: 1px solid #30445e; }
+  #mobile-stop { background: #42232e; color: #ffd9df; border: 1px solid #a45b6a; }
+  #mobile-stop span { font-size: 11px; color: #ee99aa; }
+  .controller[data-mode="ai"] .bottom-bar, .controller[data-mode="tools"] .bottom-bar { display: none; }
+  .controller[data-mode="ai"] .mobile-ai-panel, .controller[data-mode="tools"] .mobile-tools-panel { grid-area: controls; display: flex; flex-direction: column; gap: 14px; padding: 14px 2px 8px; min-width: 0; }
+  .mobile-voice-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .mobile-voice-heading > div, .mobile-tools-panel > div { display: grid; gap: 6px; }
+  .mobile-voice-heading span, .mobile-tools-panel > div span { font-size: 12px; color: #9bb0cd; }
+  #mobile-voice-state { font-size: 17px; font-weight: 550; }
+  #mobile-end-voice, #mobile-open-tools { min-height: 44px; border: 1px solid #405b7e; background: #213047; color: #d5e4fa; border-radius: 9px; padding: 9px 12px; font-size: 12px; }
+  #mobile-heard-slot .wake-heard { position: static; transform: none; width: 100%; max-width: none; padding: 10px 12px; background: #182235; border-radius: 9px; }
+  #mobile-heard-slot .wake-heard > strong { font-size: 13px; max-height: 2.6em; }
+  #mobile-heard-slot .wake-heard > small { display: none; }
+  .controller[data-mode="tools"] .mobile-tools-panel { flex-direction: row; align-items: center; justify-content: space-between; }
+  .mobile-tools-panel strong { font-size: 16px; font-weight: 550; }
+
+  .mobile-robot-panel[open] { display: flex; flex-direction: column; position: fixed; inset: auto 0 0; margin: 0 auto; width: min(100%, 600px); max-width: 100%; max-height: 87svh; padding: 0; border: 1px solid #3a4e6a; border-bottom: 0; border-radius: 20px 20px 0 0; background: #141e2d; color: #edf4ff; overflow: hidden; }
+  .mobile-robot-panel::backdrop { background: #03080fb8; backdrop-filter: blur(3px); }
+  .mobile-panel-header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #30445e; flex-shrink: 0; }
+  .mobile-panel-header h2 { flex: 1; font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
+  .mobile-panel-header button { min-width: 44px; min-height: 44px; border-radius: 9px; font-size: 14px; background: #26364e; }
+  #mobile-panel-stop { padding: 10px 14px; background: #42232e; border: 1px solid #a45b6a; color: #ffd9df; font-size: 12px; }
+  .mobile-panel-content { overflow-y: auto; overscroll-behavior: contain; padding: 0 20px max(20px, env(safe-area-inset-bottom)); }
+  .mobile-panel-content section { padding: 20px 0; }.mobile-panel-content section + section { border-top: 1px solid #30445e; }
+  .mobile-panel-content h3 { margin: 0 0 16px; font-size: 13px; font-weight: 550; color: #9fb4d2; }
+  .mobile-eyes { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .mobile-eyes .eye-control { justify-content: space-between; min-height: 44px; margin: 0; font-size: 12px; letter-spacing: 0; }
+  .mobile-eyes .eye-control input { width: 100%; height: 44px; }
+  .mobile-arms { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .mobile-arms .arm-control { margin: 0; font-size: 12px; letter-spacing: 0; }.mobile-arms input { height: 44px; margin: 2px 0 0; }
+  .mobile-sensors { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; }
+  .mobile-sensors .sensor { display: grid; gap: 6px; padding: 0; background: none; border: 0; }.mobile-sensors .sensor span { font-size: 10px; letter-spacing: .4px; color: #9fb4d2; }.mobile-sensors .sensor strong { font-size: 18px; }
+  .mobile-orientation { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .mobile-orientation .head-direction { margin: 0; }.mobile-orientation #head-reference { min-height: 44px; font-size: 12px !important; line-height: 1.6; }
+  .mobile-orientation #direction-value { position: absolute; top: 100%; left: 0; right: 0; padding-top: 5px; text-align: center; font-size: 11px; color: #a9bbd4; font-weight: 500; }
+  .mobile-orientation #prepare-mapping { grid-column: 2; min-height: 44px; font-size: 12px; }
+  #mobile-map-slot .distance-map { width: 100%; border-color: #405b7e; box-shadow: none; background: #101722; padding: 10px; }
+  #mobile-map-slot canvas { width: 100%; height: 180px; }#mobile-map-slot .distance-map span { font-size: 10px; padding: 8px 0 2px; }
+  #mobile-navigation-slot { display: grid; gap: 12px; }#mobile-navigation-slot .claim { min-height: 44px; }
+  .map-dialog { max-height: 90svh; }
+}
+
+@media (max-width: 760px) and (max-height: 650px) {
+  .controller { --stick: clamp(104px, 18svh, 118px); gap: 5px; padding-top: max(5px, env(safe-area-inset-top)); padding-bottom: max(7px, env(safe-area-inset-bottom)); grid-template-rows: 44px 44px auto minmax(80px, 1fr) auto 44px; }
+  .controller .bottom-bar { gap: 0 20px; padding-top: 3px; }.controller .joystick-label { margin-bottom: 4px; }
+  .controller .camera-placeholder .reticle { display: none; }.controller .camera-placeholder { padding-top: 16px; }
+  .controller[data-mode="ai"] .mobile-ai-panel { gap: 8px; padding: 8px 0; }
+}
+
+@media (min-width: 600px) and (max-width: 1100px) and (max-height: 550px) {
+  .controller { --stick: clamp(108px, 32svh, 144px); grid-template-columns: minmax(140px, .8fr) minmax(200px, 2fr) minmax(140px, .8fr); grid-template-rows: 44px auto minmax(100px, 1fr) 44px; grid-template-areas: "header modes modes" "state state state" "drive camera head" "speed actions actions"; gap: 6px 16px; padding: max(6px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  #mobile-brand-slot .brand { font-size: 18px; gap: 9px; padding-right: 4px; }#mobile-connection-slot .connection { font-size: 9px; max-width: 86px; }.mobile-header { gap: 6px; }
+  .controller .bottom-bar { display: contents; }.controller .drive-column { grid-area: drive; align-self: center; }.controller .head-column { grid-area: head; align-self: center; }
+  #mobile-speed-slot { grid-area: speed; }#mobile-speed-slot .speed-control { gap: 6px; }
+  .mobile-actionbar { grid-template-columns: 1fr 1fr; max-width: 370px; width: 100%; justify-self: end; }
+  .controller[data-mode="ai"], .controller[data-mode="tools"] { grid-template-columns: 1fr 1fr; grid-template-rows: 44px auto minmax(120px, 1fr) 44px; grid-template-areas: "header modes" "state state" "camera controls" "actions actions"; }
+  .controller[data-mode="ai"] .mobile-ai-panel, .controller[data-mode="tools"] .mobile-tools-panel { align-self: center; padding: 0 12px; }.controller[data-mode="tools"] .mobile-tools-panel { flex-direction: column; align-items: stretch; }
+}

@@ -30,7 +30,7 @@ class SessionScheduling(TypedDict, total=False):
     id: str
     workflow_run_id: int
     organization_id: int
-    kind: Literal["inbound", "outbound", "webrtc", "chat"]
+    kind: Literal["inbound", "outbound", "webrtc", "video", "chat"]
     state: SchedulingState
     status: SchedulingState
     campaign_id: int | None

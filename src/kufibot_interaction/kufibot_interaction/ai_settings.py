@@ -42,6 +42,12 @@ def discover_models(root):
             except (OSError, ValueError, KeyError, TypeError):
                 continue
             entries.append(dict(id=model.stem, kind='tts', languages=[language], path=str(model)))
+    from .tts_backends import PACKAGES
+    for folder, (backend, label) in PACKAGES.items():
+        manifest = root / folder / 'manifest.json'
+        if manifest.is_file():
+            entries.append(dict(id=folder, kind='tts', languages=['tr'], backend=backend,
+                                label=label, path=str(manifest)))
     # GGUF files are usable as both the local LLM and the expression embedding
     # model.  Keep the LLM id stable for saved settings and namespace the
     # embedding id so a single catalog can expose both roles safely.
@@ -75,7 +81,7 @@ def catalog():
     declared = {entry.get('id') for entry in entries if isinstance(entry, dict)}
     additions = (entry for entry in discovered if entry['id'] not in declared and
                  (not custom_catalog or entry['kind'] in ('llm', 'embedding')
-                  or entry.get('backend') == 'sherpa_zipformer'))
+                  or entry.get('backend') in ('sherpa_zipformer', 'pocket_tts_turkish', 'ema_lightning')))
     entries = [*entries, *additions]
     result = []
     seen = set()
@@ -114,7 +120,17 @@ def catalog():
                 except (OSError, ValueError, KeyError, TypeError):
                     available = False
         if entry['kind'] == 'tts':
-            available = available and Path(str(model) + '.json').is_file()
+            from .tts_backends import BACKENDS, package_manifest
+            backend = entry.get('backend', 'piper')
+            if backend in BACKENDS:
+                try:
+                    available = package_manifest(model)['backend'] == backend
+                except (OSError, ValueError, KeyError, TypeError):
+                    available = False
+            elif backend == 'piper':
+                available = available and Path(str(model) + '.json').is_file()
+            else:
+                available = False
         if entry['kind'] == 'decision':
             from .workflow_decision import providers
             available = available and entry.get('backend') in providers()

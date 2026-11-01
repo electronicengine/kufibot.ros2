@@ -176,6 +176,8 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
 
                     # Keyboard motion, release, and blur cannot leave a latched input.
                     await page.locator('#drive-speed').fill('50')
+                    # Range fill focuses the input; shortcuts deliberately ignore input fields.
+                    await page.locator('#mode-remote').focus()
                     await page.keyboard.down('a')
                     await wait_for(lambda: control.axes['drive_x'] == -.5 and control.axes['drive_y'] == 0)
                     await page.keyboard.up('a')
@@ -185,6 +187,7 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
                     await page.keyboard.up('w')
                     await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     await page.locator('#drive-speed').fill('100')
+                    await page.locator('#mode-remote').focus()
                     await page.keyboard.down('w')
                     await wait_for(lambda: control.axes['drive_y'] == -1)
                     await page.keyboard.up('w')
@@ -268,14 +271,20 @@ def test_browser_camera_controls_and_reconnect(monkeypatch, tmp_path):
                     await page.locator('#rightArm').press('ArrowRight')
                     await wait_for(lambda: current.get('rightArm') == 11)
 
-                    # Mobile browser sizing retains every control in the viewport.
+                    # Phones keep the driving deck visible and disclose secondary controls.
                     for width, height, name in [(852, 393, 'landscape'), (390, 844, 'portrait')]:
                         await page.set_viewport_size({'width': width, 'height': height})
                         await page.screenshot(path=f'/tmp/kufibot-route-{name}-layout.png')
-                        for selector in ['#head-stick', '#drive-stick', '#rightArm', '#distance-map']:
+                        for selector in ['#head-stick', '#drive-stick', '#mobile-details', '#mobile-stop']:
                             rect = await page.locator(selector).bounding_box()
                             assert 0 <= rect['x'] and rect['x'] + rect['width'] <= width
                             assert 0 <= rect['y'] and rect['y'] + rect['height'] <= height, (selector, rect)
+                        await playwright.expect(page.locator('#rightArm')).to_be_hidden()
+                        await page.locator('#mobile-details').click()
+                        await playwright.expect(page.locator('#rightArm')).to_be_visible()
+                        await page.locator('#distance-map').scroll_into_view_if_needed()
+                        await playwright.expect(page.locator('#distance-map')).to_be_visible()
+                        await page.locator('#mobile-details-close').click()
                         await page.screenshot(path=f'/tmp/kufibot-web-{name}.png')
                     await page.set_viewport_size({'width': 1280, 'height': 800})
 

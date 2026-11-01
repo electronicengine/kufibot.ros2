@@ -66,10 +66,26 @@ Bağımsız tracking test launch'u bu nedenle arbiter'i YZ modunda başlatır.
 
 ## Ekran ve kontroller
 
-Mobil uygulamadaki gibi tam ekran kamera, üst köşelerde akım/gerilim/pusula/mesafe,
-sol altta hareket, sağ altta kafa joysticki, kol sürgüleri ve göz anahtarları vardır.
-KUMANDA ve YZ MODU üst ortadan seçilir. Menüde bağlantı adresi, yenileme ve yardım
-bulunur. Ekran masaüstü, yatay telefon ve dikey telefon boyutlarına uyarlanır.
+Telefonda kamera, **Kumanda / Sesli ajan / Araçlar** mod seçimi, hareket ve kafa
+joystickleri ile yatay hız ayarı ana ekrandadır. **Durdur** alt kenardan erişilir.
+**Detaylar** alttan açılan panelde kol sürgülerini, göz anahtarlarını, sensörleri,
+haritayı ve yön kontrollerini gösterir; panel açılırken manuel hareket sıfırlanır.
+Panelde de Durdur düğmesi vardır. Sesli ajan modunda joysticklerin yerine görüşme
+durumu, son algılanan metin ve görüşmeyi bitirme düğmesi görünür. Serbest gezinme
+anahtarı Detaylar içindedir. Yatay telefonda kamera iki joystickin arasında yer
+alır. Masaüstünde ayrıntılı kontrol yerleşimi kullanılır. Ekran boyutu değişirken
+aynı kontroller taşınır; ek WebSocket veya yeni bir kumanda oturumu açılmaz.
+
+**Araçlar → Mimik ve konuşma** ekranında kitaplıktan bir mimik seçip robota
+söyleteceğiniz metni yazabilirsiniz. **Söyle ve oynat**, mimiği ilk sesle birlikte
+başlatır; **Yalnızca mimik** metni okumadan hareketi oynatır. **Mimik olmadan konuş**
+seçimiyle yalnız ses gönderebilirsiniz. **Durdur**, sesi ve mimiği birlikte keser.
+Konuşma robotta kurulu yerel ses modeliyle, robotun hoparlöründe üretilir;
+AI oturumu veya mikrofon gerekmez. Bluetooth hoparlör bağlı değilse açık hata gösterilir.
+Pencereyi kapatmak oynatmayı durdurmaz; DUR, mod değişikliği ve kontrol kaybı durdurur.
+Önceki gezinme araçları aynı pencerenin **Hareket araçları** sekmesindedir.
+Piper, Pocket TTS Türkçe ve EMA Lightning kurulumu için
+[yerel TTS belgesine](../../docs/local-tts.md) bakın.
 
 | Girdi | İşlev |
 | --- | --- |
@@ -95,6 +111,10 @@ Geri dönüldüğünde yeniden bağlantı kurulur; eski tuş veya joystick girdi
 ayrıca denetlenir. Köprü kaybolursa motor düğümünün kendi watchdog'u durdurmayı
 sağlar; arbiter kendiliğinden YZ moduna geçmez. Üç saniyeden eski sensörler `—`,
 ikiden fazla saniyedir yenilenmeyen kamera bekleme ekranı olarak gösterilir.
+Tarayıcı, bağlantı açık görünse bile gerçekten çözülen video karelerini izler.
+Beş saniye yeni kare gelmezse yalnız kamera bağlantısını kapatıp bir saniye sonra
+yeniden kurar. Bağlantı veya video oynatma hatalarında da otomatik tekrar dener;
+kontrol sahipliği, AI modu ve çalışan workflow korunur. Sayfayı yenilemek gerekmez.
 
 ## Sunulan uçlar
 
@@ -126,6 +146,8 @@ Chromium kurulmalıdır (`.venv/bin/python -m pip install playwright`). Test ger
 robotu kullanmaz; localhost üzerinde test kamera görüntüsü ve sensörler üretir.
 Kamera, fare/klavye kontrolü, modlar, kol/göz komutları, odak/sekme kaybı, kontrol
 sahipliği, yeniden bağlanma ve telefon ekran boyutları Chromium ile doğrulanır.
+`test_web_video_recovery.py`, başarısız ilk kamera bağlantısını, bağlantı açıkken
+donan videoyu, oynatma hatasını ve kameranın kaybolup geri gelmesini ayrıca sınar.
 Playwright veya Chromium yoksa yalnızca bu tarayıcı testi atlanır.
 
 ### Web arayüzünü uygulama olarak yükleme
@@ -197,6 +219,99 @@ kalibrasyon önceki başarılı kaydı tamamlanıp diske yazılana kadar değiş
 Son başarılı kayıt tutulur; tüm geçmiş oturumların arşivi tutulmaz.
 Eski katsayı dosyaları desteklenir, ancak geçmişte saklanmamış tarih ve açı
 kapsamı üretilemez; sayfa bu durumda yeni kalibrasyon gerektiğini belirtir.
+
+### Robotun ses aygıtları ve Wi-Fi bağlantısı
+
+**Bağlantı Ayarları** robot üzerindeki mikrofonları, hoparlörleri ve yakındaki
+Wi-Fi ağlarını listeler. Değişiklikler kumanda sahipliği ve aynı kaynaklı bir
+istek gerektirir. Ses seçimleri `~/.config/kufibot/devices.json` dosyasına
+yalnızca kullanıcı tarafından okunabilir şekilde kaydedilir; yeni yerel/Verasist
+görüşmelerinde, uyanma dinleyicisinde ve araç sekmesindeki konuşmada kullanılır.
+`KUFIBOT_DEVICE_SETTINGS` ile dosya yolu değiştirilebilir. Bluetooth listesinde
+yalnızca robotla önceden eşleştirilmiş ses çıkışları bulunur. Bağlı olmayan bir
+hoparlör seçilip kaydedildiğinde bağlantı denenir. AEC kullanılıyorsa fiziksel
+giriş/çıkış yönlendirmesi yeni oturumun başında mevcut DSP ayarları korunarak
+güncellenir; gerekirse kullanıcının PipeWire servisleri yeniden başlatılır.
+
+Wi-Fi için sistemde NetworkManager, `nmcli` ve `python3-dbus`; Bluetooth için
+BlueZ gerekir. Ağ işlemleri önce servis kullanıcısının D-Bus yetkileriyle çalışır.
+Yetki yetersizse mevcut `sudo -n` yetkisiyle izole sistem Python yardımcısı
+denenir; paket yeni sudo/polkit izni oluşturmaz. Yetkisi olmayan kurulumlarda
+yönetici NetworkManager erişimini ayrıca yapılandırmalıdır.
+
+Wi-Fi parolası yalnızca HTTP gövdesi, yardımcı sürecin standart girdisi ve
+NetworkManager D-Bus çağrısında taşınır; komut satırına, durum yanıtına veya web
+depolamasına yazılmaz. Başarılı bağlantı NetworkManager tarafından kalıcı
+kaydedilir ve otomatik bağlantıda öncelik kazanır. Ağ değişimi 100 saniyelik
+NetworkManager checkpoint’i ile korunur; başarısızlıkta eski bağlantı geri
+yüklenir, süreç kapanırsa zaman aşımında geri dönüş denenir. Kumanda WebSocket’i
+koptuğunda bağlantı işi devam eder. Ağ değişirken sayfa kopabilir: istemciyi de
+seçilen ağa bağlayıp `robot.local:8080` veya robotun yeni IP’sini açın.
+İnternet erişimi gerekmez; yerel ağ bağlantısı ve IPv4 adresi başarı sayılır.
+Yeni kurumsal/WEP ağ profilleri bu arayüzden oluşturulmaz; hazır profiller
+kullanılabilir. Geri dönüş, ağın hâlâ erişilebilir olmasına bağlıdır.
+
+### Bağlantısız açılış, kurulum hotspotu ve robotun yeni adresi
+
+Robot üzerinde `python3-dbus`, NetworkManager, `dnsmasq` ve `avahi-daemon`
+kurulu olmalıdır. Ağ kurtarma hizmetini **mevcut Wi-Fi bağlantısını kesmeden**
+kurmak için proje kökünde:
+
+```bash
+sudo /usr/bin/python3 tools/install_network_service.py
+```
+
+Hizmet bağımsız olarak açılışta başlar. Robot Wi-Fi istasyonu olarak bağlıyken
+ağa dokunmaz. Başlangıçta veya bağlantı kaybından sonra 45 saniye bağlantısız
+kalırsa 2.4 GHz parolasız kurulum ağı açar. Varsayılan ağ adı `kufi` olur;
+mevcut kurulumun adını değiştirmek için kurucuya `--ssid kufi` eklenir.
+Eski parolalı kurulumu parolasız yapmak için
+`sudo /usr/bin/python3 tools/install_network_service.py --open-hotspot` kullanılır.
+Bu işlem kayıtlı hotspot profilinin güvenlik ayarını kaldırır ve yeni açılacak
+hotspotları da parolasız yapılandırır. Bağlantı Ayarları ekranında **Parolasız ağ**
+gösterilir. Robotun bağlanacağı ev/iş Wi-Fi ağının parolası kendi ağ seçimi
+formunda girilmeye devam eder. Kurulum yapılandırması `/etc/kufibot/network.json`
+dosyasında saklanır; mevcut Wi-Fi bağlantısı kesilmeden güncellenir.
+
+Kurulum ağında robot `10.42.0.1/24` adresindedir. DHCP ve yalnızca kurulum
+arayüzüne bağlı DNS sunucusu cihazları bu adrese yöneltir. HTTP ağ kontrol
+istekleri `http://10.42.0.1/setup` adresine yönlendirilir; destekleyen telefonlar
+“ağa giriş yap” ekranını açar. Otomatik açılmazsa bu adresi tarayıcıda açın.
+Kurulum ağı internet sağlamaz; telefonda “bu ağa bağlı kal” gerekebilir.
+HTTPS trafiği taklit edilmez ve sahte sertifika sunulmaz. Güvenilir TLS
+sertifikası isteyen DHCP Option 114 API’si ilan edilmez; standart HTTP captive
+portal tespiti kullanılır. Cihazın otomatik açılma davranışı garanti edilmez.
+
+Bağlantı Ayarları’ndan hedef Wi-Fi’yi seçin. Sürücü hotspot açıkken taramayı
+desteklemiyorsa **Ağ adını elle gir** kullanılabilir. Bağlantı isteği kabul
+edilince istemciyi de hedef ağa geçirin. İstek boyunca ağ gözcüsü ve tarama
+işlemleri aynı kilidi kullanır; gözcü devam eden bağlantıyı kesmez. Başarısız
+istek checkpoint ile kurulum ağına/önceki ağa döner. Geri dönülecek bir ağ
+bulunmazsa gözcü hotspotu yeniden açar. Hotspot kullanıcı ayar yaparken
+kendiliğinden kapanıp başka bir kayıtlı ağı denemez.
+
+Robot ayrıca `http://kufi.local/` sabit adresini
+Avahi ile o anki Wi-Fi IP’sine yayımlar. IP ezberlemek gerekmez. `80` portundaki
+köprü HTTP ve WebSocket trafiğini yalnızca yerel web portuna aktarır; varsayılan
+`8080` portu da çalışır. Ağ değişiminde sayfa kısa ömürlü, yalnızca bağlantı
+durumunu okuyabilen bir anahtarla bu sabit adı yoklar. Robot kimliği ve başarılı
+istasyon bağlantısı doğrulanınca bu adrese gider. Wi-Fi parolası tarayıcı
+depolamasına yazılmaz; yeniden açılma anahtarı en fazla 15 dakika geçerlidir.
+HTTPS sayfası HTTP yoklaması yapamaz; bu durumda **Robotu aç** bağlantısını
+kullanın. mDNS’nin engellendiği/istemci izolasyonlu ağlarda yönlendiricinin DHCP
+istemci listesindeki robot IP’sini kullanmak gerekir; IP bağlantı ekranında da
+gösterilir. Fiziksel telefonun Wi-Fi ağı tarayıcı tarafından değiştirilemez.
+Yerel adı mevcut kuruluma uygulamak için
+`sudo /usr/bin/python3 tools/install_network_service.py --hostname kufi.local`
+kullanılır; Wi-Fi bağlantısı ve kayıtlı parolalar korunur. Aynı yerel ağda birden
+fazla robot varsa her birine `--hostname` ile farklı bir `.local` adı verin.
+
+Debian’ın boş yapılandırmalı genel `dnsmasq` hizmeti kurulurken loopback’e
+bağlanır; kurulum ağı ayrı, arayüze bağlı dnsmasq süreci kullanır. Özel dinleme
+veya DHCP yapılandırması varsa kurucu üzerine yazmayı reddeder. Ağ hizmeti
+root’a ait `/usr/local/lib/kufibot-network/` kopyasından çalışır; ROS veya web
+yeniden başlasa da ağ gözcüsü devam eder. Kodu güncellerken kurucuyu yeniden
+çalıştırın. Kontrol: `systemctl status kufibot-network.service`.
 
 ### Verasist SDK araçlarını yayımlama
 
