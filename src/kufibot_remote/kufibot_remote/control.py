@@ -30,6 +30,7 @@ class Control:
         self.targets = {}
         self.mimic_store = None
         self.active_mimic = None
+        self.performance_speaking = False
         self.mimic_status = {"state": "idle", "id": None, "elapsed_ms": 0, "error": None}
         self.motion_events = deque(maxlen=128)
         self.motion_event_sequence = 0

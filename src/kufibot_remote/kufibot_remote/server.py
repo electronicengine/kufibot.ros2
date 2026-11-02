@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from aiohttp import web, WSMsgType
 from kufibot_interaction.mimics import default_store, RevisionConflict
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from .video import voice_video_paused
 
 
 class Discovery(asyncio.DatagramProtocol):
@@ -41,6 +42,7 @@ class Server:
         self.https_port = None
         self.https_ca = None
         self.app = web.Application(client_max_size=21 * 1024 * 1024)
+        self.app.cleanup_ctx.append(self._video_lifecycle)
         from .workflow_api import WorkflowAPI
         self.workflow_api = WorkflowAPI(self)
         from .device_settings import DeviceSettings
@@ -63,6 +65,32 @@ class Server:
                              web.get('/control', self.controller),
                              web.post('/offer', self.offer), web.get('/tool-image/{image_id}', self.image)])
         self.app.router.add_get('/{portal_path:.*}', self.captive_probe)
+
+    def video_paused(self, status=None):
+        status = self.status() if status is None else status
+        return bool(status.get('videoPaused') or voice_video_paused(status.get('voiceStatus')))
+
+    async def _close_video_peers(self):
+        peers = list(self.peers)
+        await asyncio.gather(*(peer.close() for peer in peers))
+        self.peers.difference_update(peers)
+
+    async def _video_lifecycle(self, _app):
+        async def monitor():
+            while True:
+                if self.peers and self.video_paused():
+                    # Closing senders stops encoding and RTP, including clients
+                    # that ignore telemetry or have lost their control socket.
+                    await self._close_video_peers()
+                await asyncio.sleep(0.1)
+
+        task = asyncio.create_task(monitor())
+        try:
+            yield
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await self._close_video_peers()
 
     @staticmethod
     async def setup(request):
@@ -205,6 +233,7 @@ class Server:
                     self.control.local_workflow_enabled = bool(settings.get('workflow_id') and settings.get('provider') == 'local')
                 await asyncio.wait_for(ws.send_json({
                     'type': 'state', **status,
+                    'videoPaused': self.video_paused(status),
                     'owner': self.control.owner is ws,
                     'workflowToken': self.workflow_api.token(ws),
                     'mimic': self.control.mimic_status,
@@ -246,6 +275,8 @@ class Server:
                             if tool_job is not None and not tool_job.done():
                                 raise ValueError('Bir araç çağrısı çalışıyor; önce durdurun')
                             self.performance.start(ws, data)
+                        elif command == 'preparePerformance':
+                            self.performance.prepare(ws, data.get('voice', ''))
                         elif command == 'stopPerformance':
                             self.performance.check(ws)
                             await self.performance.stop()
@@ -272,6 +303,8 @@ class Server:
                             self.control.command(ws, data)
                             if command in ('stop', 'mode', 'stopVoice'):
                                 await self.performance.stop()
+                            if command == 'mode' and self.control.mode == 'tools':
+                                self.performance.prepare(ws)
                             if command == 'stop':
                                 await self.workflow_api.stop_test(ws)
                         await ws.send_json({'type': 'ack', 'command': command})
@@ -295,6 +328,8 @@ class Server:
     async def offer(self, request):
         """Accept browser SDP and return a LAN WebRTC video answer."""
         self.check_origin(request)
+        if self.video_paused():
+            raise web.HTTPServiceUnavailable(text='Video paused during voice session')
         if self.video_track is None or len(self.peers) >= 4:
             raise web.HTTPServiceUnavailable(text='WebRTC video unavailable')
         try:
@@ -318,6 +353,9 @@ class Server:
             await peer.setRemoteDescription(offer)
             answer = await peer.createAnswer()
             await peer.setLocalDescription(answer)
+            # A session can start while ICE negotiation is yielding.
+            if self.video_paused() or peer.connectionState == 'closed':
+                raise web.HTTPServiceUnavailable(text='Video paused during voice session')
             return web.json_response({'sdp': peer.localDescription.sdp,
                                       'type': peer.localDescription.type})
         except Exception:
@@ -330,4 +368,4 @@ class Server:
         await self.performance.stop()
         self.workflow_api.knowledge.cancel.set()
         await asyncio.gather(*(ws.close() for ws in list(self.clients)))
-        await asyncio.gather(*(peer.close() for peer in list(self.peers)))
+        await self._close_video_peers()

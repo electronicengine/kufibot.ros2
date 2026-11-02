@@ -41,7 +41,7 @@ export type State = {
   aiConfig?: AiConfig;
   voiceStatus?: {state: string; detail: string; active: boolean};
   type: 'state'; version: 1; owner: boolean; mode: 'ai' | 'remote' | 'tools';
-  appliedMode: string | null; camera: boolean; driveAvailable: boolean;
+  appliedMode: string | null; camera: boolean; videoPaused?: boolean; driveAvailable: boolean;
   aiTriggerUuid?: string;
   distanceMap?: DistanceMapData | null;
   calibration?: CalibrationData & {active: boolean; message: string; last_result?: CalibrationData | null};
@@ -103,20 +103,27 @@ export function useRobot(robot: Robot | null) {
     let ws: WebSocket | null = null;
     let video: RTCPeerConnection | null = null;
     let videoAbort: AbortController | null = null;
+    let videoRetry: ReturnType<typeof setTimeout> | undefined;
+    let videoError = false;
     let lastState = 0;
     let lastHeartbeat = 0;
     const reset = () => {
       axes.current = zero(); live.current = null; inputPending.current = false;
       setState(null); setFrame(null);
     };
+    const closeVideo = () => {
+      clearTimeout(videoRetry); videoRetry = undefined;
+      const oldVideo = video; video = null;
+      videoAbort?.abort(); videoAbort = null;
+      oldVideo?.close();
+      setFrame(null);
+    };
     const close = () => {
       clearTimeout(retry); clearInterval(pulse);
       socket.current = null;
       const old = ws; ws = null;
       if (old) { old.onclose = null; old.onmessage = null; old.onopen = null; old.onerror = null; old.close(); }
-      const oldVideo = video; video = null;
-      videoAbort?.abort(); videoAbort = null;
-      oldVideo?.close();
+      closeVideo();
       reset();
     };
     const reconnect = () => {
@@ -126,17 +133,30 @@ export function useRobot(robot: Robot | null) {
         retry = setTimeout(connect, 2000);
       }
     };
+    const retryVideo = (peer: RTCPeerConnection) => {
+      if (video !== peer) return;
+      closeVideo();
+      if (!live.current?.videoPaused) videoRetry = setTimeout(() => {
+        videoRetry = undefined;
+        void startVideo();
+      }, 1000);
+    };
     const startVideo = async () => {
+      if (disposed || !active || !live.current || live.current.videoPaused || video ||
+          ws?.readyState !== WebSocket.OPEN) return;
       const peer = new RTCPeerConnection({iceServers: []}) as VideoPeer;
       video = peer;
       const abort = new AbortController();
       videoAbort = abort;
       const timeout = setTimeout(() => abort.abort(), 15000);
       peer.addEventListener('track', event => {
-        if (video === peer && event.streams[0]) setFrame(event.streams[0].toURL());
+        if (video === peer && event.streams[0]) {
+          setFrame(event.streams[0].toURL());
+          if (videoError) { videoError = false; setError(''); }
+        }
       });
       peer.addEventListener('connectionstatechange', () => {
-        if (video === peer && ['failed', 'disconnected'].includes(peer.connectionState)) reconnect();
+        if (video === peer && ['failed', 'disconnected', 'closed'].includes(peer.connectionState)) retryVideo(peer);
       });
       try {
         peer.addTransceiver('video', {direction: 'recvonly'});
@@ -155,8 +175,9 @@ export function useRobot(robot: Robot | null) {
         if (video === peer) await peer.setRemoteDescription(new RTCSessionDescription(answer));
       } catch (error) {
         if (video === peer) {
+          videoError = true;
           setError(String(error));
-          reconnect();
+          retryVideo(peer);
         }
       } finally {
         clearTimeout(timeout);
@@ -170,7 +191,6 @@ export function useRobot(robot: Robot | null) {
       socket.current = ws;
       ws.onopen = () => {
         send({type: 'claim'});
-        void startVideo();
       };
       ws.onmessage = event => {
         try {
@@ -178,6 +198,11 @@ export function useRobot(robot: Robot | null) {
           if (data.type === 'state' && data.version === 1 && data.sensors &&
               data.joints && ['remote', 'ai', 'tools'].includes(data.mode)) {
             lastState = Date.now(); live.current = data; setState(data);
+            if (data.videoPaused) {
+              if (video || videoRetry !== undefined) closeVideo();
+              if (videoError) { videoError = false; setError(''); }
+            }
+            else if (!video && videoRetry === undefined) void startVideo();
             setConnection(data.owner ? 'Bağlı' : 'İzleyici');
             if (!data.owner || data.mode !== 'remote' || data.appliedMode !== 'remote') axes.current = zero();
           } else if (data.type === 'workflowResult' || data.type === 'workflowEvent') {

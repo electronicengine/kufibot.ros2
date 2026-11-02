@@ -1,24 +1,37 @@
 import { AppState } from 'react-native';
 import { requireNativeModule } from 'expo';
+import { Robot } from './discovery-state';
 
-export type Robot = { host: string; port: number; name: string };
+export type { Robot } from './discovery-state';
 
-export function discover(onRobot: (robot: Robot) => void, onError: (message: string) => void) {
+export function discover(onRobots: (robots: Robot[]) => void, onError: (message: string) => void) {
   const native = requireNativeModule<{scan(): Promise<Robot[]>}>('KufibotDiscovery');
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
+  let scanning = false;
+  let rescan = false;
   const scan = async () => {
+    if (closed) return;
+    if (scanning) { rescan = true; return; }
+    scanning = true;
+    clearTimeout(timer);
     try {
       if (AppState.currentState === 'active') {
         const robots = await native.scan();
-        if (!closed) robots.forEach(onRobot);
+        if (!closed && AppState.currentState === 'active') onRobots(robots);
       }
     } catch (error) {
       if (!closed) onError(String(error));
     } finally {
-      if (!closed) timer = setTimeout(scan, 2000);
+      scanning = false;
+      if (!closed) timer = setTimeout(scan, rescan ? 0 : 2000);
+      rescan = false;
     }
   };
+  const listener = AppState.addEventListener('change', next => {
+    if (next === 'active') void scan();
+    else clearTimeout(timer);
+  });
   void scan();
-  return () => { closed = true; clearTimeout(timer); };
+  return () => { closed = true; clearTimeout(timer); listener.remove(); };
 }

@@ -1,48 +1,77 @@
 package com.kufibot.discovery
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
-import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 
 class KufibotDiscoveryModule : Module() {
   private val active = AtomicReference<DatagramSocket?>(null)
+  private var connectivity: ConnectivityManager? = null
 
   override fun definition() = ModuleDefinition {
     Name("KufibotDiscovery")
     // Expo AsyncFunction runs on its background queue, never Android's UI thread.
     AsyncFunction("scan") { scan() }
-    OnDestroy { active.getAndSet(null)?.close() }
+    OnDestroy {
+      active.getAndSet(null)?.close()
+      connectivity?.bindProcessToNetwork(null)
+    }
   }
 
   private fun scan(): List<Map<String, Any>> {
     val found = linkedMapOf<String, Map<String, Any>>()
+    val context = appContext.reactContext ?: error("Uygulama bağlamı hazır değil")
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    connectivity = manager
+    // A setup hotspot has no internet. Do not let Android route local control
+    // through cellular, or filter this Wi-Fi out for lacking VALIDATED/INTERNET.
+    val network = manager.allNetworks.firstOrNull { candidate ->
+      val capabilities = manager.getNetworkCapabilities(candidate)
+      capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true &&
+        !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+        manager.getLinkProperties(candidate)?.linkAddresses?.any { it.address is Inet4Address } == true
+    }
+    if (network == null) {
+      manager.bindProcessToNetwork(null)
+      return emptyList()
+    }
+    check(manager.bindProcessToNetwork(network)) { "Wi-Fi ağı kullanılamıyor" }
     DatagramSocket().use { socket ->
       active.getAndSet(socket)?.close()
       try {
+        network.bindSocket(socket)
         socket.broadcast = true
         socket.soTimeout = 200
         val targets = mutableSetOf(InetAddress.getByName("255.255.255.255"))
-        NetworkInterface.getNetworkInterfaces()?.toList()?.forEach { network ->
-          if (network.isUp && !network.isLoopback) {
-            network.interfaceAddresses.forEach { address ->
-              address.broadcast?.let { targets.add(it) }
-            }
+        manager.getLinkProperties(network)?.linkAddresses?.forEach { link ->
+          if (link.address is Inet4Address && link.prefixLength in 1..30) {
+            val bytes = link.address.address
+            val address = bytes.fold(0) { value, byte -> (value shl 8) or (byte.toInt() and 255) }
+            val broadcast = address or (-1 ushr link.prefixLength)
+            targets.add(InetAddress.getByAddress(ByteArray(4) { index ->
+              (broadcast ushr (24 - index * 8)).toByte()
+            }))
           }
         }
-        val probe = "KUFIBOT_DISCOVER_V1".toByteArray(Charsets.UTF_8)
         var sent = false
         targets.forEach { target ->
-          try {
-            socket.send(DatagramPacket(probe, probe.size, target, 8888))
-            sent = true
-          } catch (_: java.io.IOException) { /* Another interface may work. */ }
+          // V2 belongs to the network watchdog; V1 supports older robots.
+          listOf("KUFIBOT_DISCOVER_V2" to 8889, "KUFIBOT_DISCOVER_V1" to 8888).forEach { (text, port) ->
+            val probe = text.toByteArray(Charsets.UTF_8)
+            try {
+              socket.send(DatagramPacket(probe, probe.size, target, port))
+              sent = true
+            } catch (_: java.io.IOException) { /* Another target may work. */ }
+          }
         }
         check(sent) { "Wi-Fi ağına keşif paketi gönderilemedi" }
         val deadline = System.nanoTime() + 1_000_000_000L
@@ -55,10 +84,21 @@ class KufibotDiscoveryModule : Module() {
             val data = JSONObject(String(packet.data, 0, packet.length, Charsets.UTF_8))
             val port = data.optInt("port", 0)
             val host = packet.address.hostAddress ?: continue
-            if (packet.address is Inet4Address && data.optString("service") == "kufibot" &&
-                data.optInt("version") == 1 && port in 1..65535) {
-              found["$host:$port"] = mapOf("host" to host, "port" to port,
+            val version = data.optInt("version")
+            if (packet.address is Inet4Address && !packet.address.isLoopbackAddress &&
+                !packet.address.isMulticastAddress && data.optString("service") == "kufibot" &&
+                version in 1..2 && port in 1..65535) {
+              val key = "$host:$port"
+              if (version == 1 && found[key]?.containsKey("robotId") == true) continue
+              val robot = mutableMapOf<String, Any>("host" to host, "port" to port,
                 "name" to data.optString("name", "Kufibot").take(60))
+              val id = data.optString("robot_id")
+              if (version == 2 && id.isNotEmpty() && id.length <= 128) {
+                robot["robotId"] = id
+                robot["stationConnected"] = data.optBoolean("station_connected")
+                robot["setupActive"] = data.optBoolean("setup_active")
+              }
+              found[key] = robot
             }
           } catch (_: org.json.JSONException) { /* Ignore unrelated UDP packets. */ }
         }

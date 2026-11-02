@@ -199,7 +199,6 @@ export class RobotConnection extends EventTarget {
     const ws = this.control = new WebSocket(`${base}/control`);
     ws.onopen = () => {
       this.claim();
-      this.startWebRtc(base);
     };
     ws.onmessage = event => {
       try {
@@ -208,6 +207,12 @@ export class RobotConnection extends EventTarget {
             ['remote', 'ai', 'tools'].includes(data.mode) && typeof data.owner === 'boolean') {
           this.lastState = performance.now();
           this.state = data;
+          if (data.videoPaused) {
+            if (this.peer || this.videoRetry !== null) this.closeVideo();
+            if (this.videoError) { this.videoError = false; this.emit('error', ''); }
+          } else if (!this.peer && this.videoRetry === null) {
+            this.startWebRtc(base);
+          }
           // A browser can receive a state packet before its initial claim is
           // processed, or immediately after a short Wi-Fi/WebRTC reconnect.
           // Reclaim an idle controller once so the UI cannot remain disabled.
@@ -259,7 +264,8 @@ export class RobotConnection extends EventTarget {
   }
 
   async startWebRtc(base) {
-    if (this.disposed || !this.active || this.control?.readyState !== WebSocket.OPEN) return;
+    if (this.disposed || !this.active || !this.state || this.state.videoPaused ||
+        this.control?.readyState !== WebSocket.OPEN) return;
     this.closeVideo();
     this.videoBase = base;
     this.videoNegotiating = true;
@@ -313,6 +319,7 @@ export class RobotConnection extends EventTarget {
 
   retryVideo(peer, base) {
     if (!peer || peer !== this.peer || this.videoRetry !== null) return;
+    if (this.state?.videoPaused) { this.closeVideo(); return; }
     // Camera availability must not revoke workflow ownership or cancel uploads.
     this.clearFrame();
     this.videoAbort?.abort();

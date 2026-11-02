@@ -31,8 +31,9 @@ source install/setup.bash
 ```
 
 `interactive_robot.yaml` içindeki `remote_controller` parametreleri robot adı,
-TCP portu ve keşif portunu belirler. Telefon UDP **8888** üzerinden keşif yapar;
-bu port iki tarafta aynı kalmalıdır. Kontrol `/control` WebSocket, video
+TCP portu ve eski keşif portunu belirler. Telefon UDP **8889** üzerinden kalıcı
+robot kimliğiyle keşif yapar; eski robotlar için UDP **8888** de sorgulanır.
+Yeni keşif hizmeti `kufibot-network` tarafından sunulur. Kontrol `/control` WebSocket, video
 `/offer` HTTP signaling + WebRTC RTP üzerinden akar. Mod değişiminin gerçekten
 uygulanması için güncellenmiş `servo_arbiter` gereklidir.
 
@@ -70,9 +71,11 @@ alınabilir. Android çıktıları prebuild ile üretilir, depoya eklenmez.
 ## Bağlantı ve kontrol davranışı
 
 - Telefon ve robot aynı IPv4 LAN/Wi-Fi ağında olmalıdır. Uygulama üç saniyede bir
-  UDP broadcast gönderir ve ilk bulunan robota bağlanır. Menüde diğer bulunan
-  robotlar seçilebilir. AP/client isolation ve broadcast engeli varsa IP ile
-  bağlantı kullanılabilir; TCP 8080 erişilebilir olmalıdır.
+  UDP broadcast gönderir ve ilk bulunan robota bağlanır. Seçilen robot kalıcı
+  kimliğiyle izlenir; aynı robotun IP'si değişince bağlantı yeni adrese taşınır.
+  Menüde diğer bulunan robotlar seçilebilir. AP/client isolation robotla yerel
+  iletişimi engeller; yalnızca broadcast engelliyse bilinen IP ile bağlantı
+  denenebilir. TCP 8080 erişilebilir olmalıdır.
 - İlk bağlanan telefon kontrolü alır; diğerleri izleyicidir. Kontrol sahibi
   ayrıldıktan sonra menüden **Kumandayı devral** seçilebilir.
 - Köprü başlangıçta kumanda modundadır. YZ modu servo arbiter üzerinden mevcut
@@ -109,9 +112,49 @@ source install/setup.bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest src/kufibot_remote/test src/kufibot_interaction/test/test_remote_arbitration.py -q
 # Mobil dizininde
 npm run typecheck
+npm run test:network
 npx expo install --check
 npx expo export --platform android
 ```
+
+## DNS ve internet olmadan Wi-Fi kurulumu
+
+Robot tarafını mevcut ağı kesmeden güncelleyin:
+
+```bash
+sudo /usr/bin/python3 tools/install_network_service.py
+```
+
+Native keşif modülü değiştiği için yeni Android APK derlenip kurulmalıdır.
+Android SDK/JDK ve Node 22.13+ bulunan geliştirme bilgisayarında mobil dizininden:
+
+```bash
+npm ci
+npx expo run:android --variant release
+```
+
+1. Telefonu robotun parolasız **kufi** ağına bağlayıp uygulamayı açın.
+2. **Bağlantı Ayarları** ekranında robotun Wi-Fi ağlarını tarayın. Hedef ağı
+   seçin veya adını elle girin; parolayı yazıp **Robotu bu ağa bağla**'ya dokunun.
+3. **Telefonun Wi-Fi ayarlarını aç** ile telefonu da hedef ağa geçirin.
+4. Uygulamaya dönün. Keşif hemen yenilenir; aynı robotun istasyon bağlantısı ve
+   kısa ömürlü ağ geçiş anahtarı yeni IP üzerinden doğrulanır. Farklı kimlikteki
+   robotlar bu geçiş için seçilmez. Uygulama doğrulama tamamlanınca yeni IP'ye bağlanır.
+5. Ekrandaki sayısal web adresini kopyalayın/paylaşın veya **IP ile web arayüzünü
+   aç**'a dokunun. Bilgisayarda da aynı ağ üzerinden bu adresi kullanın.
+
+Telefonun internet erişimi gerekmez. Android keşif ve robot bağlantılarını
+Wi-Fi üzerinden yönlendirir; mobil verinin açık olması kurulum hotspotunu
+atlamasına neden olmaz. Wi-Fi parolası depolamaya yazılmaz ve istek gönderilirken
+formdan temizlenir. Ağ geçişi uygulama belleğinde 15 dakika takip edilir;
+uygulama tamamen kapatılırsa robot yeniden keşfedilebilir, ancak bekleyen
+geçiş doğrulaması yeniden kurulmaz.
+
+Yanlış parolada robot önceki ağa/hotspota geri döner. Telefonu tekrar **kufi**
+ağına geçirip uygulamaya dönerek hata bilgisini okuyun ve yeniden deneyin.
+Keşif listesi her taramada yenilenir; erişilemeyen eski IP'ler bulunmuş robot
+olarak tutulmaz. Ağ cihaz izolasyonu veya UDP broadcast engeli uygulamanın
+robotu bulmasını engelleyebilir; DNS kullanmamak bu ağ kısıtlarını kaldırmaz.
 
 WebSocket testi yalnızca localhost portu açar, ROS testleri donanımı çalıştırmaz.
 Telefonda kabul kontrolü: otomatik keşif, kamera, sensörler, iki joysticke birlikte

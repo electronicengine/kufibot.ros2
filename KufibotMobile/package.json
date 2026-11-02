@@ -6,7 +6,8 @@
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:network": "node --test test/network.test.cjs"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "14.0.0",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.0",
+    "react-test-renderer": "19.2.0",
     "typescript": "~5.9.2"
   }
 }

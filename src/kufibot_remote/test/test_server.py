@@ -1,10 +1,67 @@
 import asyncio
 import json
+from unittest.mock import AsyncMock, Mock
 
 from aiohttp.test_utils import TestClient, TestServer
+import pytest
 
 from kufibot_remote.control import Control
 from kufibot_remote.server import Discovery, Server
+
+
+@pytest.mark.parametrize('voice', [
+    {'state': 'greeting', 'active': False},
+    {'state': 'connecting', 'active': False},
+    {'state': 'connected', 'active': True},
+    {'state': 'listening', 'active': True},
+    {'state': 'speaking', 'active': True},
+    {'state': 'error', 'active': True},
+    {'state': 'farewell', 'active': False},
+])
+def test_voice_session_closes_all_video_peers_and_rejects_new_offers(voice):
+    async def run():
+        state = {'voiceStatus': {'state': 'idle', 'active': False}}
+        track = Mock()
+        server = Server(Control(), lambda: state, track)
+        async with TestClient(TestServer(server.app)) as client:
+            # No control sockets: server must stop even unattended viewers.
+            peers = [Mock(close=AsyncMock()) for _ in range(4)]
+            server.peers.update(peers)
+            state['voiceStatus'] = voice
+            for _ in range(30):
+                if not server.peers:
+                    break
+                await asyncio.sleep(.02)
+            assert not server.peers
+            for peer in peers:
+                peer.close.assert_awaited_once()
+            assert (await client.post('/offer', json={})).status == 503
+            track.assert_not_called()
+            state['voiceStatus'] = {'state': 'idle', 'active': False}
+            assert (await client.post('/offer', json={})).status == 400
+        await server.close()
+    asyncio.run(run())
+
+
+def test_voice_start_during_offer_negotiation_closes_peer(monkeypatch):
+    async def run():
+        state = {}
+        peer = Mock(connectionState='new')
+        peer.setRemoteDescription = AsyncMock()
+        peer.createAnswer = AsyncMock(return_value=object())
+        async def activate(_answer):
+            state['voiceStatus'] = {'state': 'connecting', 'active': False}
+        peer.setLocalDescription = AsyncMock(side_effect=activate)
+        peer.close = AsyncMock()
+        monkeypatch.setattr('kufibot_remote.server.RTCPeerConnection', lambda *_: peer)
+        server = Server(Control(), lambda: state, lambda: object())
+        async with TestClient(TestServer(server.app)) as client:
+            response = await client.post('/offer', json={'type': 'offer', 'sdp': 'test'})
+            assert response.status == 503
+            assert not server.peers
+            peer.close.assert_awaited_once()
+        await server.close()
+    asyncio.run(run())
 
 
 def test_discovery_ignores_unrelated_packets_and_advertises_port():

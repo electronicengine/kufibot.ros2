@@ -33,7 +33,7 @@ def test_mobile_camera_control_deck_details_and_rotation(tmp_path, monkeypatch):
         cv2.rectangle(pixels, (390, 220), (545, 390), (54, 109, 130), -1)
         cv2.line(pixels, (0, 480), (320, 280), (88, 104, 110), 2)
         cv2.line(pixels, (640, 480), (320, 280), (88, 104, 110), 2)
-        voice = dict(state='connected', active=True)
+        voice = dict(state='idle', active=False)
         def status():
             return dict(version=1, mode=control.mode, appliedMode=control.mode,
                 camera=True, driveAvailable=True, sensors=dict(voltage=12.4, current=.8, heading=123.4, distance=1.5),
@@ -124,8 +124,11 @@ def test_mobile_camera_control_deck_details_and_rotation(tmp_path, monkeypatch):
                     await page.mouse.up()
                     await wait_for(lambda: all(v == 0 for v in control.axes.values()))
                     # Mode-specific content keeps unused controls off the phone screen.
+                    voice.update(state='connected', active=True)
                     await page.locator('#mode-ai').click()
                     await playwright.expect(page.locator('#mobile-voice-state')).to_have_text('Görüşme açık')
+                    await playwright.expect(page.locator('#camera')).to_be_hidden()
+                    assert not server.peers
                     await playwright.expect(page.locator('#drive-stick')).to_be_hidden()
                     await playwright.expect(page.locator('#control-heard')).to_have_text('Merhaba Kufi')
                     await playwright.expect(page.locator('#error')).to_be_hidden()
@@ -137,6 +140,8 @@ def test_mobile_camera_control_deck_details_and_rotation(tmp_path, monkeypatch):
                     await page.set_viewport_size(dict(width=390, height=844))
                     await page.locator('#mobile-end-voice').click()
                     await wait_for(lambda: control.voice_stop_requested)
+                    voice.update(state='idle', active=False)
+                    await playwright.expect(page.locator('#camera')).to_be_visible(timeout=15000)
                     await page.locator('#mode-tools').click()
                     await playwright.expect(page.locator('#tool-modal')).to_be_visible()
                     await page.locator('#tool-close').click()

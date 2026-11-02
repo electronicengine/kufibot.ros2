@@ -43,7 +43,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     destination = Path('/usr/local/lib/kufibot-network')
     destination.mkdir(mode=0o755, parents=True, exist_ok=True)
-    for name in ('network_helper.py', 'network_service.py'):
+    for name in ('network_helper.py', 'network_service.py', 'network_discovery.py'):
         run('install', '-o', 'root', '-g', 'root', '-m', '0644',
             str(root / 'src/kufibot_remote/kufibot_remote' / name), str(destination / name))
     config = Path('/etc/kufibot/network.json')

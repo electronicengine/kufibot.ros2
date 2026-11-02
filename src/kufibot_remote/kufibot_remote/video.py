@@ -7,6 +7,13 @@ from aiortc import VideoStreamTrack
 from av import VideoFrame
 
 
+def voice_video_paused(voice_status):
+    """Release LAN video encoding from voice startup through session shutdown."""
+    voice = voice_status or {}
+    return bool(voice.get('active') or voice.get('state') in (
+        'greeting', 'connecting', 'farewell'))
+
+
 class LatestCameraTrack(VideoStreamTrack):
     """Encode only the newest frame; never retain a video backlog."""
 

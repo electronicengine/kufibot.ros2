@@ -52,10 +52,15 @@ robotun Python ortamında `aiortc==1.9.0` bulunmalıdır (projenin
 
 Web ve native Expo uygulaması yalnızca WebRTC kullanır; JPEG/base64 yayın ve
 `/video` ucu kaldırıldı. Eski APK güncellenmelidir.
+Karşılama, sesli oturum bağlantısı, görüşme ve veda boyunca web/mobil video bağlantıları
+sunucudan kapatılır ve yeni `/offer` isteklerine `503` döner. `videoPaused`
+telemetrisi yeniden denemeleri durdurur; sesli oturum bitince görüntü otomatik
+açılır. Kamera kaynağı, yüz/el takibi ve kamera analizi çalışmaya devam eder;
+köprünün araç/workflow kare önbelleği bu sırada 5 Hz'de güncellenir.
 Kamera, kaynak çözünürlüğünde `camera/stream` konusunu 30 FPS'te yayınlar.
 WebRTC köprüsü bu konuyu doğrudan iletir; MediaPipe, OpenCV ve ses ajanı aynı
 akıştan kendi ayarlanmış aralıklarında en yeni kareyi örnekler. Böylece ağır
-işleme canlı video aktarımını durdurmaz veya geriye düşürmez. `video_max_width`
+işleme kare kuyruğu oluşturmaz. `video_max_width`
 yalnızca WebRTC yayın kopyasını etkiler; `0` kaynak genişliğini korur. Robot
 gerçek zamanda encode edemiyorsa `video_max_width` veya `video_fps` değeri
 düşürülebilir.
@@ -312,6 +317,66 @@ veya DHCP yapılandırması varsa kurucu üzerine yazmayı reddeder. Ağ hizmeti
 root’a ait `/usr/local/lib/kufibot-network/` kopyasından çalışır; ROS veya web
 yeniden başlasa da ağ gözcüsü devam eder. Kodu güncellerken kurucuyu yeniden
 çalıştırın. Kontrol: `systemctl status kufibot-network.service`.
+
+DNS'in `.local` isimlerini yanlış çözdüğü ağlarda Android uygulamasındaki
+**Bağlantı Ayarları** ekranı kullanılabilir. Ağ hizmeti UDP **8889** üzerinden
+kalıcı robot kimliğini ve bağlantı durumunu duyurur; uygulama robotun yeni
+IP'sini yanıt paketinin kaynak adresinden öğrenir. Ağ geçiş anahtarı ve aynı
+robot kimliği yeni IP üzerinden doğrulanınca uygulama yeniden bağlanır,
+sayısal web adresini gösterir ve paylaşır. Eski ROS keşfi UDP **8888** üzerinden
+çalışmaya devam eder. Telefonun da hedef Wi-Fi'ye geçirilmesi gerekir;
+uygulama için internet gerekmez. [Mobil kurulum adımları](../../KufibotMobile/README.md#dns-ve-internet-olmadan-wi-fi-kurulumu).
+
+#### Mevcut ağı kesmeden doğrulama ve manuel geçiş testi
+
+Tarayıcı, HTTP köprüsü, API ve ağ yardımcısını birlikte sınamak için:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q \
+  src/kufibot_remote/test/test_network_rescue.py \
+  src/kufibot_remote/test/test_network_e2e.py \
+  src/kufibot_remote/test/test_network_setup_browser.py \
+  src/kufibot_remote/test/test_device_settings.py \
+  src/kufibot_remote/test/test_device_settings_browser.py
+```
+
+Bu testlerde fiziksel ağ işlemleri yalıtılır. Yanlış parola sonrası kurulum
+ağına dönüş, yeniden deneme, işlem sürerken tarayıcının çevrimdışı kalması ve
+gerçek HTTP kimlik doğrulamasından sonra sabit yerel adrese geçiş sınanır.
+Gerçek dnsmasq ile DHCP adres dağıtımını ve captive DNS yanıtlarını ayrı bir
+ağ ad alanında sınamak için:
+
+```bash
+sudo -n unshare --net .venv/bin/python tools/network_namespace_smoke_test.py
+```
+
+Bu araç yalnızca loopback içeren yeni bir ağ ad alanında çalışır; iki sanal
+arayüz oluşturur ve gerçek DHCP DISCOVER/OFFER/REQUEST/ACK alışverişi yapar.
+Fiziksel Wi-Fi bağlantısını değiştirmez. dnsmasq, lease klasörünün sahibi olan
+`dnsmasq` kullanıcısının birincil grubuyla çalışır; Debian'da bu grup genellikle
+`nogroup` olur.
+
+Gerçek telefon ve Wi-Fi sürücüsüyle son kontrol kullanıcı tarafından yapılır:
+
+1. Hedef Wi-Fi adını/parolasını hazırlayın ve bu adımları telefonda açık tutun.
+2. Kaydedilmiş ağları koruyarak robotu bağlantısız duruma geçirmek için robotun
+   terminalinde `sudo nmcli device disconnect wlan0` çalıştırın. Bu adım robotun
+   mevcut Wi-Fi bağlantısını ve o bağlantı üzerinden çalışan ajanı keser.
+3. Yaklaşık 45–50 saniye sonra telefondan parolasız **kufi** ağına bağlanın.
+   İnternet olmadığı uyarısında bu ağa bağlı kalın.
+4. `http://10.42.0.1/setup` adresini açın. Hedef ağı listeden seçin; listelenmiyorsa
+   **Ağ adını elle gir** seçeneğini kullanın.
+5. Önce yanlış parolayla deneyin. Yaklaşık 45 saniyelik bağlantı denemesi ve
+   geri dönüş sonrasında **kufi** ağına yeniden bağlanıp aynı kurulum adresini
+   açabilmelisiniz; ekranda başarısızlık/önceki ağa dönüş bilgisi görünmelidir.
+6. Doğru parolayla yeniden bağlanın. Ekranda gösterilen sabit adresi kontrol
+   edin; bu robotta `http://kufi.local/` olmalıdır.
+7. Telefonu da hedef Wi-Fi'ye geçirin ve tarayıcı sekmesine dönün. Robot
+   doğrulanınca arayüz yeniden açılmalıdır; gerekirse **Robotu aç** bağlantısına
+   dokunun. Bağlantı Ayarları'nda hedef SSID'yi ve yeni IP adresini kontrol edin.
+8. Robotu yeniden başlatın. Hedef ağa otomatik bağlanmalı ve aynı sabit yerel
+   adresten açılmalıdır. mDNS engelliyse yönlendiricinin DHCP listesindeki IP'yi
+   kullanın.
 
 ### Verasist SDK araçlarını yayımlama
 

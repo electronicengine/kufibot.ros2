@@ -1,7 +1,5 @@
 import asyncio
-import json
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -73,31 +71,34 @@ def test_stop_before_start_and_disconnect_cancel_pending_motion(tmp_path):
     asyncio.run(run())
 
 
-def test_speech_uses_exact_text_and_starts_mimic_on_first_audio(tmp_path, monkeypatch):
+def test_speech_uses_exact_text_and_starts_mimic_on_first_audio(tmp_path):
     async def run():
         performance, clock, command = player(tmp_path)
         performance.speech_config = AsyncMock(return_value=dict(tts='/test/voice.onnx', speaker='null', tts_threads=1))
-        output = asyncio.StreamReader()
-        writes = []
-        process = SimpleNamespace(pid=-1, returncode=None, stdout=output,
-            stdin=SimpleNamespace(write=writes.append, drain=AsyncMock(), close=lambda: None))
-        async def wait():
-            process.returncode = 0
-            return 0
-        process.wait = wait
-        monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
+        started, done = asyncio.Event(), asyncio.Event()
+        async def speak(config, text, on_event):
+            started.set()
+            await done.wait()
+        performance.speech.speak = AsyncMock(side_effect=speak)
         performance.start('owner', {**command, 'text': 'Tam olarak bunu söyle.', 'voice': 'fettah'})
-        await asyncio.sleep(.01)
+        await asyncio.wait_for(started.wait(), 1)
         assert performance.control.active_mimic is None
-        assert json.loads(writes[0])['text'] == 'Tam olarak bunu söyle.'
-        output.feed_data(b'{"type":"speaking","value":true}\n')
-        await asyncio.sleep(.01)
+        args = performance.speech.speak.call_args.args
+        assert args[1] == 'Tam olarak bunu söyle.'
+        on_event = args[2]
+        assert not performance.control.performance_speaking
+        on_event({'type': 'speaking', 'value': True})
         assert performance.control.active_mimic['id'] == 'happy'
-        output.feed_eof()
+        assert performance.control.performance_speaking
+        on_event({'type': 'speaking', 'value': False})
+        assert not performance.control.performance_speaking
+        assert performance.control.active_mimic is not None
+        done.set()
         clock[0] += 1
         performance.control.tick(.05, NEUTRAL_ANGLES)
         await asyncio.wait_for(performance.task, 1)
         assert performance.status['state'] == 'completed'
+        assert not performance.control.performance_speaking
     asyncio.run(run())
 
 
@@ -133,30 +134,68 @@ def test_websocket_performance_and_stop_keep_tools_mode(tmp_path, monkeypatch):
     asyncio.run(run())
 
 
-def test_stop_terminates_speech_and_its_audio_process_group(tmp_path, monkeypatch):
+def test_stop_cancels_speech_and_closes_worker(tmp_path):
     async def run():
         performance, _, command = player(tmp_path)
         performance.speech_config = AsyncMock(return_value={})
-        stopped = asyncio.Event()
-        process = SimpleNamespace(pid=12345, returncode=None, stdout=asyncio.StreamReader(),
-            stdin=SimpleNamespace(write=lambda data: None, drain=AsyncMock(), close=lambda: None))
-        async def wait():
-            await stopped.wait()
-            return process.returncode
-        def terminate(pid, sig):
-            assert pid == 12345
-            process.returncode = -int(sig)
-            stopped.set()
-        process.wait = wait
-        monkeypatch.setattr(asyncio, 'create_subprocess_exec', AsyncMock(return_value=process))
-        monkeypatch.setattr('kufibot_remote.performance.os.killpg', terminate)
+        started, stopped = asyncio.Event(), asyncio.Event()
+        async def speak(config, text, on_event):
+            on_event({'type': 'speaking', 'value': True})
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        performance.speech.speak = AsyncMock(side_effect=speak)
+        performance.speech.close = AsyncMock()
         performance.start('owner', {**command, 'text': 'Durdurulabilen konuşma.'})
-        await asyncio.sleep(.01)
+        await asyncio.wait_for(started.wait(), 1)
+        assert performance.control.performance_speaking
         await performance.stop()
         assert stopped.is_set() and not performance.busy
-        assert performance.process is None
+        performance.speech.close.assert_awaited_once()
         assert performance.status['state'] == 'stopped'
         assert performance.control.active_mimic is None
+        assert not performance.control.performance_speaking
+    asyncio.run(run())
+
+
+def test_remote_speech_and_mimic_keep_camera_available(tmp_path):
+    import numpy as np
+    from sensor_msgs.msg import Image
+    from kufibot_remote.node import RemoteController
+
+    performance, _, _ = player(tmp_path)
+    node = RemoteController.__new__(RemoteController)
+    node.control = performance.control
+    node.video_max_width = 0
+    node.video_frame_time = 0.0
+    node.control.performance_speaking = True
+    node.control.active_mimic = {'name': 'happy'}
+    frame = np.ones((4, 4, 3), np.uint8)
+    node._video_image(Image(height=4, width=4, step=12,
+                            encoding='bgr8', data=frame.tobytes()))
+    assert np.array_equal(node.video_frame, frame)
+
+
+def test_mimic_only_does_not_wait_for_voice_warmup(tmp_path):
+    async def run():
+        performance, clock, command = player(tmp_path)
+        loading = asyncio.Event()
+        performance.speech_config = AsyncMock(return_value={})
+        async def prepare(_):
+            await loading.wait()
+        performance.speech.prepare = AsyncMock(side_effect=prepare)
+        performance.prepare('owner')
+        await asyncio.sleep(0)
+        performance.start('owner', command)
+        await asyncio.sleep(0)
+        assert performance.control.active_mimic is not None
+        clock[0] += 1
+        performance.control.tick(.05, NEUTRAL_ANGLES)
+        await asyncio.wait_for(performance.task, 1)
+        assert performance.status['startup_ms'] < 100
+        await performance.stop()
     asyncio.run(run())
 
 

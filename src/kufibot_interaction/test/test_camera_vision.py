@@ -173,6 +173,51 @@ def camera_node():
     return node
 
 
+@pytest.mark.parametrize('activity', [
+    {'assistant_speaking': True},
+    {'active_motion': {'name': 'happy'}},
+    {'workflow_motion': ({'name': 'wave'}, 0)},
+    {'workflow_pose_until': float('inf')},
+    {'activation': type('Activation', (), {'phase': 'greeting'})()},
+    {'activation': type('Activation', (), {'phase': 'farewell'})()},
+])
+def test_speech_and_all_motion_paths_keep_camera_analysis_fresh(activity):
+    node = camera_node()
+    node.last_camera_sample_at = 0.0
+    node.camera_sample_interval = .2
+    for name, value in activity.items():
+        setattr(node, name, value)
+    frame = snapshot(160, 120)
+    node._camera_image(Image(width=160, height=120, step=frame['step'],
+                             encoding=frame['encoding'], data=frame['data']))
+    assert node.latest_camera_image['width'] == 160
+
+
+def test_camera_analysis_continues_while_speech_and_mimic_overlap():
+    node = camera_node()
+    node.assistant_speaking = True
+    node.active_motion = {'name': 'happy'}
+    node.last_camera_sample_at = 0.0
+    node.camera_sample_interval = .2
+    frame = snapshot(160, 120)
+    node._camera_image(Image(width=160, height=120, step=frame['step'],
+                             encoding=frame['encoding'], data=frame['data']))
+    assert node.latest_camera_image['width'] == 160
+
+
+def test_stopped_speech_reservation_does_not_latch_camera_pause():
+    node = camera_node()
+    node.assistant_speaking = False
+    node.active_motion = None
+    node.speech_motion_active = True
+    node.last_camera_sample_at = 0.0
+    node.camera_sample_interval = .2
+    frame = snapshot(160, 120)
+    node._camera_image(Image(width=160, height=120, step=frame['step'],
+                             encoding=frame['encoding'], data=frame['data']))
+    assert node.latest_camera_image['width'] == 160
+
+
 def test_camera_event_sends_one_snapshot_per_turn():
     async def run():
         node = camera_node()

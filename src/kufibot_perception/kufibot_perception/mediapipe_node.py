@@ -5,8 +5,6 @@ import time
 import sys
 import os
 
-from kufibot_interaction.local_voice_runtime import attach_phase_lease
-
 import cv2
 # MediaPipe imports its optional audio Tasks API at package import time. On
 # headless Raspberry Pi, sounddevice can block while PortAudio probes devices.
@@ -19,7 +17,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 
 from kufibot_interfaces.msg import (
     Detection, DetectionArray, JointCommand, Landmark, TrackingTarget)
@@ -84,9 +82,6 @@ class MediaPipeNode(Node):
         self.applied_mode = 'remote'
         self.mode_time = 0.0
         self.create_subscription(String, 'remote/applied_mode', self._mode, 10)
-        self.local_compute_active = False
-        self.local_phase_lease = attach_phase_lease(
-            self, lambda active: self._local_compute(Bool(data=active)))
         self.latest_target = None
         self.image_size = (640, 480)
         self.last_target_time = 0.0
@@ -102,13 +97,7 @@ class MediaPipeNode(Node):
 
     def _tracking_enabled(self):
         return (self.applied_mode in ('ai', 'tools')
-                and time.monotonic() - self.mode_time < 1.0
-                and not self.local_compute_active)
-
-    def _local_compute(self, msg):
-        self.local_compute_active = bool(msg.data)
-        if getattr(self, 'local_compute_active', False):
-            self.latest_target = None
+                and time.monotonic() - self.mode_time < 1.0)
 
     @staticmethod
     def _landmark(index, point):

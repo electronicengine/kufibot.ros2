@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
 from .voice_activation import DEFAULT_ACTIVATION
@@ -42,6 +42,7 @@ AEC_MODULE_DEFAULTS = {
 # Match the USB camera's sensor-data publisher and keep only the latest frame.
 # A RELIABLE reader cannot receive from a BEST_EFFORT camera publisher.
 CAMERA_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+VOICE_STATE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 from .workflow_robot_tools import TimedCache
@@ -241,7 +242,7 @@ class VoiceAgentNode(Node):
         self.command_pub = self.create_publisher(
             JointCommand, 'servo/agent_targets', 10)
         self.state_pub = self.create_publisher(
-            VoiceState, 'voice_session/state', 10)
+            VoiceState, 'voice_session/state', VOICE_STATE_QOS)
         self.transcript_pub = self.create_publisher(
             Transcript, 'voice_session/transcript', 10)
         self.trigger_uuid_pub = self.create_publisher(
@@ -273,7 +274,6 @@ class VoiceAgentNode(Node):
             Trigger, 'voice_session/stop', self._stop_service)
         self.ai_settings_pub = self.create_publisher(String, 'voice_session/ai_settings', 10)
         self.workflow_unlinked_pub = self.create_publisher(String, 'voice_session/workflow_unlinked', 10)
-        from rclpy.qos import QoSProfile, DurabilityPolicy
         self.local_phase_pub = self.create_publisher(
             String, 'local_ai/phase', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.local_metrics_pub = self.create_publisher(String, 'local_ai/metrics', 50)
@@ -807,8 +807,8 @@ class VoiceAgentNode(Node):
                     self.get_logger().info(event['message'])
                 elif kind == 'compute':
                     # The worker emits this around llama.cpp inference only.
-                    # Verasist sessions never produce it, so their camera and
-                    # perception pipelines remain fully active.
+                    # Camera capture and face/hand perception keep running;
+                    # LAN video is paused for the entire voice session.
                     self.local_compute_pub.publish(Bool(data=bool(event['active'])))
                 elif kind == 'transcript':
                     if event['role'] == 'user' and event.get('final', True) and getattr(self, 'ai_settings', {}).get('workflow_id'):

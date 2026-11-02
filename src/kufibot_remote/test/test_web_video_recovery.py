@@ -26,6 +26,7 @@ def test_video_recovers_without_replacing_control_or_stopping_ai(monkeypatch, tm
         pixels = np.full((240, 320, 3), 120, np.uint8)
         available = True
         offers = 0
+        voice = {'state': 'idle', 'active': False}
 
         class CameraTrack(LatestCameraTrack):
             stalled = False
@@ -42,7 +43,7 @@ def test_video_recovers_without_replacing_control_or_stopping_ai(monkeypatch, tm
 
         def status():
             return dict(version=1, mode=control.mode, appliedMode=control.mode,
-                        camera=available, driveAvailable=False, sensors={}, joints={})
+                        camera=available, driveAvailable=False, sensors={}, joints={}, voiceStatus=voice)
 
         @web.middleware
         async def fail_first_offer(request, handler):
@@ -96,6 +97,28 @@ def test_video_recovers_without_replacing_control_or_stopping_ai(monkeypatch, tm
                     await playwright.expect(camera).to_be_hidden()
                     available = True
                     await playwright.expect(camera).to_be_visible(timeout=8000)
+                    assert control.owner is owner and control.mode == 'ai'
+
+                    voice.update(state='connecting', active=False)
+                    await playwright.expect(camera).to_be_hidden()
+                    await playwright.expect(page.locator('#camera-message')).to_contain_text('Sesli oturum açık')
+                    await asyncio.sleep(.3)
+                    assert not server.peers
+                    paused_offers = offers
+                    voice.update(state='connected', active=True)
+                    await asyncio.sleep(1.3)  # Retry timers must stay cancelled.
+                    assert offers == paused_offers
+                    assert control.owner is owner and control.mode == 'ai'
+
+                    # A new viewer arriving during voice must never signal video.
+                    viewer = await browser.new_page()
+                    await viewer.goto(f'http://127.0.0.1:{port}')
+                    await playwright.expect(viewer.locator('#camera-message')).to_contain_text('Sesli oturum açık')
+                    assert offers == paused_offers
+                    await viewer.close()
+                    voice.update(state='idle', active=False)
+                    await playwright.expect(camera).to_be_visible(timeout=15000)
+                    assert offers == paused_offers + 1
                     assert control.owner is owner and control.mode == 'ai'
                     assert errors == []
                 finally:

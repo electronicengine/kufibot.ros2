@@ -34,6 +34,8 @@ def test_inference_and_commands_only_in_confirmed_ai_or_tools_mode():
     node.command_pub.publish.assert_not_called()
 
     node._mode(SimpleNamespace(data='ai'))
+    # Local LLM inference must not disable either face or hand processing.
+    node.local_compute_active = True
     node._image(msg)
     node._control_tick()
     node.face.process.assert_called_once()

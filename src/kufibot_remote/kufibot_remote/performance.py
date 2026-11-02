@@ -1,18 +1,19 @@
 """Owner-bound, cancellable speech and expressions for the tools console."""
 import asyncio
-import json
 import os
-import signal
-import sys
+import time
 
 from kufibot_interaction.ai_settings import catalog, read_settings
+from .speech_process import SpeechProcess
 
 
 class PerformancePlayer:
     def __init__(self, control):
         self.control = control
         self.task = None
-        self.process = None
+        self.speech = SpeechProcess()
+        self.warm_task = None
+        self.warm_voice = None
         self.status = {'state': 'idle'}
 
     @property
@@ -24,6 +25,26 @@ class PerformancePlayer:
         return {'voices': [{'id': m['id'], 'name': m.get('label', m['id']),
                             'languages': m['languages']} for m in models
                            if m['kind'] == 'tts' and m['available']]}
+
+    def prepare(self, owner, voice=''):
+        """Load the selected voice while the operator chooses text and mimic."""
+        self.check(owner)
+        if not isinstance(voice, str) or len(voice) > 200:
+            raise ValueError('Geçersiz ses seçimi')
+        if self.busy or (self.warm_task and not self.warm_task.done() and self.warm_voice == voice):
+            return
+        if self.warm_task:
+            self.warm_task.cancel()
+        self.warm_voice = voice
+        self.warm_task = asyncio.create_task(self._prepare(voice))
+
+    async def _prepare(self, voice):
+        try:
+            async with asyncio.timeout(120):
+                await self.speech.prepare(await self.speech_config(voice))
+        except (Exception, asyncio.CancelledError):
+            # Playback retries preparation and reports any device/model error.
+            pass
 
     def check(self, owner, epoch=None):
         if (self.control.owner is not owner or self.control.mode != 'tools'
@@ -54,11 +75,13 @@ class PerformancePlayer:
         self.control.disable_navigation('performance_started')
         self.status = dict(state='preparing', text=text, mimic_id=mimic_id,
                            name=motion['name'] if motion else '', error='', request_id=request_id)
+        self.started_at = time.monotonic()
         self.task = asyncio.create_task(self._run(owner, self.control.mode_epoch, text, voice, motion))
 
     async def speech_config(self, voice):
-        models = [m for m in await asyncio.to_thread(catalog) if m['kind'] == 'tts' and m['available']]
-        settings = await asyncio.to_thread(read_settings)
+        available, settings = await asyncio.gather(
+            asyncio.to_thread(catalog), asyncio.to_thread(read_settings))
+        models = [m for m in available if m['kind'] == 'tts' and m['available']]
         preferred = voice or settings.get('activation', {}).get('tts') or settings.get('tts')
         model = next((m for m in models if m['id'] == preferred), None)
         if voice and model is None:
@@ -71,8 +94,7 @@ class PerformancePlayer:
             speaker = await playback_device(os.environ.get('SPEAKER_ALSA_DEVICE', 'pulse:default'))
         except RuntimeError as error:
             raise ValueError(str(error)) from error
-        return dict(tts=model['path'], tts_threads=1,
-                    speaker=speaker, text='')
+        return dict(tts=model['path'], tts_threads=1, speaker=speaker)
 
     async def _run(self, owner, epoch, text, voice, motion):
         current = asyncio.current_task()
@@ -96,30 +118,21 @@ class PerformancePlayer:
                 self.control.play_motion(owner, motion, mode='tools')
                 started_motion = True
             self.status['state'] = 'playing'
+            self.status.setdefault('startup_ms', round((time.monotonic() - self.started_at) * 1000))
+
+        def speech_event(event):
+            if event.get('type') == 'speaking':
+                self.control.performance_speaking = bool(event.get('value'))
+                if self.control.performance_speaking:
+                    play_motion()
 
         try:
             async with asyncio.timeout(180):
                 if text:
                     config = await self.speech_config(voice)
                     self.check(owner, epoch)
-                    self.process = await asyncio.create_subprocess_exec(
-                        sys.executable, '-m', 'kufibot_remote.speech_worker',
-                        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                        start_new_session=True, limit=1024 * 1024,
-                        env={**os.environ, 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'})
-                    self.process.stdin.write((json.dumps({**config, 'text': text}) + '\n').encode())
-                    await self.process.stdin.drain()
-                    self.process.stdin.close()
-                    error = ''
-                    while line := await self.process.stdout.readline():
-                        event = json.loads(line)
-                        if event.get('type') == 'speaking' and event.get('value'):
-                            play_motion()
-                        elif event.get('type') == 'error':
-                            error = event.get('message', 'Robotun ses çıkışı açılamadı')
-                    await self.process.wait()
-                    if error or self.process.returncode:
-                        raise RuntimeError(error or 'Robotun ses çıkışı açılamadı; hoparlörü kontrol edin')
+                    await self.speech.speak(config, text, speech_event)
+                    self.control.performance_speaking = False
                 else:
                     play_motion()
                 while started_motion and self.control.active_mimic is not None:
@@ -140,23 +153,15 @@ class PerformancePlayer:
             await asyncio.gather(watcher, return_exceptions=True)
             if started_motion and self.status['state'] != 'completed':
                 self.control.cancel_mimic()
-            process, self.process = self.process, None
-            if process is not None and process.returncode is None:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                try:
-                    await asyncio.wait_for(process.wait(), 2)
-                except asyncio.TimeoutError:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    await process.wait()
+            self.control.performance_speaking = False
 
     async def stop(self):
+        if self.warm_task:
+            self.warm_task.cancel()
+            await asyncio.gather(self.warm_task, return_exceptions=True)
+            self.warm_task = None
         if self.busy:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
             self.status['state'] = 'stopped'
+        await self.speech.close()

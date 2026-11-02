@@ -2,7 +2,7 @@ import {CalibrationChart} from './src/CalibrationChart';
 import {HeardText} from './src/HeardText';
 import React, { useEffect, useRef, useState } from 'react';
 import { RTCView } from 'react-native-webrtc';
-import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, Share, StatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -14,6 +14,9 @@ import { MimicEditor } from './src/MimicEditor';
 import { AiSettingsPanel } from './src/AiSettingsPanel';
 import { VerasistAudioSettingsPanel } from './src/VerasistAudioSettings';
 import { WorkflowEditor } from './src/WorkflowEditor';
+import {NetworkSettings} from './src/NetworkSettings';
+import {handoffCandidate, NetworkHandoff, robotURL, selectDiscovered} from './src/discovery-state';
+import {verifyNetworkHandoff} from './src/network-api';
 
 
 function Controller() {
@@ -24,6 +27,9 @@ function Controller() {
   const [page, setPage] = useState<'control' | 'connection' | 'voice' | 'verasist-audio' | 'calibration' | 'mimics'>('control');
   const [host, setHost] = useState('');
   const [discoveryError, setDiscoveryError] = useState('');
+  const [networkNotice, setNetworkNotice] = useState('');
+  const [handoff, setHandoff] = useState<NetworkHandoff | null>(null);
+  const pendingHandoff = useRef<NetworkHandoff | null>(null);
   const [aiTriggerUuid, setAiTriggerUuid] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
   const [workflowOpen, setWorkflowOpen] = useState(false);
@@ -34,15 +40,50 @@ function Controller() {
   const s = link.state;
   const enabled = !!s?.owner && s.mode === 'remote' && s.appliedMode === 'remote' && !menu && page === 'control';
   useEffect(() => {
+    let closed = false;
+    let verifying = false;
+    let stopDiscovery: (() => void) | undefined;
     try {
-      return discover(robot => {
-        setRobots(previous => previous.some(r => r.host === robot.host && r.port === robot.port)
-          ? previous : [...previous, robot]);
-        setSelected(previous => previous ?? robot);
+      stopDiscovery = discover(found => {
+        setRobots(found);
         setDiscoveryError('');
+        const pending = pendingHandoff.current;
+        if (pending) {
+          if (Date.now() - pending.started >= 15 * 60 * 1000) {
+            pendingHandoff.current = null; setHandoff(null);
+            setNetworkNotice('Ağ geçişi doğrulama süresi doldu. Telefonun Wi-Fi bağlantısını kontrol edip robotu listeden seçin.');
+            return;
+          }
+          const candidate = found.find(robot => handoffCandidate(pending, robot));
+          if (!candidate || verifying) return;
+          verifying = true;
+          void verifyNetworkHandoff(pending, candidate).then(verified => {
+            if (closed || pendingHandoff.current !== pending || !verified) return;
+            setSelected(candidate);
+            pendingHandoff.current = null; setHandoff(null);
+            setNetworkNotice(`“${pending.ssid}” bağlantısı doğrulandı. Web arayüzü: ${robotURL(candidate)}`);
+          }).finally(() => { verifying = false; });
+          return;
+        }
+        setSelected(previous => found.reduce<Robot | null>((current, robot) => selectDiscovered(current, robot), previous));
       }, setDiscoveryError);
     } catch (error) { setDiscoveryError(`Keşif başlatılamadı: ${String(error)}`); }
+    return () => { closed = true; stopDiscovery?.(); };
   }, []);
+  const startHandoff = (value: NetworkHandoff) => {
+    link.stop(); pendingHandoff.current = value; setHandoff(value);
+    setNetworkNotice(`Telefonu “${value.ssid}” ağına bağlayın. Robot yeni IP adresinde aranıyor.`);
+  };
+  const failHandoff = (message: string) => {
+    pendingHandoff.current = null; setHandoff(null); setNetworkNotice(message);
+  };
+  const chooseRobot = (robot: Robot) => {
+    link.stop(); pendingHandoff.current = null; setHandoff(null); setNetworkNotice('');
+    setSelected(robot); goPage('control');
+  };
+  const openWeb = () => {
+    if (selected) void Linking.openURL(robotURL(selected)).catch(() => setDiscoveryError('Web tarayıcısı açılamadı. IP adresini kopyalayabilirsiniz.'));
+  };
   useEffect(() => () => {
     if (detailsTimer.current) clearTimeout(detailsTimer.current);
   }, []);
@@ -89,13 +130,13 @@ function Controller() {
         (match[2] && (Number(match[2]) < 1 || Number(match[2]) > 65535))) {
       setDiscoveryError('Geçerli IPv4 adresi girin: 192.168.1.20:8080'); return;
     }
-    link.stop(); setSelected({host: match[1], port: Number(match[2] ?? 8080), name: 'Kufibot'}); goPage('control');
+    chooseRobot({host: match[1], port: Number(match[2] ?? 8080), name: 'Kufibot'});
   };
   return <View style={styles.screen}>
     <StatusBar hidden/>
     {link.frame && s?.camera ? <RTCView streamURL={link.frame} style={StyleSheet.absoluteFill} objectFit="contain"/> :
       <View style={styles.placeholder}><View style={styles.reticle}/><Text style={styles.cameraTitle}>KUFIBOT</Text>
-        <Text style={styles.muted}>{s ? 'Kamera görüntüsü bekleniyor' : 'Aynı Wi-Fi ağındaki robot aranıyor…'}</Text></View>}
+        <Text style={styles.muted}>{s?.videoPaused ? 'Sesli oturum açık: canlı yayın duraklatıldı. Kamera analizi ve yüz/el takibi sürüyor.' : s ? 'Kamera görüntüsü bekleniyor' : 'Aynı Wi-Fi ağındaki robot aranıyor…'}</Text></View>}
     {page === 'control' && <SafeAreaView style={styles.overlay}>
       <View style={styles.top}>
         <View style={styles.sensorGroup}>
@@ -202,7 +243,36 @@ function Controller() {
       </SafeAreaView></View>
     </Modal>
     {page !== 'control' && page !== 'mimics' && <SafeAreaView style={styles.page}><View style={styles.pageHeader}><Pressable onPress={() => goPage('control')} style={styles.headerButton}><Text style={styles.headerText}>←</Text></Pressable><View style={{flex: 1}}><Text style={styles.pageKicker}>KUFIBOT CONTROL · AYARLAR</Text><Text style={styles.panelTitle}>{({connection: 'Bağlantı Ayarları', voice: 'Ses Ajanı', 'verasist-audio': 'Verasist Ses', calibration: 'Kalibrasyon'} as const)[page]}</Text></View><Pressable onPress={openMenu} style={styles.headerButton}><Text style={styles.headerText}>☰</Text></Pressable></View><ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
-      {page === 'connection' && <><Text style={styles.muted}>Aynı Wi-Fi ağı · UDP keşfi / WebSocket kontrolü</Text>{robots.map(robot => <Pressable key={`${robot.host}:${robot.port}`} style={styles.robot} onPress={() => {link.stop(); setSelected(robot); goPage('control');}}><Text style={styles.buttonText}>{robot.name} · {robot.host}:{robot.port}</Text></Pressable>)}{!robots.length && <Text style={styles.help}>Robot aranıyor. Telefon ve robot aynı ağda olmalı.</Text>}<TextInput value={host} onChangeText={setHost} placeholder="192.168.1.20:8080" placeholderTextColor="#799099" style={styles.input} autoCapitalize="none" autoCorrect={false} keyboardType="numbers-and-punctuation"/><Text style={styles.warning}>{discoveryError}</Text><Pressable style={styles.robot} onPress={manual}><Text style={styles.buttonText}>IP ile bağlan</Text></Pressable>{!!s && !s.owner && <Pressable style={styles.robot} onPress={() => link.send({type: 'claim'})}><Text style={styles.buttonText}>Kumandayı devral</Text></Pressable>}</>}
+      {page === 'connection' && <>
+        <Text style={styles.muted}>Aynı Wi-Fi ağı · DNS ve internet gerektirmeyen robot keşfi</Text>
+        {!!networkNotice && <Text accessibilityLiveRegion="polite" style={styles.help}>{networkNotice}</Text>}
+        {!!handoff && <Pressable style={styles.robot} onPress={() => failHandoff('Otomatik ağ geçişi takibi iptal edildi. Robotu listeden seçebilirsiniz.')}>
+          <Text style={styles.buttonText}>Ağ geçişini takip etmeyi bırak</Text>
+        </Pressable>}
+        {!selected && <Pressable style={styles.robot} onPress={() => {
+          void Linking.sendIntent('android.settings.WIFI_SETTINGS').catch(() => setDiscoveryError('Telefonun Wi-Fi ayarlarını açın.'));
+        }}><Text style={styles.buttonText}>Telefonun Wi-Fi ayarlarını aç</Text></Pressable>}
+        {selected && <>
+          <Text selectable style={styles.buttonText}>{s ? 'Bağlı robot' : 'Seçilen robot · bağlantı bekleniyor'}: {selected.host}</Text>
+          <Text selectable style={styles.help}>{robotURL(selected)}</Text>
+          <Pressable disabled={!s || !!handoff} style={styles.robot} onPress={openWeb}><Text style={styles.buttonText}>IP ile web arayüzünü aç</Text></Pressable>
+          <Pressable disabled={!s || !!handoff} style={styles.robot}
+            onPress={() => { void Share.share({message: robotURL(selected)}).catch(() => setDiscoveryError('Adres paylaşılamadı.')); }}>
+            <Text style={styles.buttonText}>Web adresini paylaş</Text>
+          </Pressable>
+          <NetworkSettings robot={selected} token={s?.workflowToken} owner={!!s?.owner}
+            pending={handoff} onHandoff={startHandoff} onFailure={failHandoff}/>
+        </>}
+        {robots.map(robot => <Pressable key={`${robot.host}:${robot.port}`} disabled={!!handoff}
+          style={styles.robot} onPress={() => chooseRobot(robot)}>
+          <Text style={styles.buttonText}>{robot.name} · {robot.host}:{robot.port}</Text>
+        </Pressable>)}
+        {!robots.length && <Text style={styles.help}>Robot aranıyor. Telefon ve robot aynı Wi-Fi ağında olmalı. Misafir ağı veya cihaz izolasyonu keşfi engelleyebilir.</Text>}
+        <TextInput value={host} onChangeText={setHost} placeholder="192.168.1.20:8080" placeholderTextColor="#799099" style={styles.input} autoCapitalize="none" autoCorrect={false} keyboardType="numbers-and-punctuation"/>
+        <Text style={styles.warning}>{discoveryError}</Text>
+        <Pressable style={styles.robot} onPress={manual}><Text style={styles.buttonText}>IP ile bağlan</Text></Pressable>
+        {!!s && !s.owner && <Pressable style={styles.robot} onPress={() => link.send({type: 'claim'})}><Text style={styles.buttonText}>Kumandayı devral</Text></Pressable>}
+      </>}
       {page === 'voice' && <><AiSettingsPanel config={s?.aiConfig} owner={!!s?.owner} send={link.send} subscribe={link.subscribeWorkflow} status={s?.voiceStatus} error={link.error}/>{s?.aiConfig?.settings.provider !== 'local' && <><Text style={styles.panelSection}>YZ İş Akışı</Text><Text style={styles.help}>Verasist iş akışı trigger UUID değerini girin.</Text><TextInput value={aiTriggerUuid} onChangeText={setAiTriggerUuid} placeholder="b2ec9f54-9260-4d0a-b305-0401eb7694d7" placeholderTextColor="#799099" style={styles.input}/><Pressable disabled={!s?.owner || !validAiTriggerUuid} style={[styles.robot, (!s?.owner || !validAiTriggerUuid) && styles.disabled]} onPress={startAiWorkflow}><Text style={styles.buttonText}>YZ iş akışını başlat</Text></Pressable></>}</>}
       {page === 'verasist-audio' && <VerasistAudioSettingsPanel key={selected ? `${selected.host}:${selected.port}` : "offline"} config={s?.aiConfig} owner={!!s?.owner} send={link.send} token={s?.workflowToken} origin={selected ? `http://${selected.host}:${selected.port}` : undefined}/>}
       {page === 'calibration' && <><Text style={styles.help}>Robotu yatay tutun, metal ve mıknatıslardan uzak şekilde yavaşça birkaç tam tur çevirin.</Text><Pressable disabled={!canCalibrateCompass} style={[styles.robot, !canCalibrateCompass && styles.disabled]} onPress={startCompassCalibration}><Text style={styles.buttonText}>{compassCalibrating ? 'Kalibrasyon sürüyor' : 'Pusulayı kalibre et'}</Text></Pressable><Text style={styles.calibrationInfo}>{s?.calibration ? `${s.calibration.message}${compassCalibrating ? ` (${s.calibration.samples}/${s.calibration.target})` : ''}` : 'Pusula sensörü bekleniyor'}</Text>{compassCalibrating && <><CalibrationChart data={s?.calibration} title="Canlı açı kapsamı"/><Text style={styles.help}>Her 10° dilimde üç ölçüm gerekir. Merkez hesaplandıkça açı dağılımı güncellenebilir.</Text></>}<CalibrationChart data={s?.calibration?.last_result} title="Son kaydedilen kalibrasyon"/><View style={styles.calibrationValues}>{(['HAM X', 'HAM Y', 'MİN X', 'MAKS X', 'MİN Y', 'MAKS Y'] as const).map((label, index) => <Text key={label} style={styles.calibrationValue}>{label}  {calibrationValue(index < 2 ? 'raw' : index < 4 ? (index === 2 ? 'minimum' : 'maximum') : (index === 4 ? 'minimum' : 'maximum'), index === 0 || index === 2 || index === 3 ? 'x' : 'y')}</Text>)}</View></>}

@@ -77,19 +77,64 @@ def test_every_camera_frame_updates_webrtc_without_jpeg(monkeypatch):
         assert node.status()['camera']
 
 
-def test_local_llm_compute_keeps_live_video_streaming():
+def test_voice_session_pauses_video_but_keeps_fresh_tool_frames(monkeypatch):
+    from kufibot_interfaces.msg import VoiceState
     node = bridge()
-    node.video_frame = 'old-frame'
-    node.video_frame_time = time.monotonic()
+    now = [time.monotonic()]
+    monkeypatch.setattr('kufibot_remote.node.time.monotonic', lambda: now[0])
+    node._voice_state(VoiceState(state='connecting', session_active=False))
+    assert node.status()['videoPaused']  # Stop before microphone/model startup.
+    node._voice_state(VoiceState(state='listening', session_active=True))
     node._local_compute(SimpleNamespace(data=True))
-    assert node.video_frame == 'old-frame'
-    assert node.status()['camera']
-    pixels = np.zeros((4, 12), np.uint8)
-    node._video_image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
-    assert node.video_frame is not None
-    node._local_compute(SimpleNamespace(data=False))
-    node._video_image(Image(height=4, width=4, step=12, encoding='bgr8', data=pixels.tobytes()))
-    assert node.video_frame is not None
+    for value in range(3):
+        frame = np.full((4, 4, 3), value, np.uint8)
+        msg = Image(height=4, width=4, step=12, encoding='bgr8', data=frame.tobytes())
+        node._video_image(msg)
+        assert np.all(node.video_frame == value)
+        now[0] += .1
+        node._video_image(Image())  # Intermediate frames need no conversion.
+        assert np.all(node.video_frame == value)
+        now[0] += .11
+    assert node.status()['camera'] and node.status()['videoPaused']
+    node._voice_state(VoiceState(state='idle', session_active=False))
+    assert not node.status()['videoPaused']
+    # Normal streaming processes frames immediately again.
+    node._video_image(Image(height=4, width=4, step=12, encoding='bgr8',
+                            data=np.full((4, 4, 3), 9, np.uint8).tobytes()))
+    assert np.all(node.video_frame == 9)
+
+
+def test_restarted_bridge_receives_retained_voice_session_state():
+    from rclpy.context import Context
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.node import Node
+    from kufibot_interfaces.msg import VoiceState
+    from kufibot_interaction.voice_agent_node import VOICE_STATE_QOS as PUBLISH_QOS
+    from kufibot_remote.node import VOICE_STATE_QOS as SUBSCRIBE_QOS
+
+    context = Context()
+    context.init(domain_id=190)
+    transport = Node('retained_voice_state_test', context=context)
+    executor = SingleThreadedExecutor(context=context)
+    executor.add_node(transport)
+    try:
+        publisher = transport.create_publisher(VoiceState, 'voice_state_test', PUBLISH_QOS)
+        publisher.publish(VoiceState(state='connected', session_active=True))
+        # A bridge subscribing after this transition still pauses its video.
+        node = bridge()
+        transport.create_subscription(VoiceState, 'voice_state_test', node._voice_state, SUBSCRIBE_QOS)
+        deadline = time.monotonic() + 4
+        while not node.status()['videoPaused'] and time.monotonic() < deadline:
+            executor.spin_once(timeout_sec=.05)
+        assert node.status()['videoPaused']
+        publisher.publish(VoiceState(state='idle', session_active=False))
+        while node.status()['videoPaused'] and time.monotonic() < deadline:
+            executor.spin_once(timeout_sec=.05)
+        assert not node.status()['videoPaused']
+    finally:
+        executor.shutdown()
+        transport.destroy_node()
+        context.shutdown()
 
 
 def test_stale_sensors_and_missing_arbiter_are_explicit():

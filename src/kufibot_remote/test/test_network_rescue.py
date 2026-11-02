@@ -24,6 +24,15 @@ def config():
                 hostname='kufibot-abc123.local', robot_id='robot-id', grace_seconds=45)
 
 
+def test_dns_uses_the_service_accounts_primary_group(monkeypatch, tmp_path):
+    monkeypatch.setattr(service.pwd, 'getpwnam', lambda name: SimpleNamespace(pw_gid=65534))
+    monkeypatch.setattr(service.grp, 'getgrgid', lambda gid: SimpleNamespace(gr_name='nogroup'))
+    configuration = service.dns_configuration('wlan0', tmp_path)
+    assert 'group=nogroup\n' in configuration
+    assert 'group=dnsmasq\n' not in configuration
+    assert f'dhcp-leasefile={tmp_path}/dnsmasq/leases\n' in configuration
+
+
 def test_disconnected_boot_opens_hotspot_after_grace_and_connected_wifi_is_preserved(tmp_path):
     now = [0.]
     monitor = service.Monitor(config(), runtime=tmp_path, clock=lambda: now[0])

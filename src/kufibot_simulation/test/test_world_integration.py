@@ -33,6 +33,20 @@ def twist(linear=0.0, angular=0.0):
     return t
 
 
+def test_camera_continues_during_performance(node):
+    from types import SimpleNamespace
+    frames = []
+    node.stream_pub.publish = frames.append
+    node._publish_camera()
+    assert len(frames) == 1
+    node.camera_pause = SimpleNamespace(paused=True)
+    node._publish_camera()
+    assert len(frames) == 2
+    node.camera_pause.paused = False
+    node._publish_camera()
+    assert len(frames) == 3
+
+
 def test_forward_motion_moves_the_robot_along_its_heading(node):
     node.x, node.y, node.theta = 0.6, 0.6, 0.0
     node._applied_twist(twist(linear=0.1))

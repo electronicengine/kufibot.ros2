@@ -193,9 +193,18 @@ Sesli Ajan Ayarları'nda seçilen sağlayıcı, dil, modeller ve yalnızca Local
 sistem mesajı köprüden `voice_agent_node`'a gider. YZ modu seçildiğinde node,
 seçime göre Verasist oturumunu veya ayrı `local_voice_worker` sürecini başlatır.
 Yerel işçinin LLM çıkarımı olayıyla `voice_agent_node`
-`local_ai/compute_active` yayınlar; MediaPipe'ın örneklemeli işleme akışı
-geçici olarak durur. Köprünün `camera/stream` üzerinden aldığı canlı WebRTC
-görüntüsü kesintisiz devam eder. Bu sinyal Verasist akışında yayınlanmaz.
+`local_ai/compute_active` yayınlar; MediaPipe yüz/el analizi ve takibi bu sırada
+örneklemeli olarak çalışmaya devam eder. Bu sinyal Verasist akışında yayınlanmaz.
+
+Sesli oturumun karşılaması başladığında web ve mobil WebRTC canlı görüntü yayını
+duraklatılır. Sunucu mevcut video bağlantılarını kapatır ve oturum boyunca yeni
+`/offer` isteklerini reddeder; böylece video kodlama ve RTP aktarımı yükü kalkar.
+`videoPaused` telemetrisi istemcilerin yeniden bağlanma denemelerini durdurur;
+veda tamamlanıp oturum kapanınca yayın otomatik yeniden açılır. USB kamera ve
+simülasyon kamera akışı, yüz/el takibi ve ses ajanının kamera analizi
+konuşma/mimik sırasında da devam eder. Köprü, yayın duraklatıldığında
+araç/workflow görüntü önbelleğini en fazla 5 Hz'de günceller; kaynak kamera ve
+MediaPipe örnekleme hızı korunur.
 
 Arbiter varsayılan olarak Kumanda modunda başlar. Köprü başlatıldığında ajan ve
 takip servo komutları engellenir, uzaktan gelen
@@ -481,6 +490,21 @@ Görüşme süresi dolduğunda veya “Görüşmeyi bitir” kullanıldığında
 robot kumanda moduna dönerek yeniden kelimeyi dinler. Kumandaya geçiş ve hatalarda kapanış atlanır.
 Araç/workflow testleri sırasında otomatik uyanma askıya alınır. Açık görüşmede
 kaydedilen yeni ayarlar sonraki döngüde uygulanır.
+
+Araç çağırma moduna girildiğinde ve ses seçimi değiştiğinde TTS modeli arka
+planda hazırlanır. Tamamlanan oynatmalar aynı ses sürecini yeniden kullanır;
+her tıklamada model yüklenmez. Metin cümleler halinde seslendirilir, mimik ilk
+ses verisiyle başlar. Yalnızca mimik oynatma ses hazırlığını beklemez. Durdurma,
+mod değişimi ve bağlantı kaybı ses sürecini ve alt ses oynatıcılarını kapatır.
+Model dosyası değişirse sonraki oynatmada yeniden yüklenir.
+
+Pi 5 üzerinde `dfki` ve “Merhaba! Seni gördüğüme çok sevindim.” ile ilk ses
+verisinin üretimi, önceki ayrı süreç ölçümünde 3,53–4,39 saniyeydi. Model hazırken
+gerçek hoparlör ve mimikle yapılan iki WebSocket denemesinde `startup_ms`
+254–561 ms, arayüze `playing` bildiriminin gelişi 406–677 ms ölçüldü.
+İlk model hazırlığı yaklaşık 3,3 saniyedir ve kullanıcı metin/mimik seçerken
+çalışır. Bu ölçüm ilk ses verisini izler; Bluetooth'un fiziksel ses gecikmesini
+ve servonun hedefe ulaşma süresini ayrıca ölçmez.
 
 Verasist için de uyanma dinleyicisi ve sabit sesler robotta çalışır; yerel STT,
 Silero VAD ve Piper modelleri gerekir. Otomatik STT seçiminde Vosk önceliklidir.

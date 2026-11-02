@@ -42,7 +42,18 @@ export function initPerformance(link) {
   const $ = id => document.getElementById(id);
   let motions = [], selected = null, filter = 'all', loaded = false;
   let voicesAvailable = false, pending = false, pendingId = '', localError = '', loading = false;
+  let preparedVoice = null;
   const isBusy = () => pending || ['preparing', 'playing'].includes(link.state?.performance?.state);
+
+  function prepareVoice() {
+    if (!link.state?.owner || link.state.mode !== 'tools') {
+      preparedVoice = null;
+      return;
+    }
+    const voice = $('performance-voice').value;
+    if (!isBusy() && voice !== preparedVoice && link.send({type: 'preparePerformance', voice}))
+      preparedVoice = voice;
+  }
 
   function selectTab(name) {
     for (const value of ['performance', 'navigation']) {
@@ -150,6 +161,7 @@ export function initPerformance(link) {
     loading = false;
     $('expression-list').setAttribute('aria-busy', 'false');
     renderCards(); render();
+    prepareVoice();
   }
 
   function play(mimicOnly = false) {
@@ -167,6 +179,7 @@ export function initPerformance(link) {
   $('performance-mimic').addEventListener('click', () => play(true));
   $('performance-stop').addEventListener('click', () => link.send({type: 'stopPerformance'}));
   $('performance-text').addEventListener('input', render);
+  $('performance-voice').addEventListener('change', prepareVoice);
   $('performance-refresh').addEventListener('click', load);
   $('expression-search').addEventListener('input', renderCards);
   $('expression-clear').addEventListener('click', () => { selected = null; renderCards(); render(); });
@@ -184,6 +197,7 @@ export function initPerformance(link) {
   link.addEventListener('state', () => {
     if (link.state?.performance?.request_id === pendingId || !link.state?.owner) pending = false;
     render();
+    prepareVoice();
   });
   link.addEventListener('error', ({detail}) => {
     if (pending && detail) { pending = false; localError = String(detail); render(); }

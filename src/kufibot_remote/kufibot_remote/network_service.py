@@ -5,6 +5,7 @@ The monitor never interrupts a connected station or an explicit connection job.
 """
 import argparse
 import asyncio
+import grp
 import json
 import os
 from pathlib import Path
@@ -19,10 +20,12 @@ import dbus
 
 if __package__:
     from . import network_helper as nm
+    from .network_discovery import NetworkDiscovery, PORT as DISCOVERY_PORT
 else:
     # The deployed directory and its files are owned by root, not a checkout.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import network_helper as nm
+    from network_discovery import NetworkDiscovery, PORT as DISCOVERY_PORT
 
 GATEWAY = '10.42.0.1'
 PROFILE_ID = 'Kufibot setup hotspot'
@@ -38,13 +41,17 @@ def atomic_json(path, value, mode=0o644):
 
 
 def dns_configuration(interface, directory):
+    # Debian's dnsmasq account normally belongs to nogroup; a group named
+    # dnsmasq need not exist. Match the lease directory's primary group.
+    account = pwd.getpwnam('dnsmasq')
+    group = grp.getgrgid(account.pw_gid).gr_name
     return '\n'.join([
         'no-resolv', 'no-hosts', 'bind-interfaces', f'interface={interface}',
         f'listen-address={GATEWAY}', 'except-interface=lo',
         f'address=/#/{GATEWAY}', 'local=/#/', 'local-ttl=0', 'dhcp-authoritative',
         'dhcp-range=10.42.0.10,10.42.0.200,255.255.255.0,1h',
         f'dhcp-option=3,{GATEWAY}', f'dhcp-option=6,{GATEWAY}',
-        f'dhcp-leasefile={directory}/dnsmasq/leases', 'user=dnsmasq', 'group=dnsmasq',
+        f'dhcp-leasefile={directory}/dnsmasq/leases', 'user=dnsmasq', f'group={group}',
         'log-facility=-', ''])
 
 
@@ -220,6 +227,14 @@ async def serve(config):
         loop.add_signal_handler(sig, stopped.set)
     server = await asyncio.start_server(lambda r,w: bridge(r,w,config.get('web_port',8080),clients),
                                         host=['0.0.0.0','::'], port=80)
+    discovery = None
+    try:
+        discovery, _ = await loop.create_datagram_endpoint(
+            lambda: NetworkDiscovery(config.get('web_port', 8080), config['robot_id'], nm.setup_info),
+            local_addr=('0.0.0.0', DISCOVERY_PORT))
+    except OSError as error:
+        # A discovery conflict must never stop the hotspot watchdog or HTTP.
+        print('Network discovery unavailable: ' + type(error).__name__, flush=True)
     def tick():
         try:
             with nm.operation_lock(blocking=False):
@@ -241,6 +256,8 @@ async def serve(config):
             except TimeoutError:
                 pass
     finally:
+        if discovery:
+            discovery.close()
         server.close(); await server.wait_closed()
         await asyncio.to_thread(monitor.close)
         for writer in list(clients):

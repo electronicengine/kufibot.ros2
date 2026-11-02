@@ -14,7 +14,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter_client import AsyncParameterClient
-from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
+from rclpy.qos import qos_profile_sensor_data, DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, JointState, Range
 from std_msgs.msg import Bool, Float32, String
 from geometry_msgs.msg import Twist
@@ -24,9 +24,12 @@ from kufibot_interfaces.msg import VoiceState, Transcript, DetectionArray, Joint
 from .control import Control
 from .calibration_status import valid_coverage
 from .server import Discovery, Server
-from .video import LatestCameraTrack
+from .video import LatestCameraTrack, voice_video_paused
 from kufibot_interaction.navigation_tools import NavigationTools
 from kufibot_actuators.servo_motion import motion_profile
+
+
+VOICE_STATE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 class ToolSession:
@@ -94,7 +97,8 @@ class RemoteController(Node):
         self.workflow_unlink_results = {}
         self.create_subscription(String, 'voice_session/workflow_unlinked', self._workflow_unlinked, 10)
         self.create_subscription(String, 'voice_session/ai_settings', self._ai_settings, 10)
-        self.create_subscription(VoiceState, 'voice_session/state', self._voice_state, 10)
+        self.create_subscription(VoiceState, 'voice_session/state', self._voice_state,
+                                 VOICE_STATE_QOS)
         self.create_subscription(Transcript, 'voice_session/transcript', self._transcript, 50)
         self.local_phase_lease = attach_phase_lease(
             self, lambda active: self._local_compute(Bool(data=active)))
@@ -391,6 +395,11 @@ class RemoteController(Node):
 
     def _video_image(self, msg):
         now = time.monotonic()
+        paused = voice_video_paused(getattr(self, 'voice_status', None))
+        # Keep fresh workflow/tool snapshots at 5 Hz without preparing every
+        # LAN video frame. The shared ROS stream and perception stay active.
+        if paused and now - self.video_frame_time < 0.2:
+            return
         if msg.encoding not in ('bgr8', 'rgb8'):
             return
         try:
@@ -400,11 +409,12 @@ class RemoteController(Node):
             if msg.encoding == 'rgb8':
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             max_width = self.video_max_width
-            if max_width and msg.width > max_width:
+            if not paused and max_width and msg.width > max_width:
                 frame = cv2.resize(frame, (max_width,
                     max(1, round(msg.height * max_width / msg.width))),
                     interpolation=cv2.INTER_AREA)
-            self.video_frame = frame.copy()
+            # The ndarray retains the ROS message buffer; no extra copy needed.
+            self.video_frame = frame
             self.video_frame_time = now
         except (ValueError, cv2.error):
             self.get_logger().warning('Invalid camera frame')
@@ -417,6 +427,7 @@ class RemoteController(Node):
                 'driveLimits': getattr(self, 'drive_limits', None) if now-getattr(self, 'drive_limits_at', 0) < 2 else None,
                 'version': 1, 'mode': self.control.mode, 'appliedMode': applied,
                 'camera': now - self.video_frame_time < 2,
+                'videoPaused': voice_video_paused(getattr(self, 'voice_status', None)),
                 'driveAvailable': bool(navigation and navigation.get('motor_available')),
                 'joints': self.current,
                 'servoMotion': getattr(self, 'servo_motion', {**motion_profile(), 'source':'defaults'}),
