@@ -68,7 +68,8 @@ def test_unique_names_delete_buttons_and_mobile_bridge(tmp_path, monkeypatch):
                     page = await browser.new_page(viewport={'width':width, 'height':844})
                     page.on('pageerror', lambda error: errors.append(str(error)))
                     await page.goto(origin + '/')
-                    await playwright.expect(page.locator('#connection')).to_have_text('Bağlı · kontrol sende')
+                    await playwright.expect(page.locator('#connection')).to_have_text(
+                        'Kontrol sende' if width == 390 else 'Bağlı · kontrol sende')
                     await page.get_by_role('button', name='Bağlantı ve yardım menüsü').click()
                     await page.locator('[data-page="workflows"]').click()
                     remove = page.get_by_role('button', name=f'{label} · Sil', exact=True)

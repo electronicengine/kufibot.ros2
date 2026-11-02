@@ -1,20 +1,21 @@
 {
   "name": "kufibot-mobile",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
-    "test:network": "node --test test/network.test.cjs"
+    "test:network": "node --test test/network.test.cjs",
+    "build:apk": "npx eas-cli@27.2.0 build --platform android --profile preview"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "14.0.0",
     "@react-native-community/slider": "5.1.2",
-    "expo": "~55.0.0",
+    "expo": "~55.0.32",
     "expo-build-properties": "~55.0.0",
-    "expo-dev-client": "~55.0.0",
+    "expo-dev-client": "~55.0.41",
     "expo-document-picker": "~55.0.17",
     "expo-keep-awake": "~55.0.8",
     "expo-system-ui": "~55.0.22",

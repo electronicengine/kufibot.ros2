@@ -1,1 +1,7 @@
-{"build":{"development":{"developmentClient":true,"distribution":"internal"},"preview":{"distribution":"internal","android":{"buildType":"apk"}}}}
+{
+  "cli": {"appVersionSource": "local"},
+  "build": {
+    "development": {"developmentClient": true, "distribution": "internal"},
+    "preview": {"distribution": "internal", "node": "22.23.4", "android": {"buildType": "apk"}}
+  }
+}

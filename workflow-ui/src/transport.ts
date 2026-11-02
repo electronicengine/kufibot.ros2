@@ -23,9 +23,11 @@ const pending = new Map<
 let socket: WebSocket | undefined;
 export let state: any = null;
 export const seenRuntimeEvents = new Set<string>();
+export const nativeEditor = new URLSearchParams(location.search).get('native') === '1' &&
+  window.parent === window && !!window.ReactNativeWebView;
 export function send(data: any) {
-  if (window.ReactNativeWebView)
-    window.ReactNativeWebView.postMessage(
+  if (nativeEditor)
+    window.ReactNativeWebView!.postMessage(
       JSON.stringify({ type: "workflowCommand", command: data }),
     );
   else if (window.parent !== window)
@@ -98,7 +100,7 @@ window.addEventListener("message", (event) => {
   if (event.origin === location.origin && event.source === window.parent)
     receive(event.data);
 });
-if (!window.ReactNativeWebView && window.parent === window) {
+if (!nativeEditor && window.parent === window) {
   socket = new WebSocket(
     `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/control`,
   );

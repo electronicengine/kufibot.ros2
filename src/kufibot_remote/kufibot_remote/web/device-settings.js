@@ -1,4 +1,5 @@
 import { initNetworkHandoff } from './network-handoff.js';
+import { isNativeApp } from './connection.js';
 const $ = id => document.getElementById(id);
 const prefix = '/api/device-settings/';
 
@@ -38,6 +39,7 @@ export function initDeviceSettings(link) {
     $('device-network-scan').disabled = !editable || scanning || networkBusy;
     $('device-network-connect').disabled = !editable || networkBusy || scanning || !selected?.supported || selected?.connected;
     $('device-network-password').disabled = !editable || networkBusy;
+    $('device-network-local').hidden = isNativeApp() && networkBusy;
     for (const id of ['device-network-ssid', 'device-network-security', 'device-network-manual-select']) $(id).disabled = !editable || networkBusy;
     $('device-hotspot-password-show').disabled = !editable || !hotspotSecured;
     $('device-hotspot-password-show').hidden = !hotspotSecured;
@@ -142,7 +144,11 @@ export function initDeviceSettings(link) {
         $(id).href = address; $(id).textContent = address;
       }
     }
-    if (data.hostname && /^[a-z0-9.-]+$/i.test(data.hostname)) {
+    if (isNativeApp()) {
+      const url = new URL(location.origin); url.hash = 'connection';
+      $('device-network-local').href = url.href;
+      $('device-network-local').textContent = `${url.host} ↗`;
+    } else if (data.hostname && /^[a-z0-9.-]+$/i.test(data.hostname)) {
       const url = new URL(setup.local_url || location.href); url.hostname = data.hostname; url.hash = 'connection';
       $('device-network-local').href = url.href;
       $('device-network-local').textContent = `${url.host} ↗`;
@@ -151,7 +157,7 @@ export function initDeviceSettings(link) {
     networkJob = status.state || 'idle'; networkBusy = networkJob === 'connecting';
     if (status.message) message('device-network-status', status.message, networkJob === 'error');
     if (networkJob === 'connected' || networkJob === 'error') accepted = false;
-    if (networkJob === 'error') handoff.stop();
+    if (networkJob === 'error') handoff.stop(status.message || 'Wi-Fi bağlantısı kurulamadı.');
     // AP paths can change after a scan; keep the user's SSID selection.
     if (selected && !selected.manual) {
       const match = networks.find(item => item.id === selected.id) || networks.find(item => item.ssid === selected.ssid && item.security === selected.security);

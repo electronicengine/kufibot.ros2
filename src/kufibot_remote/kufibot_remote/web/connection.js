@@ -341,3 +341,60 @@ export class RobotConnection extends EventTarget {
     window.removeEventListener('pageshow', this.pageshow);
   }
 }
+
+export const isNativeApp = () => window.parent === window &&
+  typeof window.ReactNativeWebView?.postMessage === 'function';
+
+export function postNative(action, values = {}) {
+  if (!isNativeApp()) return false;
+  window.ReactNativeWebView.postMessage(JSON.stringify({type:'kufibotNative', version:1, action, ...values}));
+  return true;
+}
+
+export function initNativeApp(link) {
+  if (!isNativeApp()) return;
+  const section = document.createElement('section');
+  section.id = 'native-app-connection'; section.className = 'device-section';
+  const heading = document.createElement('div'); heading.className = 'device-heading';
+  const title = document.createElement('h3'); title.textContent = 'Uygulama bağlantısı';
+  heading.append(title); section.append(heading);
+  const address = document.createElement('p'); address.className = 'device-help';
+  address.id = 'native-app-address'; address.textContent = location.origin + '/'; section.append(address);
+  const actions = document.createElement('div'); actions.className = 'device-actions';
+  for (const [action, text] of [['discovery','Robotları bul'], ['wifi','Telefonun Wi-Fi ayarlarını aç'],
+    ['share','Web adresini paylaş'], ['browser','Tarayıcıda aç']]) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'device-quiet'; button.id = `native-app-${action}`;
+    button.textContent = text; button.addEventListener('click', () => postNative(action)); actions.append(button);
+  }
+  section.append(actions);
+  document.querySelector('[data-page-content="connection"]').prepend(section);
+  document.getElementById('device-network-connect-help').textContent =
+    'Bağlandıktan sonra telefonunuzu da seçtiğiniz Wi-Fi ağına geçirip uygulamaya dönün. Uygulama aynı robotu yeni IP adresinde otomatik bulur. Bağlantı kurulamazsa robot önceki ağa veya kurulum ağına döner.';
+  const localAddress = document.getElementById('device-hotspot-local').parentElement;
+  localAddress.hidden = true; localAddress.previousElementSibling.hidden = true;
+  let lastConnected;
+  const publishConnection = connected => {
+    if (lastConnected === connected) return;
+    lastConnected = connected; postNative('connection', {connected});
+  };
+  link.addEventListener('state', () => publishConnection(Boolean(link.state)));
+  link.addEventListener('reset', () => publishConnection(Boolean(link.state)));
+  window.addEventListener('pagehide', () => publishConnection(false));
+  window.addEventListener('kufibot-native-back', () => {
+    const dialog = [...document.querySelectorAll('dialog[open]')].at(-1);
+    if (dialog) {
+      if (dialog.dispatchEvent(new Event('cancel', {cancelable:true}))) dialog.close();
+      return;
+    }
+    if (document.getElementById('menu').classList.contains('open')) {
+      document.getElementById('menu-close').click(); return;
+    }
+    if (location.hash) {
+      if (history.length > 1) history.back(); else location.hash = '';
+      return;
+    }
+    postNative('discovery');
+  });
+  postNative('ready');
+}

@@ -106,13 +106,16 @@ test('returning from phone Wi-Fi settings scans immediately and disposal ignores
   listener('active'); // No overlapping native scans.
   assert.equal(scans, 1);
   finish([moved]);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setTimeout(resolve, 15));
   assert.deepEqual(results, [[moved]]);
+  assert.equal(scans, 2); // The queued foreground scan starts after the first completes.
   dispose();
+  finish([original]); // An in-flight native reply after disposal is ignored.
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(removed, true);
   assert.deepEqual(errors, []);
-  await new Promise(resolve => setTimeout(resolve, 5));
-  assert.equal(scans, 1);
+  assert.deepEqual(results, [[moved]]);
+  assert.equal(scans, 2);
 });
 
 test('mobile form sends the selected Wi-Fi password, clears it, and offers phone Wi-Fi settings', async () => {
@@ -181,63 +184,97 @@ test('mobile form prevents a viewer from changing Wi-Fi and reports a failed con
   } finally { if (root) await act(async () => { root.unmount(); }); }
 });
 
-test('controller follows a verified network handoff and opens the discovered numeric web address', async () => {
+test('shared web UI opens automatically and follows only the verified robot to its new IP', async () => {
   const React = require('react');
   const {create, act} = require('react-test-renderer');
   global.IS_REACT_ACT_ENVIRONMENT = true;
-  let announce, panel, connected, finish;
+  let announce, finish;
   const opened = [], checks = [];
-  const stub = () => null;
-  const {default: App} = load('../App', {
+  const {default: MobileApp} = load('MobileApp', {
     'react-native': {View: 'View', Text: 'Text', TextInput: 'TextInput', Pressable: 'Pressable',
-      Modal: 'Modal', ScrollView: 'ScrollView', StatusBar: 'StatusBar', Switch: 'Switch',
-      StyleSheet: {create: value => value, absoluteFill: {}},
+      Modal: 'Modal', ScrollView: 'ScrollView', StatusBar: 'StatusBar', ActivityIndicator: 'ActivityIndicator',
+      StyleSheet: {create: value => value, absoluteFillObject: {}},
       Linking: {openURL: async url => opened.push(url)}, Share: {share: async () => {}}},
-    'react-native-safe-area-context': {SafeAreaProvider: 'SafeAreaProvider', SafeAreaView: 'SafeAreaView'},
-    'react-native-webrtc': {RTCView: 'RTCView'},
-    '@react-native-community/slider': {__esModule: true, default: stub},
+    'react-native-safe-area-context': {SafeAreaView: 'SafeAreaView'},
     'expo-keep-awake': {useKeepAwake: () => {}},
-    './src/discovery': {discover: callback => { announce = callback; return () => {}; }},
-    './src/discovery-state': load('discovery-state'),
-    './src/network-api': {verifyNetworkHandoff: (handoff, candidate) => {
+    './discovery': {discover: callback => { announce = callback; return () => {}; }},
+    './RobotWebView': {RobotWebView: 'RobotWebView'},
+    './network-api': {verifyNetworkHandoff: (handoff, candidate) => {
       checks.push({handoff, candidate});
       return new Promise(resolve => { finish = resolve; });
     }},
-    './src/useRobot': {useRobot: robot => {
-      connected = robot;
-      return {state: robot ? {owner: true, sensors: {}, joints: {}, workflowToken: 'owner',
-        mode: 'remote', appliedMode: 'remote'} : null,
-      send: () => {}, stop: () => {}, input: () => {}, subscribeWorkflow: () => () => {}};
-    }},
-    './src/NetworkSettings': {NetworkSettings: props => { panel = props; return null; }},
-    './src/CalibrationChart': {CalibrationChart: stub}, './src/HeardText': {HeardText: stub},
-    './src/Joystick': {Joystick: stub}, './src/DistanceMap': {DistanceMap: stub},
-    './src/MimicEditor': {MimicEditor: stub}, './src/AiSettingsPanel': {AiSettingsPanel: stub},
-    './src/VerasistAudioSettings': {VerasistAudioSettingsPanel: stub},
-    './src/WorkflowEditor': {WorkflowEditor: stub},
   });
   let root;
+  const page = () => root.root.findByType('RobotWebView');
   try {
-    await act(async () => { root = create(React.createElement(App)); });
+    await act(async () => { root = create(React.createElement(MobileApp)); });
+    assert.equal(root.root.findAllByType('RobotWebView').length, 0);
     await act(async () => { announce([original]); });
-    assert.equal(connected.host, original.host);
-    const connectionPage = root.root.findAllByType('Pressable').find(node =>
-      node.findAllByType('Text').some(text => text.props.children === 'Bağlantı Ayarları'));
-    await act(async () => { connectionPage.props.onPress(); });
-    await act(async () => { panel.onHandoff({...pending, started: Date.now()}); });
-    await act(async () => { announce([{...moved, robotId: 'another-robot'}, original]); });
+    assert.equal(page().props.robot.host, original.host);
+    assert.equal(page().props.path, '/');
+    await act(async () => { page().props.onMessage({action:'connection', connected:true}); });
+    await act(async () => { page().props.onMessage({action:'networkHandoff', handoff:{...pending, started:Date.now()}}); });
+    await act(async () => { announce([{...moved, robotId:'another-robot'}, original]); });
     assert.equal(checks.length, 0);
-    assert.equal(connected.host, original.host);
+    assert.equal(page().props.robot.host, original.host);
     await act(async () => { announce([moved]); });
     assert.equal(checks.length, 1);
-    assert.equal(connected.host, original.host);
+    assert.equal(page().props.robot.host, original.host);
     await act(async () => { finish(true); });
-    assert.equal(connected.host, moved.host);
-    assert.equal(panel.pending, null);
-    const open = root.root.findAllByType('Pressable').find(node =>
-      node.findAllByType('Text').some(text => text.props.children === 'IP ile web arayüzünü aç'));
-    assert.equal(open.props.disabled, false);
-    await act(async () => { open.props.onPress(); });
+    assert.equal(page().props.robot.host, moved.host);
+    assert.equal(page().props.path, '/#connection');
+    await act(async () => { page().props.onMessage({action:'browser'}); });
     assert.deepEqual(opened, ['http://192.168.5.24:8080/']);
   } finally { if (root) await act(async () => { root.unmount(); }); }
+});
+
+test('native bridge accepts only the current robot origin and strips password and control data', () => {
+  const {parseNativeMessage,sameRobotOrigin}=load('web-bridge');
+  const value={type:'kufibotNative',version:1,action:'networkHandoff',robot_id:'robot-a',
+    handoff:'long-private-ticket-12345',ssid:'Ev Ağı',password:'must-not-leak',command:{type:'input'}};
+  const result=parseNativeMessage(JSON.stringify(value),robotURL(original),original,2000);
+  assert.deepEqual(result,{action:'networkHandoff',handoff:{robotId:'robot-a',ticket:value.handoff,ssid:'Ev Ağı',started:2000}});
+  assert.equal(JSON.stringify(result).includes('must-not-leak'),false);
+  assert.equal(parseNativeMessage(JSON.stringify(value),'http://192.168.1.1/',original),null);
+  assert.equal(parseNativeMessage(JSON.stringify({...value,robot_id:'other'}),robotURL(original),original),null);
+  assert.equal(parseNativeMessage('{bad json',robotURL(original),original),null);
+  assert.equal(parseNativeMessage(JSON.stringify({...value,action:'sendCommand'}),robotURL(original),original),null);
+  assert.equal(sameRobotOrigin(original,'http://10.42.0.1:8080.evil.example/'),false);
+  assert.equal(sameRobotOrigin(original,'file:///etc/passwd'),false);
+});
+
+test('web view keeps the shared robot page local and suspends the controller when the app backgrounds', async () => {
+  const React=require('react');
+  const {create,act}=require('react-test-renderer');
+  global.IS_REACT_ACT_ENVIRONMENT=true;
+  let stateChanged,back;
+  const scripts=[],messages=[],external=[];
+  const state={currentState:'active',addEventListener:(_,callback)=>{stateChanged=callback;return {remove:()=>{}};}};
+  const {RobotWebView}=load('RobotWebView',{
+    'react-native':{View:'View',Text:'Text',ActivityIndicator:'ActivityIndicator',
+      AppState:state,BackHandler:{addEventListener:(_,callback)=>{back=callback;return {remove:()=>{}};}},
+      StyleSheet:{create:value=>value,absoluteFillObject:{}},Linking:{openURL:async url=>external.push(url)}},
+    'react-native-webview':{WebView:'WebView'},
+  });
+  let root;
+  try{
+    await act(async()=>{root=create(React.createElement(RobotWebView,{robot:original,path:'/',active:true,
+      onMessage:value=>messages.push(value),onError:()=>{}}),
+      {createNodeMock:element=>element.type==='WebView'?{injectJavaScript:script=>scripts.push(script)}:null});});
+    const view=root.root.findByType('WebView');
+    assert.equal(view.props.source.uri,'http://10.42.0.1:8080/');
+    assert.equal(view.props.onShouldStartLoadWithRequest({url:'http://10.42.0.1:8080/workflows'}),true);
+    assert.equal(view.props.onShouldStartLoadWithRequest({url:'javascript:alert(1)'}),false);
+    assert.equal(view.props.onShouldStartLoadWithRequest({url:'https://example.com/help'}),false);
+    assert.deepEqual(external,['https://example.com/help']);
+    await act(async()=>{stateChanged('background');});
+    assert.ok(scripts.at(-1).includes("new Event('pagehide')"));
+    await act(async()=>{stateChanged('active');});
+    assert.ok(scripts.at(-1).includes("new Event('pageshow')"));
+    view.props.onMessage({nativeEvent:{url:'http://192.168.1.1/',data:JSON.stringify({type:'kufibotNative',version:1,action:'wifi'})}});
+    assert.deepEqual(messages,[]);
+    view.props.onMessage({nativeEvent:{url:robotURL(original),data:JSON.stringify({type:'kufibotNative',version:1,action:'ready'})}});
+    assert.equal(back(),true);
+    assert.ok(scripts.at(-1).includes('kufibot-native-back'));
+  }finally{if(root)await act(async()=>root.unmount());}
 });

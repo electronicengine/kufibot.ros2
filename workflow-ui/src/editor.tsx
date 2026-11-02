@@ -19,7 +19,7 @@ import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
 import "./style.css";
 import { RecordingsTable, RecordingResult } from "./recordings";
-import { state, seenRuntimeEvents, send, command, get } from "./transport";
+import { state, seenRuntimeEvents, send, command, get, nativeEditor } from "./transport";
 import { VoiceSettings } from "./voice-settings";
 import { MotionEditor, CameraResult } from "./motion-editor";
 import { ValueInput, OutputEditor } from "./value-editor";
@@ -531,6 +531,14 @@ function Editor() {
   }
   async function upload(files: FileList | null) {
     if (!files || !collection) return;
+    // Android's file chooser can background the host app and release control.
+    // Wait for the shared controller's fresh token after returning.
+    if (window.ReactNativeWebView) {
+      const deadline = Date.now() + 8000;
+      while ((!state?.owner || !state?.workflowToken) && Date.now() < deadline)
+        await new Promise(resolve => setTimeout(resolve, 100));
+      if (!state?.owner || !state?.workflowToken) throw new Error('Robot bağlantısını yenileyin.');
+    }
     for (const file of Array.from(files)) {
       if (file.size > 20 * 1024 * 1024)
         throw new Error("Dosya 20 MiB sınırını aşıyor");
@@ -540,7 +548,7 @@ function Editor() {
         `/api/knowledge/${collection}/upload${delimiter ? "?delimiter=" + encodeURIComponent(delimiter) : ""}`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${robot?.workflowToken}` },
+          headers: { Authorization: `Bearer ${state?.workflowToken}` },
           body: form,
         },
       );
@@ -569,8 +577,8 @@ function Editor() {
     if (dirty && !confirm("Kaydedilmeyen değişiklikler var. Kapatılsın mı?"))
       return;
     const value = { type: "workflowClose" };
-    if (window.ReactNativeWebView)
-      window.ReactNativeWebView.postMessage(JSON.stringify(value));
+    if (nativeEditor)
+      window.ReactNativeWebView!.postMessage(JSON.stringify(value));
     else if (window.parent !== window)
       window.parent.postMessage(value, location.origin);
     else location.href = "/";
@@ -1109,8 +1117,8 @@ function Editor() {
                     <button
                       disabled={!owner}
                       onClick={() => {
-                        if (window.ReactNativeWebView)
-                          window.ReactNativeWebView.postMessage(
+                        if (nativeEditor)
+                          window.ReactNativeWebView!.postMessage(
                             JSON.stringify({
                               type: "workflowPickFile",
                               collection,

@@ -67,7 +67,7 @@ let joint = "headLeftRight",
   reconnectTimer;
 const embedded = window.parent !== window;
 const workflowMode = embedded && new URLSearchParams(location.search).get('workflow') === '1';
-const native = !!window.ReactNativeWebView;
+const native = !embedded && new URLSearchParams(location.search).get('native') === '1' && !!window.ReactNativeWebView;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(38, 1, 0.005, 10);
 camera.position.set(0.5, 0.36, -0.65);

@@ -1,4 +1,4 @@
-const CACHE = 'kufibot-shell-v15';
+const CACHE = 'kufibot-shell-v16';
 const SHELL = ['/', '/setup', '/assets/style.css', '/assets/mobile-control.css', '/assets/app.js', '/assets/connection.js', '/assets/mobile-control.js', '/assets/device-settings.js', '/assets/network-handoff.js', '/assets/performance.js', '/assets/icon.svg', '/assets/pwa.js', '/assets/icon-180.png', '/assets/icon-192.png', '/assets/icon-512.png', '/manifest.webmanifest'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(

@@ -1,0 +1,15 @@
+# The Android app is standalone; robot models, recordings and ROS sources are
+# not needed by Expo's cloud build. Keep the local Expo module source.
+/*
+!/KufibotMobile
+/KufibotMobile/node_modules
+/KufibotMobile/android
+/KufibotMobile/ios
+/KufibotMobile/dist
+/KufibotMobile/.expo
+**/.gradle
+**/build
+**/.env
+**/.env.*
+**/*.keystore
+**/*.jks

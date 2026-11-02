@@ -1,4 +1,4 @@
-import { RobotConnection } from './connection.js';
+import { RobotConnection, initNativeApp } from './connection.js';
 import { initPerformance } from './performance.js';
 import { initDeviceSettings } from './device-settings.js';
 import { initMobileControl } from './mobile-control.js';
@@ -1068,3 +1068,5 @@ link.addEventListener('state', () => {
 link.addEventListener('error', ({detail}) => {
   if (mimicModal.open) mimicFrame.contentWindow?.postMessage({type:'mimicError',message:typeof detail === 'string' ? detail : detail.message},location.origin);
 });
+
+initNativeApp(link);

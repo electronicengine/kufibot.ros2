@@ -7,7 +7,9 @@
   const standalone = matchMedia('(display-mode: standalone)');
   const fullscreen = matchMedia('(display-mode: fullscreen)');
   let installPrompt;
-  const installed = () => standalone.matches || fullscreen.matches || navigator.standalone === true;
+  const native = typeof window.ReactNativeWebView?.postMessage === 'function';
+  const installed = () => native || standalone.matches || fullscreen.matches || navigator.standalone === true;
+  fullscreenButton.hidden = native;
   const fullscreenSupported = document.fullscreenEnabled !== false
     && typeof document.documentElement.requestFullscreen === 'function';
   const updateFullscreen = () => {

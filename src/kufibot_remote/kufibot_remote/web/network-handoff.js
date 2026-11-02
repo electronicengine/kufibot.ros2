@@ -1,3 +1,5 @@
+import {isNativeApp, postNative} from './connection.js';
+
 const key = 'kufibot.networkHandoff';
 const $ = id => document.getElementById(id);
 
@@ -11,12 +13,14 @@ export function initNetworkHandoff({fetcher = fetch, navigate = url => location.
     if (value.local_url) url.port = new URL(value.local_url).port;
     return url;
   }
-  function stop() {
+  function stop(message = '') {
+    if (pending && message) postNative('networkFailed', {message});
     clearTimeout(timer); timer = null; pending = null;
     try { sessionStorage.removeItem(key); } catch {}
     $('device-network-handoff').hidden = true;
   }
   async function probe() {
+    if (isNativeApp()) return;
     if (!pending || checking) return;
     if (Date.now() - pending.started > 15 * 60 * 1000) { stop(); return; }
     const url = localURL(pending);
@@ -40,6 +44,18 @@ export function initNetworkHandoff({fetcher = fetch, navigate = url => location.
     if (pending) timer = setTimeout(probe, 3000);
   }
   function start(value, ssid) {
+    if (isNativeApp()) {
+      clearTimeout(timer);
+      pending = {...value, ssid, started:value.started || Date.now()};
+      $('device-network-handoff').hidden = false;
+      $('device-handoff-message').textContent = `Telefonunuzu “${ssid}” ağına bağlayıp uygulamaya dönün. Robot yeni IP adresinde otomatik aranacak.`;
+      const open = $('device-handoff-open');
+      open.href = '#connection'; open.textContent = 'Telefonun Wi-Fi ayarlarını aç';
+      open.onclick = event => { event.preventDefault(); postNative('wifi'); };
+      postNative('networkHandoff', {robot_id:value.robot_id, handoff:value.handoff, ssid, started:pending.started});
+      try { sessionStorage.setItem(key, JSON.stringify(pending)); } catch {}
+      return;
+    }
     const url = localURL(value);
     if (!url) return;
     clearTimeout(timer);
