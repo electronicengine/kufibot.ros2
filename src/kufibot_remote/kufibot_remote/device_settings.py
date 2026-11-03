@@ -77,6 +77,7 @@ class DeviceSettings:
             web.get('/api/device-settings/network', self.network),
             web.post('/api/device-settings/network/scan', self.scan),
             web.post('/api/device-settings/network/connect', self.connect),
+            web.post('/api/device-settings/network/reset', self.reset_network),
             web.get('/api/device-settings/hotspot-credentials', self.hotspot_credentials),
             web.get('/api/network-identity', self.identity),
             web.options('/api/network-identity', self.identity)])
@@ -103,7 +104,8 @@ class DeviceSettings:
         setup = setup_info()
         # The monitor publishes fresh addresses after station activation.
         return web.json_response(dict(robot_id=setup.get('robot_id'),
-            connected=bool(setup.get('station_connected')) and self.network_status.get('state') == 'connected',
+            connected=(bool(setup.get('station_connected')) and self.network_status.get('state') == 'connected') or
+                      (bool(setup.get('active')) and self.network_status.get('state') == 'setup'),
             addresses=setup.get('addresses', []), hostname=setup.get('hostname')),
             headers=headers)
 
@@ -232,6 +234,30 @@ class DeviceSettings:
                               'hostname':setup.get('hostname') or socket.gethostname().split('.')[0]+'.local',
                               'robot_id':setup.get('robot_id'), 'setup_url':setup.get('setup_url'),
                               'local_url':setup.get('local_url')}, 202)
+
+    async def reset_network(self, request):
+        self.server.workflow_api.authorize(request)
+        if self.network_busy() or self.scan_lock.locked():
+            return self.response(dict(error='Bir ağ işlemi zaten devam ediyor.'), 409)
+        setup = setup_info()
+        if not setup.get('installed'):
+            return self.response(dict(error='Robotun kurulum ağı hizmeti kurulu değil.'), 503)
+        self.handoffs.clear()
+        token = secrets.token_urlsafe(24)
+        self.handoffs[token] = time.monotonic() + 900
+        self.network_status = dict(state='resetting', message='Robot kurulum ağını açıyor…')
+        self.network_task = asyncio.create_task(self._reset_network())
+        return self.response({**self.network_status, 'handoff':token, 'target':'setup',
+                              'ssid':setup.get('ssid', 'kufi'), 'robot_id':setup.get('robot_id'),
+                              'hostname':setup.get('hostname'), 'setup_url':setup.get('setup_url'),
+                              'local_url':setup.get('local_url')}, 202)
+
+    async def _reset_network(self):
+        await asyncio.sleep(.5)
+        try:
+            self.network_status = await network_request(dict(action='reset'))
+        except (ValueError, RuntimeError, OSError, TimeoutError):
+            self.network_status = dict(state='error', message='Wi-Fi sıfırlanamadı. Robotun bağlantısını kontrol edin.')
 
     async def _connect(self, target, password, ssid=None, security='wpa-psk'):
         # Flush the HTTP response before activation takes the current link down.

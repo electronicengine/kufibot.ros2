@@ -17,6 +17,15 @@ Telefon ve robot arasında internet veya `kufi.local` adının çözülmesi gere
 5. **Uygulama bağlantısı → Web adresini paylaş** ile sayısal adresi bilgisayara
    aktarabilirsiniz. **Robotları bul** başka bir robot seçmek veya IP girmek içindir.
 
+Bağlantı Ayarları → **Wi-Fi’yi sıfırla** → **Ağı unut ve kurulum ağını aç**
+ile robotun o anda bağlı olduğu Wi-Fi kaydı (aynı ağın kopyaları dahil) silinir.
+Robot kendi **kufi** kurulum ağını açar. Telefonu bu ağa bağlayıp uygulamaya dönün;
+aynı robot doğrulanınca yeni Wi-Fi ağını seçebilirsiniz. Diğer kayıtlı ağlar korunur.
+Kurulum ağı açılamazsa mevcut ağ kaydı silinmez ve önceki bağlantıya dönüş denenir.
+Bu özellik için mobil APK ile birlikte robotun web/ağ kodu da güncel olmalıdır;
+robotta `sudo /usr/bin/python3 tools/install_network_service.py` çalıştırıp
+`sudo systemctl restart ros2_kufibot` ile web kontrolcüsünü yeniden başlatın.
+
 Yanlış parolada robot önceki ağa/hotspota döner. Telefonu tekrar **kufi** ağına
 geçirip bağlantı ayarlarından yeniden deneyin. Ağ geçişi bellekte 15 dakika takip
 edilir. Uygulama tamamen kapatılırsa robot tekrar keşfedilebilir; önceki geçiş
@@ -43,7 +52,12 @@ Android interneti olmayan kurulum ağında da yerel Wi-Fi üzerinden iletişim k
 
 Farklı IP aralıkları ve ağ maskeleri Android'in Wi-Fi bilgilerinden otomatik
 öğrenilir. Cihaz izolasyonu yerel iletişimi; UDP broadcast engeli otomatik keşfi
-engelleyebilir. Yalnızca keşif engelliyse bilinen IP ile bağlantı denenebilir.
+engelleyebilir. Broadcast yanıtı gelmezse uygulama Wi-Fi alt ağındaki IP adreslerine doğrudan
+keşif paketi gönderir; UDP yanıtı da yoksa TCP 8080 üzerindeki Kufibot web
+arayüzünü doğrulayarak robotu bulmayı dener. Büyük alt ağlar sınırlı gruplar
+halinde tarandığından ilk keşif daha uzun sürebilir. Bilinen IP ile bağlantı
+seçeneği de kullanılabilir. Wi-Fi erişimi yoksa veya robot yanıt vermiyorsa
+uygulama nedeni arama ekranında gösterir.
 
 ## Expo ile kurulabilir APK
 

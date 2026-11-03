@@ -166,6 +166,51 @@ class NetworkManager:
                         'connection.autoconnect', 'yes', 'connection.autoconnect-priority', str(priority)],
                        check=True, timeout=15, capture_output=True)
 
+    def reset(self):
+        # Read the installed configuration before changing or forgetting anything.
+        config = json.loads(HOTSPOT_CONFIG.read_text())
+        if __package__:
+            from .network_service import Monitor, GATEWAY
+        else:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from network_service import Monitor, GATEWAY
+        device, props = self.wifi()
+        if str(props['Interface']) != config['interface']:
+            raise ValueError('Kurulum ağı farklı bir Wi-Fi aygıtı için yapılandırılmış.')
+        active = str(props.get('ActiveConnection', '/'))
+        forgotten = []
+        if active != '/':
+            profile = str(self.props(active, SERVICE + '.Connection.Active')['Connection'])
+            profiles = self.profiles()
+            ssid = next((raw for path, raw, _, _ in profiles if path == profile), None)
+            # Remove duplicate saved profiles for this SSID too, but preserve
+            # other networks, Ethernet, VPN and the setup AP profile.
+            forgotten = [path for path, raw, _, _ in profiles if ssid is not None and raw == ssid]
+        profile = Monitor(config).ensure_profile(self)
+        checkpoint = self.manager.CheckpointCreate(dbus.Array([dbus.ObjectPath(device)], signature='o'),
+                                                   dbus.UInt32(65), dbus.UInt32(0))
+        try:
+            active = self.manager.ActivateConnection(profile, device, '/')
+            deadline = time.monotonic() + 45
+            while time.monotonic() < deadline:
+                state = int(self.props(active, SERVICE + '.Connection.Active')['State'])
+                if state == 2 and GATEWAY in self.addresses(device):
+                    break
+                if state == 4:
+                    raise RuntimeError('Kurulum ağı açılamadı.')
+                time.sleep(.4)
+            else:
+                raise RuntimeError('Kurulum ağı zamanında açılamadı.')
+            # Never forget the station credentials unless the AP is working.
+            for path in forgotten:
+                self.interface(path, CONNECTION).Delete()
+            self.manager.CheckpointDestroy(checkpoint)
+        except Exception:
+            self.manager.CheckpointRollback(checkpoint)
+            raise
+        return dict(state='setup', ssid=config['ssid'], addresses=[GATEWAY],
+                    message='Wi-Fi ağı unutuldu. Telefonunuzu “' + config['ssid'] + '” ağına bağlayın.')
+
     def connect(self, target, password, ssid=None, security='wpa-psk'):
         device, _ = self.wifi()
         point = (dict(Ssid=ssid.encode(), Flags=int(security != 'open'),
@@ -250,7 +295,7 @@ def validate_connect(value):
 
 
 def execute(value):
-    if not isinstance(value, dict) or value.get('action') not in ('list', 'scan', 'connect', 'hotspot-info'):
+    if not isinstance(value, dict) or value.get('action') not in ('list', 'scan', 'connect', 'reset', 'hotspot-info'):
         raise ValueError('Geçersiz ağ işlemi')
     action = value['action']
     if action == 'hotspot-info':
@@ -263,6 +308,8 @@ def execute(value):
     with operation_lock():
         if action == 'scan':
             return manager.scan()
+        if action == 'reset':
+            return manager.reset()
         return manager.connect(target, password, ssid, security)
 
 

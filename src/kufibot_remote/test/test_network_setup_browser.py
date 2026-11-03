@@ -30,6 +30,7 @@ def test_hotspot_manual_setup_and_handoff_only_to_the_same_robot(tmp_path, monke
         calls.append(value)
         if value['action']=='hotspot-info':return {**setup,'password':'setup-private-password' if secured else ''}
         if value['action']=='connect':return dict(state='connected',message='Bağlandı')
+        if value['action']=='reset':return dict(state='setup',message='Kurulum ağı açık')
         return dict(networks=[],addresses=['10.42.0.1'],hotspot=setup)
     monkeypatch.setattr(devices,'network_request',network)
     monkeypatch.setattr(devices,'pulse_devices',lambda _:asyncio.sleep(0,result=[]))
@@ -51,6 +52,7 @@ def test_hotspot_manual_setup_and_handoff_only_to_the_same_robot(tmp_path, monke
                     await page.goto(f'http://127.0.0.1:{port}/setup')
                     await playwright.expect(page.locator('#page-title')).to_have_text('Bağlantı Ayarları')
                     await playwright.expect(page.locator('#device-hotspot-active')).to_be_visible()
+                    await playwright.expect(page.locator('#device-network-addresses')).to_have_text('10.42.0.1')
                     await playwright.expect(page.locator('#device-network-ssid')).to_be_enabled()
                     await page.locator('#device-network-ssid').fill('Ev Ağı')
                     await page.locator('#device-network-manual-select').click()
@@ -93,6 +95,19 @@ def test_hotspot_manual_setup_and_handoff_only_to_the_same_robot(tmp_path, monke
                     await page.wait_for_function('window.moves.length===1',timeout=10000)
                     assert await page.evaluate('window.moves[0]')=='http://kufibot-abc123.local/#connection'
                     assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                    await playwright.expect(page.locator('#device-network-reset')).to_be_enabled()
+                    await page.locator('#device-network-reset').click()
+                    await playwright.expect(page.locator('#device-network-reset-confirmation')).to_be_visible()
+                    await page.locator('#device-network-reset-cancel').click()
+                    assert not any(call['action'] == 'reset' for call in calls)
+                    await page.locator('#device-network-reset').click()
+                    async with page.expect_response('**/api/device-settings/network/reset') as reset_response:
+                        await page.locator('#device-network-reset-confirm').click()
+                    assert (await reset_response.value).status == 202
+                    await playwright.expect(page.locator('#device-handoff-message')).to_contain_text('kufi')
+                    await asyncio.sleep(.7)
+                    assert sum(call['action'] == 'reset' for call in calls) == 1
+                    await page.locator('#settings-page').screenshot(path='/tmp/kufibot-wifi-reset.png')
                     assert errors==[]
                 finally:await browser.close()
         finally:await server.close();await runner.cleanup()

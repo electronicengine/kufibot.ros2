@@ -12,6 +12,7 @@
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
+        "CHANGE_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
         "CHANGE_WIFI_MULTICAST_STATE",
         "android.permission.ACCESS_NETWORK_STATE",

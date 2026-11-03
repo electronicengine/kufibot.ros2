@@ -10,6 +10,8 @@ export function discover(onRobots: (robots: Robot[]) => void, onError: (message:
   let closed = false;
   let scanning = false;
   let rescan = false;
+  let emptyScans = 0;
+  let reportedError = false;
   const scan = async () => {
     if (closed) return;
     if (scanning) { rescan = true; return; }
@@ -18,10 +20,18 @@ export function discover(onRobots: (robots: Robot[]) => void, onError: (message:
     try {
       if (AppState.currentState === 'active') {
         const robots = await native.scan();
-        if (!closed && AppState.currentState === 'active') onRobots(robots);
+        if (!closed && AppState.currentState === 'active') {
+          onRobots(robots);
+          emptyScans = robots.length ? 0 : emptyScans + 1;
+          if (robots.length && reportedError) { onError(''); reportedError = false; }
+          else if (emptyScans >= 2) {
+            reportedError = true;
+            onError('Robot keşif isteğine yanıt vermiyor. Telefon ve robotun aynı Wi-Fi ağında olduğunu kontrol edin. IP adresini biliyorsanız aşağıdan bağlanabilirsiniz. Arama devam ediyor.');
+          }
+        }
       }
     } catch (error) {
-      if (!closed) onError(String(error));
+      if (!closed) { reportedError = true; onError(error instanceof Error ? error.message : String(error)); }
     } finally {
       scanning = false;
       if (!closed) timer = setTimeout(scan, rescan ? 0 : 2000);

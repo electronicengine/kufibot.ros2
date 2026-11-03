@@ -41,7 +41,8 @@ export default function MobileApp() {
             if (closed || pending.current !== request || !valid) return;
             pending.current = null; setHandoff(null); setConnected(false);
             setEntry('/#connection'); setSelected(candidate); setReload(value => value + 1);
-            setNotice(`“${request.ssid}” bağlantısı doğrulandı. ${robotURL(candidate)}`);
+            setNotice(request.target === 'setup' ? 'Kurulum ağına bağlanıldı. Yeni Wi-Fi ağını seçebilirsiniz.'
+              : `“${request.ssid}” bağlantısı doğrulandı. ${robotURL(candidate)}`);
             setError('');
           }).finally(() => { verifying = false; });
           return;
@@ -79,7 +80,9 @@ export default function MobileApp() {
     }
     if (value.action === 'networkHandoff') {
       pending.current = value.handoff; setHandoff(value.handoff);
-      setNotice(`Telefonu “${value.handoff.ssid}” ağına geçirin. Aynı robot yeni IP adresinde aranıyor.`);
+      setNotice(value.handoff.target === 'setup'
+        ? `Wi-Fi sıfırlanıyor. Telefonu “${value.handoff.ssid}” ağına bağlayıp uygulamaya dönün; ardından yeni ağınızı seçin.`
+        : `Telefonu “${value.handoff.ssid}” ağına geçirin. Aynı robot yeni IP adresinde aranıyor.`);
     }
     if (value.action === 'networkFailed') {
       pending.current = null; setHandoff(null); setNotice(value.message);
@@ -90,7 +93,7 @@ export default function MobileApp() {
     <Text style={styles.brand}>Kufi</Text>
     <Text style={styles.heading}>Robotuna bağlan</Text>
     <Text style={styles.help}>Telefonunu Kufi ile aynı Wi-Fi ağına bağla. Robot bulunduğunda arayüz otomatik açılır.</Text>
-    {!robots.length && <View style={styles.search}><ActivityIndicator color="#8bb1ff"/><Text style={styles.text}>Kufi aranıyor…</Text></View>}
+    {!robots.length && <View style={styles.search}><ActivityIndicator color="#8bb1ff"/><Text style={styles.text}>{error ? 'Bağlantı bekleniyor…' : 'Kufi aranıyor…'}</Text></View>}
     {robots.map(robot => <Pressable key={robotURL(robot)} style={styles.robot} onPress={() => choose(robot)}>
       <Text style={styles.robotName}>{robot.name}</Text><Text selectable style={styles.help}>{robotURL(robot)}</Text>
     </Pressable>)}

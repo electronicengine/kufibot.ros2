@@ -52,7 +52,7 @@ export function initNetworkHandoff({fetcher = fetch, navigate = url => location.
       const open = $('device-handoff-open');
       open.href = '#connection'; open.textContent = 'Telefonun Wi-Fi ayarlarını aç';
       open.onclick = event => { event.preventDefault(); postNative('wifi'); };
-      postNative('networkHandoff', {robot_id:value.robot_id, handoff:value.handoff, ssid, started:pending.started});
+      postNative('networkHandoff', {robot_id:value.robot_id, handoff:value.handoff, ssid, started:pending.started, target:value.target});
       try { sessionStorage.setItem(key, JSON.stringify(pending)); } catch {}
       return;
     }

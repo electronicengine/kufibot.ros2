@@ -186,3 +186,74 @@ def test_port_80_bridge_preserves_http_host_and_websocket_stream():
         finally:
             bridge.close();backend.close();await bridge.wait_closed();await backend.wait_closed()
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('activation_state', [2, 4])
+def test_reset_forgets_only_current_ssid_after_hotspot_is_ready(tmp_path, monkeypatch, activation_state):
+    configuration = tmp_path / 'network.json'
+    configuration.write_text(json.dumps(config()))
+    monkeypatch.setattr(nm, 'HOTSPOT_CONFIG', configuration)
+    monkeypatch.setattr(service.Monitor, 'ensure_profile', lambda *_: '/setup')
+    manager = nm.NetworkManager.__new__(nm.NetworkManager)
+    manager.manager = Mock()
+    manager.manager.ActivateConnection.return_value = '/setup-active'
+    manager.manager.CheckpointCreate.return_value = '/checkpoint'
+    manager.wifi = lambda: ('/device', {'Interface':'wlan0', 'ActiveConnection':'/station-active'})
+    manager.props = lambda path, _: {'Connection':'/home'} if path == '/station-active' else {'State':activation_state}
+    manager.profiles = lambda: [('/home', b'Home', 'wpa-psk', 1), ('/home-copy', b'Home', 'wpa-psk', 2),
+                               ('/office', b'Office', 'wpa-psk', 0)]
+    manager.addresses = lambda _: [service.GATEWAY]
+    profiles = {path: Mock() for path in ['/home', '/home-copy', '/office']}
+    manager.interface = lambda path, _: profiles[path]
+    if activation_state == 2:
+        result = manager.reset()
+        assert result['state'] == 'setup' and result['ssid'] == config()['ssid']
+        profiles['/home'].Delete.assert_called_once()
+        profiles['/home-copy'].Delete.assert_called_once()
+        manager.manager.CheckpointDestroy.assert_called_once_with('/checkpoint')
+        manager.manager.CheckpointRollback.assert_not_called()
+    else:
+        with pytest.raises(RuntimeError):
+            manager.reset()
+        for profile in profiles.values():
+            profile.Delete.assert_not_called()
+        manager.manager.CheckpointRollback.assert_called_once_with('/checkpoint')
+    profiles['/office'].Delete.assert_not_called()
+
+
+def test_reset_api_owner_busy_disconnect_and_setup_identity(monkeypatch):
+    setup = dict(installed=True, active=False, station_connected=True, ssid='kufi', robot_id='robot-id')
+    monkeypatch.setattr(devices, 'setup_info', lambda: setup)
+    helper = AsyncMock(return_value=dict(state='setup', message='Kurulum ağı açık'))
+    monkeypatch.setattr(devices, 'network_request', helper)
+    async def run():
+        server = Server(Control(), lambda: {})
+        async with TestClient(TestServer(server.app)) as client:
+            try:
+                path = '/api/device-settings/network/reset'
+                assert (await client.post(path, json={})).status == 403
+                owner = object(); server.control.owner = owner
+                headers = {'Authorization':'Bearer ' + server.workflow_api.token(owner)}
+                assert (await client.post(path, json={}, headers={**headers, 'Origin':'https://other.example'})).status == 403
+                setup['installed'] = False
+                assert (await client.post(path, json={}, headers=headers)).status == 503
+                setup['installed'] = True
+                response = await client.post(path, json={}, headers=headers)
+                assert response.status == 202
+                value = await response.json()
+                assert value['target'] == 'setup' and value['ssid'] == 'kufi'
+                identity = '/api/network-identity?handoff=' + value['handoff']
+                assert not (await (await client.get(identity)).json())['connected']
+                assert (await client.post(path, json={}, headers=headers)).status == 409
+                assert (await client.post('/api/device-settings/network/connect', json={'ssid':'Other'}, headers=headers)).status == 409
+                assert (await client.post('/api/device-settings/network/scan', json={}, headers=headers)).status == 409
+                server.control.owner = None
+                await server.device_settings.network_task
+                helper.assert_awaited_once_with({'action':'reset'})
+                assert not (await (await client.get(identity)).json())['connected']
+                setup.update(active=True, station_connected=False)
+                assert (await (await client.get(identity)).json())['connected']
+            finally:
+                server.control.owner = None
+                await server.close()
+    asyncio.run(run())

@@ -278,3 +278,42 @@ test('web view keeps the shared robot page local and suspends the controller whe
     assert.ok(scripts.at(-1).includes('kufibot-native-back'));
   }finally{if(root)await act(async()=>root.unmount());}
 });
+
+test('reset handoff waits for the same robot setup AP instead of the old station', () => {
+  const reset = {...pending, target: 'setup'};
+  assert.equal(handoffCandidate(reset, original, 1100), true);
+  assert.equal(handoffCandidate(reset, moved, 1100), false);
+  assert.equal(handoffCandidate(reset, {...original, robotId: 'another-robot'}, 1100), false);
+  assert.equal(handoffCandidate(reset, {...original, stationConnected: true}, 1100), false);
+  assert.equal(handoffCandidate(reset, original, 901001), false);
+  const {parseNativeMessage} = load('web-bridge');
+  const message = JSON.stringify({type: 'kufibotNative', version: 1, action: 'networkHandoff',
+    robot_id: 'robot-a', handoff: 'reset-ticket-12345678', ssid: 'kufi', target: 'setup'});
+  assert.equal(parseNativeMessage(message, robotURL(moved), moved, 1000).handoff.target, 'setup');
+  assert.equal(parseNativeMessage(message, 'http://other.example/', moved), null);
+});
+
+test('discovery reports unanswered probes and clears its warning when a robot replies', async () => {
+  let listener, result = [];
+  const state = {currentState: 'active', addEventListener: (_, fn) => {
+    listener = fn; return {remove() {}};
+  }};
+  const native = {scan: async () => result};
+  const {discover} = load('discovery', {
+    'react-native': {AppState: state}, expo: {requireNativeModule: () => native},
+  });
+  const errors = [], robots = [];
+  const dispose = discover(found => robots.push(found), error => errors.push(error));
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(errors.length, 0);
+    listener('active');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(errors[0], /yanıt vermiyor/);
+    result = [moved];
+    listener('active');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(errors.at(-1), '');
+    assert.deepEqual(robots.at(-1), [moved]);
+  } finally { dispose(); }
+});

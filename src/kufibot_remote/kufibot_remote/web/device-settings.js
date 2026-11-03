@@ -8,7 +8,7 @@ export function initDeviceSettings(link) {
   let active = false, timer, audioLoaded = false, audioBusy = false, audioDirty = false;
   let networkBusy = false, scanning = false, loadingNetwork = false, selected = null;
   let saved = {}, networks = [], networkJob = 'idle', accepted = false;
-  let hotspotSecured = true;
+  let hotspotSecured = true, setupInstalled = false, resetSSID = null;
   const owner = () => Boolean(link.active && link.state?.owner && link.state?.workflowToken);
   const message = (id, text, error = false) => {
     $(id).textContent = text;
@@ -36,6 +36,7 @@ export function initDeviceSettings(link) {
     for (const id of ['device-microphone', 'device-speaker']) $(id).disabled = !editable || audioBusy || !audioLoaded;
     $('device-audio-save').disabled = !editable || audioBusy || !audioLoaded || !audioDirty;
     $('device-audio-refresh').disabled = audioBusy;
+    for (const id of ['device-network-reset', 'device-network-reset-confirm']) $(id).disabled = !editable || networkBusy || scanning || !setupInstalled;
     $('device-network-scan').disabled = !editable || scanning || networkBusy;
     $('device-network-connect').disabled = !editable || networkBusy || scanning || !selected?.supported || selected?.connected;
     $('device-network-password').disabled = !editable || networkBusy;
@@ -131,7 +132,9 @@ export function initDeviceSettings(link) {
     networks = data.networks || [];
     const current = networks.find(item => item.connected);
     const setup = data.hotspot || {};
+    $('device-network-addresses').textContent = (data.addresses?.length ? data.addresses : setup.addresses?.length ? setup.addresses : [location.hostname]).join(' · ');
     hotspotSecured = setup.secured !== false;
+    setupInstalled = Boolean(setup.installed);
     $('device-hotspot-active').hidden = !setup.active;
     $('device-hotspot-info').hidden = !setup.installed;
     if (setup.active && !selected) $('device-network-manual').open = true;
@@ -154,9 +157,9 @@ export function initDeviceSettings(link) {
       $('device-network-local').textContent = `${url.host} ↗`;
     }
     const status = data.status || {};
-    networkJob = status.state || 'idle'; networkBusy = networkJob === 'connecting';
+    networkJob = status.state || 'idle'; networkBusy = ['connecting', 'resetting'].includes(networkJob);
     if (status.message) message('device-network-status', status.message, networkJob === 'error');
-    if (networkJob === 'connected' || networkJob === 'error') accepted = false;
+    if (['connected', 'setup', 'error'].includes(networkJob)) accepted = false;
     if (networkJob === 'error') handoff.stop(status.message || 'Wi-Fi bağlantısı kurulamadı.');
     // AP paths can change after a scan; keep the user's SSID selection.
     if (selected && !selected.manual) {
@@ -174,13 +177,15 @@ export function initDeviceSettings(link) {
       applyNetwork(await request(scan ? 'network/scan' : 'network', scan ? {} : undefined));
       if (scan && networkJob === 'idle') message('device-network-status', `${networks.length} ağ bulundu.`);
     } catch (error) {
-      if (accepted) message('device-network-status', 'Ağ değişirken bağlantı kesildi. Cihazınızı seçtiğiniz ağa bağlayın; robot sabit yerel adresinden aranıyor.');
+      if (accepted && resetSSID) message('device-network-status', `Telefonunuzu “${resetSSID}” ağına bağlayıp uygulamaya dönün. Buradan yeni bir ağ seçebilirsiniz.`);
+      else if (accepted) message('device-network-status', 'Ağ değişirken bağlantı kesildi. Cihazınızı seçtiğiniz ağa bağlayın; robot sabit yerel adresinden aranıyor.');
       else message('device-network-status', error.message, true);
     } finally { loadingNetwork = false; scanning = false; renderControls(); }
   }
   async function connectNetwork(event) {
     event.preventDefault();
     if (!owner() || networkBusy || !selected?.supported || selected.connected) return;
+    resetSSID = null;
     networkBusy = true; renderControls();
     message('device-network-status', 'Bağlantı isteği gönderiliyor…');
     const password = $('device-network-password').value;
@@ -195,6 +200,26 @@ export function initDeviceSettings(link) {
     } catch (error) { networkBusy = false; message('device-network-status', error.message, true); }
     renderControls();
   }
+  $('device-network-reset').addEventListener('click', () => {
+    if (owner() && !networkBusy && !scanning && setupInstalled) $('device-network-reset-confirmation').hidden = false;
+  });
+  $('device-network-reset-cancel').addEventListener('click', () => { $('device-network-reset-confirmation').hidden = true; });
+  $('device-network-reset-confirm').addEventListener('click', async () => {
+    if (!owner() || networkBusy || scanning || !setupInstalled) return;
+    networkBusy = true; renderControls();
+    $('device-network-reset-confirmation').hidden = true;
+    $('device-network-password').value = '';
+    message('device-network-status', 'Wi-Fi sıfırlama isteği gönderiliyor…');
+    try {
+      const status = await request('network/reset', {});
+      handoff.stop();
+      resetSSID = status.ssid; accepted = true; networkJob = status.state;
+      selected = null; $('device-network-form').hidden = true;
+      handoff.start(status, status.ssid);
+      message('device-network-status', `Telefonunuzu “${status.ssid}” ağına bağlayın. Ardından yeni bir Wi-Fi ağı seçebilirsiniz.`);
+    } catch (error) { networkBusy = false; message('device-network-status', error.message, true); }
+    renderControls();
+  });
   $('device-audio-refresh').addEventListener('click', loadAudio);
   $('device-audio-save').addEventListener('click', saveAudio);
   for (const id of ['device-microphone', 'device-speaker']) $(id).addEventListener('change', updateDirty);

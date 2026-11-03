@@ -33,6 +33,7 @@ export function parseNativeMessage(raw: string, source: string, robot: Robot,
         typeof value.ssid === 'string' && value.ssid.length > 0 && value.ssid.length <= 32) {
       return {action: 'networkHandoff', handoff: {
         robotId: value.robot_id, ticket: value.handoff, ssid: value.ssid, started: now,
+        ...(value.target === 'setup' ? {target: 'setup' as const} : {}),
       }};
     }
   } catch { /* Malformed page messages never invoke native actions. */ }

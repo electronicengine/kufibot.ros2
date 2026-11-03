@@ -220,6 +220,7 @@
         <section class="device-section" aria-labelledby="device-network-title">
           <div class="device-heading"><div><h3 id="device-network-title">Wi-Fi ağı</h3><p>Robotun bağlanacağı ağı seçin.</p></div><button id="device-network-scan" class="device-quiet" disabled>Ağları tara</button></div>
           <div id="device-network-current" class="device-network-current">Ağ bilgisi yükleniyor…</div>
+          <p class="device-help">Robot IP adresi: <strong id="device-network-addresses">Okunuyor…</strong></p>
           <div id="device-hotspot-active" class="device-setup-notice" hidden><strong>Robotun kurulum ağına bağlısınız.</strong><p>Bu ağ internet sağlamaz. Aşağıdan robotun bağlanacağı Wi-Fi ağını seçin veya ağ adını elle girin.</p></div>
           <div id="device-network-list" class="device-network-list" role="group" aria-label="Kullanılabilir Wi-Fi ağları"></div>
           <details id="device-network-manual" class="device-manual"><summary>Ağ adını elle gir</summary><form id="device-network-manual-form"><label for="device-network-ssid">Ağ adı (SSID)</label><input id="device-network-ssid" maxlength="32" autocomplete="off" placeholder="Wi-Fi ağınızın adı" required><label for="device-network-security">Güvenlik</label><select id="device-network-security"><option value="wpa-psk">WPA / WPA2</option><option value="sae">WPA3</option><option value="open">Parolasız ağ</option></select><button class="device-quiet" id="device-network-manual-select" type="submit">Bu ağı seç</button></form></details>
@@ -229,6 +230,13 @@
             <p id="device-network-connect-help" class="device-help">Bağlan dedikten sonra telefonunuzu veya bilgisayarınızı da seçtiğiniz ağa bağlayın. Robot sabit yerel adresinden yeniden aranır. Bağlantı kurulamazsa önceki bağlantı geri yüklenir; erişilebilir bir ağ yoksa kurulum ağı açılır.</p>
             <div class="device-actions"><a id="device-network-local" class="device-local-link"></a><button id="device-network-connect" class="device-primary" type="submit" disabled>Bu ağa bağlan</button></div>
           </form>
+          <div class="device-manual">
+            <button id="device-network-reset" class="device-quiet" type="button" disabled>Wi-Fi’yi sıfırla</button>
+            <div id="device-network-reset-confirmation" class="device-setup-notice" hidden>
+              <p>Robot bağlı olduğu Wi-Fi ağını unutup kendi kurulum ağını açacak. Bağlantınız kesilecek. Telefonunuzu robotun kurulum ağına bağlayarak başka bir ağ seçebilirsiniz.</p>
+              <div class="device-actions"><button id="device-network-reset-cancel" class="device-quiet" type="button">Vazgeç</button><button id="device-network-reset-confirm" class="device-primary" type="button">Ağı unut ve kurulum ağını aç</button></div>
+            </div>
+          </div>
           <p id="device-network-status" class="device-status" role="status" aria-live="polite"></p>
           <section id="device-network-handoff" class="device-setup-notice" hidden aria-labelledby="device-handoff-title"><strong id="device-handoff-title">Yeni ağa geçiliyor</strong><p id="device-handoff-message" role="status"></p><a id="device-handoff-open" class="device-local-link">Robotu yeni ağda aç</a><p class="device-help">Otomatik açılmazsa bu bağlantıya dokunun. Bağlantı kurulamazsa robotun kurulum ağına yeniden bağlanın.</p></section>
           <details id="device-hotspot-info" class="device-manual" hidden><summary>Robotun kurulum ağı</summary><p class="device-help">Robot 45 saniye içinde bir Wi-Fi ağına bağlanamazsa kurulum ağını açar. Telefonunuz ağ giriş sayfasını açabilir; açılmazsa kurulum adresini kullanın.</p><dl class="device-hotspot-values"><dt>Ağ adı</dt><dd id="device-hotspot-ssid"></dd><dt>Güvenlik</dt><dd id="device-hotspot-security"></dd><dt>Kurulum adresi</dt><dd><a id="device-hotspot-url" class="device-local-link"></a></dd><dt>Sabit yerel adres</dt><dd><a id="device-hotspot-local" class="device-local-link"></a></dd></dl><button id="device-hotspot-password-show" class="device-quiet" type="button">Kurulum ağı parolasını göster</button><output id="device-hotspot-password" hidden></output></details>
