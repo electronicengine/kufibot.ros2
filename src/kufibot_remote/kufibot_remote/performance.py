@@ -8,8 +8,9 @@ from .speech_process import SpeechProcess
 
 
 class PerformancePlayer:
-    def __init__(self, control):
+    def __init__(self, control, before_play=None):
         self.control = control
+        self.before_play = before_play
         self.task = None
         self.speech = SpeechProcess()
         self.warm_task = None
@@ -76,7 +77,13 @@ class PerformancePlayer:
         self.status = dict(state='preparing', text=text, mimic_id=mimic_id,
                            name=motion['name'] if motion else '', error='', request_id=request_id)
         self.started_at = time.monotonic()
+        self.control.performance_active = True
         self.task = asyncio.create_task(self._run(owner, self.control.mode_epoch, text, voice, motion))
+        self.task.add_done_callback(self._finished)
+
+    def _finished(self, task):
+        if task is self.task:
+            self.control.performance_active = False
 
     async def speech_config(self, voice):
         available, settings = await asyncio.gather(
@@ -128,6 +135,11 @@ class PerformancePlayer:
 
         try:
             async with asyncio.timeout(180):
+                if self.before_play:
+                    # Finish shutting down every encoder before starting TTS
+                    # or moving servos, including for mimic-only playback.
+                    await self.before_play()
+                self.check(owner, epoch)
                 if text:
                     config = await self.speech_config(voice)
                     self.check(owner, epoch)
@@ -165,3 +177,5 @@ class PerformancePlayer:
             await asyncio.gather(self.task, return_exceptions=True)
             self.status['state'] = 'stopped'
         await self.speech.close()
+        # A task cancelled before its first step never enters _run's finally.
+        self.control.performance_active = False

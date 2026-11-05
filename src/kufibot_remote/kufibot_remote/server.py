@@ -36,7 +36,7 @@ class Server:
         self.mimics = control.mimic_store or default_store()
         control.mimic_store = self.mimics
         from .performance import PerformancePlayer
-        self.performance = PerformancePlayer(control)
+        self.performance = PerformancePlayer(control, before_play=self._close_video_peers)
         self.clients = set()
         self.peers = set()
         self.https_port = None
@@ -68,7 +68,8 @@ class Server:
 
     def video_paused(self, status=None):
         status = self.status() if status is None else status
-        return bool(status.get('videoPaused') or voice_video_paused(status.get('voiceStatus')))
+        return bool(status.get('videoPaused') or self.control.performance_video_paused
+                    or voice_video_paused(status.get('voiceStatus')))
 
     async def _close_video_peers(self):
         peers = list(self.peers)

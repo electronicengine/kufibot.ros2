@@ -34,6 +34,10 @@ def test_shared_mobile_ui_and_native_network_handoff(tmp_path, monkeypatch):
         calls.append(value)
         if value['action'] == 'connect':
             return dict(state='connected', message='Bağlandı', ssid=value.get('ssid'))
+        if value['action'] == 'reset':
+            setup.update(active=True, station_connected=False)
+            (runtime / 'status.json').write_text(json.dumps(setup))
+            return dict(state='setup', message='Kurulum ağı açık', ssid=setup['ssid'])
         return dict(networks=[], addresses=['192.168.1.12'], hotspot=setup)
 
     monkeypatch.setattr(devices, 'network_request', network)
@@ -107,6 +111,31 @@ def test_shared_mobile_ui_and_native_network_handoff(tmp_path, monkeypatch):
                         await page.set_viewport_size({'width': width, 'height': height})
                         assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
                         await page.screenshot(path=f'/tmp/kufibot-shared-app-{width}.png')
+                    # Reset uses the same native handoff, targeting the setup AP.
+                    await playwright.expect(page.locator('#device-network-reset')).to_be_enabled()
+                    await page.locator('#device-network-reset').click()
+                    await page.locator('#device-network-reset-cancel').click()
+                    assert not any(value['action'] == 'reset' for value in calls)
+                    await page.locator('#device-network-reset').click()
+                    await page.locator('#device-network-reset-confirm').click()
+                    await page.wait_for_function("window.nativeMessages.some(value=>value.action==='networkHandoff' && value.target==='setup')")
+                    reset = await page.evaluate("window.nativeMessages.find(value=>value.action==='networkHandoff' && value.target==='setup')")
+                    assert reset['robot_id'] == handoff['robot_id']
+                    assert reset['ssid'] == 'kufi' and reset['handoff'] != handoff['handoff']
+                    await playwright.expect(page.locator('#device-network-form')).to_be_hidden()
+                    await playwright.expect(page.locator('#device-network-local')).to_be_hidden()
+                    await page.locator('#device-handoff-open').click()
+                    assert await page.evaluate("window.nativeMessages.filter(value=>value.action==='wifi').length") == 2
+                    # Releasing the controller while switching Wi-Fi must not
+                    # cancel the accepted reset or prevent ticket verification.
+                    control.owner = None
+                    await server.device_settings.network_task
+                    assert sum(value['action'] == 'reset' for value in calls) == 1
+                    response = await page.request.get(f'http://127.0.0.1:{port}/api/network-identity?handoff=' + reset['handoff'])
+                    identity = await response.json()
+                    assert identity['robot_id'] == reset['robot_id'] and identity['connected']
+                    response = await page.request.get(f'http://127.0.0.1:{port}/api/network-identity?handoff=' + handoff['handoff'])
+                    assert response.status == 404
                     assert errors == []
                 finally:
                     await browser.close()

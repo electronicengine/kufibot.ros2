@@ -123,7 +123,9 @@ function camera() {
   $('camera-placeholder').hidden = live;
   $('live-dot').classList.toggle('active', live);
   $('camera-message').textContent = link.state?.videoPaused
-    ? 'Sesli oturum açık: canlı yayın duraklatıldı. Kamera analizi ve yüz/el takibi sürüyor.'
+    ? ['preparing', 'playing'].includes(link.state?.performance?.state)
+      ? 'Mimik/konuşma oynatılıyor: canlı yayın duraklatıldı. Bitince otomatik açılacak.'
+      : 'Sesli oturum açık: canlı yayın duraklatıldı. Kamera analizi ve yüz/el takibi sürüyor.'
     : link.state ? 'Kamera görüntüsü bekleniyor' : 'Robot bağlantısı bekleniyor';
 }
 

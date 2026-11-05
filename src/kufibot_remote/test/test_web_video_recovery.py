@@ -120,6 +120,27 @@ def test_video_recovers_without_replacing_control_or_stopping_ai(monkeypatch, tm
                     await playwright.expect(camera).to_be_visible(timeout=15000)
                     assert offers == paused_offers + 1
                     assert control.owner is owner and control.mode == 'ai'
+
+                    control.mode = 'tools'
+                    motion = next(iter(control.mimic_store.all().values()))
+                    server.performance.start(owner, dict(mimic_id=motion['id'], revision=motion['revision']))
+                    await playwright.expect(camera).to_be_hidden()
+                    await playwright.expect(page.locator('#camera-message')).to_contain_text('Mimik/konuşma')
+                    assert not server.peers
+                    paused_offers = offers
+                    viewer = await browser.new_page(viewport={'width': 390, 'height': 844})
+                    await viewer.goto(f'http://127.0.0.1:{port}')
+                    await playwright.expect(viewer.locator('#camera-message')).to_contain_text('Mimik/konuşma')
+                    assert offers == paused_offers
+                    await viewer.close()
+                    # Complete the motion; both browser and mobile use this
+                    # same automatic resume path without replacing control.
+                    control.mimic_started -= motion['duration_ms'] / 1000 + 1
+                    control.tick(.05, {})
+                    await asyncio.wait_for(server.performance.task, 1)
+                    await playwright.expect(camera).to_be_visible(timeout=15000)
+                    assert offers == paused_offers + 1
+                    assert control.owner is owner and control.mode == 'tools'
                     assert errors == []
                 finally:
                     await browser.close()

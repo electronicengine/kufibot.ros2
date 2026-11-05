@@ -395,7 +395,8 @@ class RemoteController(Node):
 
     def _video_image(self, msg):
         now = time.monotonic()
-        paused = voice_video_paused(getattr(self, 'voice_status', None))
+        paused = (self.control.performance_video_paused
+                  or voice_video_paused(getattr(self, 'voice_status', None)))
         # Keep fresh workflow/tool snapshots at 5 Hz without preparing every
         # LAN video frame. The shared ROS stream and perception stay active.
         if paused and now - self.video_frame_time < 0.2:
@@ -427,7 +428,8 @@ class RemoteController(Node):
                 'driveLimits': getattr(self, 'drive_limits', None) if now-getattr(self, 'drive_limits_at', 0) < 2 else None,
                 'version': 1, 'mode': self.control.mode, 'appliedMode': applied,
                 'camera': now - self.video_frame_time < 2,
-                'videoPaused': voice_video_paused(getattr(self, 'voice_status', None)),
+                'videoPaused': (self.control.performance_video_paused
+                                or voice_video_paused(getattr(self, 'voice_status', None))),
                 'driveAvailable': bool(navigation and navigation.get('motor_available')),
                 'joints': self.current,
                 'servoMotion': getattr(self, 'servo_motion', {**motion_profile(), 'source':'defaults'}),

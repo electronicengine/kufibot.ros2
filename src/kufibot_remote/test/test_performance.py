@@ -28,6 +28,7 @@ def test_tools_expression_updates_servos_without_driving(tmp_path):
     async def run():
         performance, clock, command = player(tmp_path)
         performance.start('owner', command)
+        assert performance.control.performance_video_paused
         await asyncio.sleep(0)
         clock[0] += .5
         assert performance.control.tick(.05, NEUTRAL_ANGLES) == (0., 0.)
@@ -37,6 +38,7 @@ def test_tools_expression_updates_servos_without_driving(tmp_path):
         await asyncio.wait_for(performance.task, 1)
         assert performance.status['state'] == 'completed'
         assert performance.control.targets['rightArm'] == 65
+        assert not performance.control.performance_video_paused
     asyncio.run(run())
 
 
@@ -51,6 +53,7 @@ def test_expression_requires_owner_tools_mode_and_current_revision(tmp_path):
         with pytest.raises(ValueError):
             performance.start('owner', command)
         assert performance.task is None
+        assert not performance.control.performance_video_paused
     asyncio.run(run())
 
 
@@ -61,6 +64,7 @@ def test_stop_before_start_and_disconnect_cancel_pending_motion(tmp_path):
         await performance.stop()
         assert performance.control.active_mimic is None
         assert performance.status['state'] == 'stopped'
+        assert not performance.control.performance_video_paused
         performance.start('owner', command)
         await asyncio.sleep(0)
         assert performance.control.active_mimic is not None
@@ -68,6 +72,7 @@ def test_stop_before_start_and_disconnect_cancel_pending_motion(tmp_path):
         await asyncio.wait_for(performance.task, 1)
         assert performance.status['state'] == 'stopped'
         assert performance.control.active_mimic is None
+        assert not performance.control.performance_video_paused
     asyncio.run(run())
 
 
@@ -83,6 +88,7 @@ def test_speech_uses_exact_text_and_starts_mimic_on_first_audio(tmp_path):
         performance.start('owner', {**command, 'text': 'Tam olarak bunu söyle.', 'voice': 'fettah'})
         await asyncio.wait_for(started.wait(), 1)
         assert performance.control.active_mimic is None
+        assert performance.control.performance_video_paused  # TTS is still preparing.
         args = performance.speech.speak.call_args.args
         assert args[1] == 'Tam olarak bunu söyle.'
         on_event = args[2]
@@ -93,12 +99,71 @@ def test_speech_uses_exact_text_and_starts_mimic_on_first_audio(tmp_path):
         on_event({'type': 'speaking', 'value': False})
         assert not performance.control.performance_speaking
         assert performance.control.active_mimic is not None
+        assert performance.control.performance_video_paused  # Motion outlasts speech.
         done.set()
         clock[0] += 1
         performance.control.tick(.05, NEUTRAL_ANGLES)
         await asyncio.wait_for(performance.task, 1)
         assert performance.status['state'] == 'completed'
         assert not performance.control.performance_speaking
+        assert not performance.control.performance_video_paused
+    asyncio.run(run())
+
+
+def test_video_peers_close_before_mimic_starts_and_offers_wait_until_complete(tmp_path):
+    async def run():
+        performance, clock, command = player(tmp_path)
+        server = Server(performance.control, lambda: {}, Mock())
+        performance = server.performance
+        closing, closed = asyncio.Event(), asyncio.Event()
+
+        async def close():
+            assert performance.control.active_mimic is None
+            closing.set()
+            await closed.wait()
+
+        peer = Mock(close=AsyncMock(side_effect=close))
+        # Start without the background monitor to verify the playback gate itself.
+        server.peers.add(peer)
+        performance.start('owner', command)
+        await asyncio.wait_for(closing.wait(), 1)
+        assert server.video_paused()
+        assert performance.control.active_mimic is None
+        closed.set()
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if performance.control.active_mimic is not None:
+                break
+        assert performance.control.active_mimic is not None
+        assert not server.peers
+        peer.close.assert_awaited_once()
+        async with TestClient(TestServer(server.app)) as client:
+            assert (await client.post('/offer', json={})).status == 503
+            server.video_track.assert_not_called()
+            clock[0] += 1
+            performance.control.tick(.05, NEUTRAL_ANGLES)
+            await asyncio.wait_for(performance.task, 1)
+            assert not server.video_paused()
+            assert (await client.post('/offer', json={})).status == 400
+        await server.close()
+    asyncio.run(run())
+
+
+def test_playback_error_resumes_video_without_releasing_voice_pause(tmp_path):
+    async def run():
+        performance, _, _ = player(tmp_path)
+        state = {'voiceStatus': {'active': True}}
+        server = Server(performance.control, lambda: state)
+        performance = server.performance
+        performance.speech_config = AsyncMock(side_effect=ValueError('Ses açılamadı'))
+        performance.start('owner', {'text': 'Merhaba'})
+        await asyncio.wait_for(performance.task, 1)
+        assert performance.status['state'] == 'error'
+        assert not performance.control.performance_video_paused
+        assert server.video_paused()
+        state['voiceStatus'] = {'active': False, 'state': 'idle'}
+        assert not server.video_paused()
+        await server.close()
     asyncio.run(run())
 
 
@@ -200,6 +265,7 @@ def test_mimic_only_does_not_wait_for_voice_warmup(tmp_path):
 
 
 def test_playback_does_not_require_microphone_or_accept_disconnected_bluetooth(tmp_path, monkeypatch):
+    monkeypatch.setenv('KUFIBOT_DEVICE_SETTINGS', str(tmp_path / 'devices.json'))
     async def run():
         performance, _, _ = player(tmp_path)
         monkeypatch.setenv('SPEAKER_ALSA_DEVICE', 'pulse:kufibot_aec_sink')

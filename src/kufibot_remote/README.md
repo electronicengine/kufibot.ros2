@@ -256,6 +256,18 @@ seçilen ağa bağlayıp `robot.local:8080` veya robotun yeni IP’sini açın.
 Yeni kurumsal/WEP ağ profilleri bu arayüzden oluşturulmaz; hazır profiller
 kullanılabilir. Geri dönüş, ağın hâlâ erişilebilir olmasına bağlıdır.
 
+**Wi-Fi’yi sıfırla → Ağı unut ve kurulum ağını aç** robotun bağlı olduğu Wi-Fi
+kaydını ve aynı SSID'ye ait kopyalarını silip **kufi** kurulum ağını açar.
+Diğer kayıtlı ağlar, ses ayarları ve robot kimliği korunur. Kurulum ağı açılmadan
+Wi-Fi kaydı silinmez; başarısızlıkta önceki bağlantıya dönüş denenir.
+İşlem `POST /api/device-settings/network/reset` üzerinden yalnızca kumanda
+sahibi tarafından başlatılır. Bağlantı kopsa da devam eder; mobil uygulama
+kısa ömürlü geçiş anahtarıyla aynı robotu kurulum ağında doğrular.
+Telefonu **kufi** ağına geçirip uygulamaya dönerek yeni Wi-Fi ağını seçin.
+Robot tarafında güncellemeyi etkinleştirmek için
+`sudo /usr/bin/python3 tools/install_network_service.py` ve
+`sudo systemctl restart ros2_kufibot.service` çalıştırın.
+
 ### Bağlantısız açılış, kurulum hotspotu ve robotun yeni adresi
 
 Robot üzerinde `python3-dbus`, NetworkManager, `dnsmasq` ve `avahi-daemon`

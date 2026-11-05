@@ -30,6 +30,7 @@ class Control:
         self.targets = {}
         self.mimic_store = None
         self.active_mimic = None
+        self.performance_active = False
         self.performance_speaking = False
         self.mimic_status = {"state": "idle", "id": None, "elapsed_ms": 0, "error": None}
         self.motion_events = deque(maxlen=128)
@@ -44,6 +45,12 @@ class Control:
         self.navigation_provider = None
         self.navigation_ready = False
         self.navigation_reason = 'not_enabled'
+
+    @property
+    def performance_video_paused(self):
+        """Keep LAN encoding idle throughout tools playback and preparation."""
+        return self.performance_active or (self.mode == 'tools' and (
+            self.performance_speaking or self.active_mimic is not None))
 
     def voice_mode(self, request):
         """Compare-and-set automatic handoff; manual commands invalidate requests."""

@@ -104,6 +104,31 @@ def test_voice_session_pauses_video_but_keeps_fresh_tool_frames(monkeypatch):
     assert np.all(node.video_frame == 9)
 
 
+def test_tools_playback_throttles_video_preparation_and_keeps_tool_snapshots(monkeypatch):
+    node = bridge()
+    now = [time.monotonic()]
+    monkeypatch.setattr('kufibot_remote.node.time.monotonic', lambda: now[0])
+    node.control.performance_active = True
+
+    def deliver(value):
+        frame = np.full((4, 4, 3), value, np.uint8)
+        node._video_image(Image(height=4, width=4, step=12,
+                               encoding='bgr8', data=frame.tobytes()))
+
+    deliver(1)
+    assert node.status()['videoPaused'] and node.status()['camera']
+    now[0] += .1
+    deliver(2)
+    assert np.all(node.video_frame == 1)
+    now[0] += .11
+    deliver(3)
+    assert np.all(node.video_frame == 3)
+    node.control.performance_active = False
+    deliver(4)
+    assert not node.status()['videoPaused']
+    assert np.all(node.video_frame == 4)
+
+
 def test_restarted_bridge_receives_retained_voice_session_state():
     from rclpy.context import Context
     from rclpy.executors import SingleThreadedExecutor
